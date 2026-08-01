@@ -1,0 +1,45 @@
+[tool.poetry]
+name = "knowledge-engine-ai"
+version = "0.1.0a1"
+description = "The judgment layer for Knowledge Engine: a Research Copilot orchestrating Retrieval/Evidence/Analytical/Discovery intelligences over core's validated evidence graph."
+authors = ["Knowledge Engine Contributors"]
+license = "MIT"
+readme = "README.md"
+packages = [{ include = "knowledge_engine_ai" }]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+typer = "^0.12.3"
+click = ">=8.0,<8.2"
+rich = "^13.9.4"
+
+[tool.poetry.group.dev.dependencies]
+mypy = "^2.1.0"
+pytest = "^9.1.1"
+ruff = "0.15.20"
+
+[tool.poetry.scripts]
+ke-ai = "knowledge_engine_ai.cli:app"
+
+[build-system]
+requires = ["poetry-core>=1.9.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

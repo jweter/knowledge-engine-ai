@@ -1,0 +1,111 @@
+name: Quality
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Python quality checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Poetry
+        run: python -m pip install poetry
+
+      - name: Install dependencies
+        run: poetry install
+
+      - name: Check formatting
+        id: formatting
+        continue-on-error: true
+        run: poetry run ruff format --check --diff . > ruff-format.diff
+
+      - name: Upload formatting diff
+        if: steps.formatting.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ruff-format-diff
+          path: ruff-format.diff
+
+      - name: Enforce formatting result
+        if: steps.formatting.outcome == 'failure'
+        run: |
+          cat ruff-format.diff
+          exit 1
+
+      - name: Lint
+        id: ruff
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          poetry run ruff check . 2>&1 | tee ruff.log
+
+      - name: Upload lint diagnostics
+        if: steps.ruff.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ruff-diagnostics
+          path: ruff.log
+
+      - name: Enforce lint result
+        if: steps.ruff.outcome == 'failure'
+        run: |
+          cat ruff.log
+          exit 1
+
+      - name: Type check
+        id: mypy
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          poetry run mypy knowledge_engine_ai tests 2>&1 | tee mypy.log
+
+      - name: Upload mypy diagnostics
+        if: steps.mypy.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mypy-diagnostics
+          path: mypy.log
+
+      - name: Enforce mypy result
+        if: steps.mypy.outcome == 'failure'
+        run: |
+          cat mypy.log
+          exit 1
+
+      - name: Test
+        id: pytest
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          poetry run pytest 2>&1 | tee pytest.log
+
+      - name: Upload pytest diagnostics
+        if: steps.pytest.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-diagnostics
+          path: pytest.log
+
+      - name: Enforce pytest result
+        if: steps.pytest.outcome == 'failure'
+        run: |
+          cat pytest.log
+          exit 1
+
+      - name: Check diff hygiene
+        run: git diff --check
