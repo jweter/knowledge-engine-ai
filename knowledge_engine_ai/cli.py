@@ -21,7 +21,7 @@ from rich.console import Console
 from rich.markup import escape
 
 from knowledge_engine_ai.ke_client import KeCommandError, enriched_evidence_report
-from knowledge_engine_ai.llm import LlamaCppLLM, LocalLLMError
+from knowledge_engine_ai.llm import DEFAULT_OLLAMA_HOST, LocalLLMError, OllamaLLM
 from knowledge_engine_ai.models import EvidenceReport
 from knowledge_engine_ai.synthesis import synthesize_answer
 
@@ -56,20 +56,28 @@ SynthesizeOption = Annotated[
     typer.Option(
         "--synthesize",
         help=(
-            "Have a local, offline LLM narrate the retrieved evidence into one grounded "
-            "paragraph, citing each evidence_record_id. Requires --llm-model or "
-            "KE_AI_LLM_MODEL_PATH. Off by default: real inference, not free."
+            "Have a local, offline LLM (served by Ollama) narrate the retrieved evidence into "
+            "one grounded paragraph, citing each evidence_record_id. Requires --llm-model or "
+            "KE_AI_LLM_MODEL. Off by default: real inference, not free."
         ),
     ),
 ]
 LlmModelOption = Annotated[
-    Path | None,
+    str | None,
     typer.Option(
         "--llm-model",
         help=(
-            "Path to a local GGUF model file for --synthesize. Falls back to "
-            "KE_AI_LLM_MODEL_PATH if not given."
+            "Ollama model name for --synthesize, e.g. 'qwen2.5:1.5b' or 'qwen3:8b' "
+            "(must already be pulled: `ollama pull <name>`). Falls back to KE_AI_LLM_MODEL "
+            "if not given."
         ),
+    ),
+]
+OllamaHostOption = Annotated[
+    str | None,
+    typer.Option(
+        "--ollama-host",
+        help=f"Ollama server URL. Falls back to KE_AI_OLLAMA_HOST, then {DEFAULT_OLLAMA_HOST}.",
     ),
 ]
 
@@ -83,6 +91,7 @@ def ask(
     output_format: FormatOption = "text",
     synthesize: SynthesizeOption = False,
     llm_model: LlmModelOption = None,
+    ollama_host: OllamaHostOption = None,
 ) -> None:
     """Retrieve ranked, source-linked evidence for a research question.
 
@@ -108,14 +117,13 @@ def ask(
 
     synthesis: str | None = None
     if synthesize:
-        model_path = llm_model or _llm_model_path_from_env()
-        if model_path is None:
-            console.print(
-                "[red]Error:[/red] --synthesize requires --llm-model or KE_AI_LLM_MODEL_PATH."
-            )
+        model = llm_model or os.environ.get("KE_AI_LLM_MODEL")
+        if model is None:
+            console.print("[red]Error:[/red] --synthesize requires --llm-model or KE_AI_LLM_MODEL.")
             raise typer.Exit(1)
+        host = ollama_host or os.environ.get("KE_AI_OLLAMA_HOST") or DEFAULT_OLLAMA_HOST
         try:
-            llm = LlamaCppLLM(model_path)
+            llm = OllamaLLM(model=model, host=host)
             synthesis = synthesize_answer(report, llm)
         except LocalLLMError as exc:
             console.print(f"[red]Error:[/red] {exc}")
@@ -143,11 +151,6 @@ def ask(
             # "[...]" citations -- escape it so Rich renders those brackets
             # verbatim instead of treating them as markup tags.
             console.print(escape(synthesis))
-
-
-def _llm_model_path_from_env() -> Path | None:
-    raw = os.environ.get("KE_AI_LLM_MODEL_PATH")
-    return Path(raw) if raw else None
 
 
 def _print_report(report: EvidenceReport) -> None:

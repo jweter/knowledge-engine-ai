@@ -317,18 +317,19 @@ def test_ask_format_json_prints_valid_structured_output(
 
 
 class _FakeLLM:
-    def __init__(self, model_path: Path) -> None:
-        self.model_path = model_path
+    def __init__(self, *, model: str, host: str) -> None:
+        self.model = model
+        self.host = host
 
     def generate(self, prompt: str, *, max_tokens: int = 400) -> str:
         assert "does semaglutide reduce lean mass" in prompt
         return "Semaglutide reduced lean mass [ev-1]."
 
 
-def test_ask_synthesize_requires_a_model_path(
+def test_ask_synthesize_requires_a_model_name(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.delenv("KE_AI_LLM_MODEL_PATH", raising=False)
+    monkeypatch.delenv("KE_AI_LLM_MODEL", raising=False)
     monkeypatch.setattr(cli, "enriched_evidence_report", lambda *args, **kwargs: _report(papers=[]))
     sources = tmp_path / "sources.csv"
     evidence = tmp_path / "evidence.jsonl"
@@ -349,7 +350,7 @@ def test_ask_synthesize_requires_a_model_path(
     )
 
     assert result.exit_code == 1
-    assert "--llm-model or KE_AI_LLM_MODEL_PATH" in _unwrapped(result.output)
+    assert "--llm-model or KE_AI_LLM_MODEL" in _unwrapped(result.output)
 
 
 def test_ask_synthesize_prints_the_grounded_narrative(
@@ -360,7 +361,7 @@ def test_ask_synthesize_prints_the_grounded_narrative(
         "enriched_evidence_report",
         lambda *args, **kwargs: _report(papers=[_paper_with_intelligence()]),
     )
-    monkeypatch.setattr(cli, "LlamaCppLLM", _FakeLLM)
+    monkeypatch.setattr(cli, "OllamaLLM", _FakeLLM)
     sources = tmp_path / "sources.csv"
     evidence = tmp_path / "evidence.jsonl"
     sources.write_text("")
@@ -377,7 +378,7 @@ def test_ask_synthesize_prints_the_grounded_narrative(
             str(evidence),
             "--synthesize",
             "--llm-model",
-            str(tmp_path / "model.gguf"),
+            "qwen2.5:1.5b",
         ],
     )
 
@@ -387,7 +388,7 @@ def test_ask_synthesize_prints_the_grounded_narrative(
     assert "Semaglutide reduced lean mass [ev-1]." in unwrapped
 
 
-def test_ask_synthesize_reads_the_model_path_from_env_var(
+def test_ask_synthesize_reads_the_model_name_from_env_var(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(
@@ -395,8 +396,8 @@ def test_ask_synthesize_reads_the_model_path_from_env_var(
         "enriched_evidence_report",
         lambda *args, **kwargs: _report(papers=[_paper_with_intelligence()]),
     )
-    monkeypatch.setattr(cli, "LlamaCppLLM", _FakeLLM)
-    monkeypatch.setenv("KE_AI_LLM_MODEL_PATH", str(tmp_path / "model.gguf"))
+    monkeypatch.setattr(cli, "OllamaLLM", _FakeLLM)
+    monkeypatch.setenv("KE_AI_LLM_MODEL", "qwen2.5:1.5b")
     sources = tmp_path / "sources.csv"
     evidence = tmp_path / "evidence.jsonl"
     sources.write_text("")
@@ -419,15 +420,24 @@ def test_ask_synthesize_reads_the_model_path_from_env_var(
     assert "AI-generated synthesis" in _unwrapped(result.output)
 
 
-def test_ask_synthesize_json_includes_the_synthesis_field(
+def test_ask_synthesize_passes_the_ollama_host_through(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    seen_hosts: list[str] = []
+
+    class _RecordingFakeLLM:
+        def __init__(self, *, model: str, host: str) -> None:
+            seen_hosts.append(host)
+
+        def generate(self, prompt: str, *, max_tokens: int = 400) -> str:
+            return "Semaglutide reduced lean mass [ev-1]."
+
     monkeypatch.setattr(
         cli,
         "enriched_evidence_report",
         lambda *args, **kwargs: _report(papers=[_paper_with_intelligence()]),
     )
-    monkeypatch.setattr(cli, "LlamaCppLLM", _FakeLLM)
+    monkeypatch.setattr(cli, "OllamaLLM", _RecordingFakeLLM)
     sources = tmp_path / "sources.csv"
     evidence = tmp_path / "evidence.jsonl"
     sources.write_text("")
@@ -444,7 +454,42 @@ def test_ask_synthesize_json_includes_the_synthesis_field(
             str(evidence),
             "--synthesize",
             "--llm-model",
-            str(tmp_path / "model.gguf"),
+            "qwen2.5:1.5b",
+            "--ollama-host",
+            "http://192.168.1.50:11434",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert seen_hosts == ["http://192.168.1.50:11434"]
+
+
+def test_ask_synthesize_json_includes_the_synthesis_field(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        cli,
+        "enriched_evidence_report",
+        lambda *args, **kwargs: _report(papers=[_paper_with_intelligence()]),
+    )
+    monkeypatch.setattr(cli, "OllamaLLM", _FakeLLM)
+    sources = tmp_path / "sources.csv"
+    evidence = tmp_path / "evidence.jsonl"
+    sources.write_text("")
+    evidence.write_text("")
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "ask",
+            "does semaglutide reduce lean mass",
+            "--sources",
+            str(sources),
+            "--evidence",
+            str(evidence),
+            "--synthesize",
+            "--llm-model",
+            "qwen2.5:1.5b",
             "--format",
             "json",
         ],
@@ -458,11 +503,11 @@ def test_ask_synthesize_json_includes_the_synthesis_field(
 def test_ask_without_synthesize_flag_never_touches_the_llm(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def _fail_if_constructed(model_path: Path) -> _FakeLLM:
-        raise AssertionError("LlamaCppLLM should not be constructed without --synthesize")
+    def _fail_if_constructed(*, model: str, host: str) -> _FakeLLM:
+        raise AssertionError("OllamaLLM should not be constructed without --synthesize")
 
     monkeypatch.setattr(cli, "enriched_evidence_report", lambda *args, **kwargs: _report(papers=[]))
-    monkeypatch.setattr(cli, "LlamaCppLLM", _fail_if_constructed)
+    monkeypatch.setattr(cli, "OllamaLLM", _fail_if_constructed)
     sources = tmp_path / "sources.csv"
     evidence = tmp_path / "evidence.jsonl"
     sources.write_text("")

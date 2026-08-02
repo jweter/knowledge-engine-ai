@@ -13,10 +13,11 @@ Early. `ke-ai ask` is Retrieval Intelligence over `core`'s corpus via
 `ke evidence-report --format json`, attaching each matched claim's
 Evidence Intelligence (Evidence Quality/Consensus/Claim Confidence/
 Coverage) via `ke evidence-intelligence --format json` where a graph
-claim exists. `--synthesize` (opt-in) has a local, offline LLM
-(`llama-cpp-python`, no API key) narrate that same evidence into one
-grounded paragraph, citing an `evidence_record_id` for every claim it
-states -- see `docs/ai_design.md`'s "Decision: local LLM".
+claim exists. `--synthesize` (opt-in) has a local, offline LLM served by
+[Ollama](https://ollama.com) (no API key, no cloud call) narrate that
+same evidence into one grounded paragraph, citing an
+`evidence_record_id` for every claim it states -- see
+`docs/ai_design.md`'s "Decision: local LLM".
 
 ## The Seam
 
@@ -42,6 +43,8 @@ before adding anything that might blur this line.
 - `knowledge-engine-core`'s `ke` CLI, installed and on `PATH`
 - A `knowledge-engine-core` SQLite database and corpus (`sources.csv`,
   `evidence_records.jsonl`) to point at
+- [Ollama](https://ollama.com), installed and running (`ollama serve`),
+  only if using `--synthesize`
 
 ## Installation
 
@@ -62,21 +65,24 @@ Every paper and evidence record printed traces back to a real `ke
 evidence-report` field. No synthesis, no confidence rating.
 
 To also have a local LLM narrate that same evidence into one grounded,
-citation-required paragraph, download a small instruction-tuned GGUF
-model once:
+citation-required paragraph, install [Ollama](https://ollama.com), start
+it, and pull a model once:
 
 ```bash
-curl -L -o qwen2.5-1.5b-instruct-q4_k_m.gguf \
-  https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf
-export KE_AI_LLM_MODEL_PATH="$(pwd)/qwen2.5-1.5b-instruct-q4_k_m.gguf"
+ollama serve &          # if not already running as a service
+ollama pull qwen2.5:1.5b
+export KE_AI_LLM_MODEL="qwen2.5:1.5b"
 poetry run ke-ai ask "does semaglutide reduce lean mass" \
   --sources /path/to/sources.csv \
   --evidence /path/to/evidence_records.jsonl \
   --synthesize
 ```
 
-No API key, no network call at inference time -- everything runs on the
-local machine.
+No API key, no cloud call at inference time -- everything runs on the
+local machine (`KE_AI_OLLAMA_HOST`/`--ollama-host` default to
+`http://127.0.0.1:11434`, Ollama's own default). Any Ollama chat model
+works via `--llm-model`/`KE_AI_LLM_MODEL`; see `docs/ai_design.md`'s
+"Decision: local LLM" for model-choice guidance on real hardware.
 
 ## Architecture
 
