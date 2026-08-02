@@ -316,6 +316,173 @@ def test_ask_format_json_prints_valid_structured_output(
     assert record["evidence_intelligence"]["claim_confidence"]["score"] == 89
 
 
+class _FakeLLM:
+    def __init__(self, model_path: Path) -> None:
+        self.model_path = model_path
+
+    def generate(self, prompt: str, *, max_tokens: int = 400) -> str:
+        assert "does semaglutide reduce lean mass" in prompt
+        return "Semaglutide reduced lean mass [ev-1]."
+
+
+def test_ask_synthesize_requires_a_model_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("KE_AI_LLM_MODEL_PATH", raising=False)
+    monkeypatch.setattr(cli, "enriched_evidence_report", lambda *args, **kwargs: _report(papers=[]))
+    sources = tmp_path / "sources.csv"
+    evidence = tmp_path / "evidence.jsonl"
+    sources.write_text("")
+    evidence.write_text("")
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "ask",
+            "does semaglutide reduce lean mass",
+            "--sources",
+            str(sources),
+            "--evidence",
+            str(evidence),
+            "--synthesize",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "--llm-model or KE_AI_LLM_MODEL_PATH" in _unwrapped(result.output)
+
+
+def test_ask_synthesize_prints_the_grounded_narrative(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        cli,
+        "enriched_evidence_report",
+        lambda *args, **kwargs: _report(papers=[_paper_with_intelligence()]),
+    )
+    monkeypatch.setattr(cli, "LlamaCppLLM", _FakeLLM)
+    sources = tmp_path / "sources.csv"
+    evidence = tmp_path / "evidence.jsonl"
+    sources.write_text("")
+    evidence.write_text("")
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "ask",
+            "does semaglutide reduce lean mass",
+            "--sources",
+            str(sources),
+            "--evidence",
+            str(evidence),
+            "--synthesize",
+            "--llm-model",
+            str(tmp_path / "model.gguf"),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    unwrapped = _unwrapped(result.output)
+    assert "AI-generated synthesis" in unwrapped
+    assert "Semaglutide reduced lean mass [ev-1]." in unwrapped
+
+
+def test_ask_synthesize_reads_the_model_path_from_env_var(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        cli,
+        "enriched_evidence_report",
+        lambda *args, **kwargs: _report(papers=[_paper_with_intelligence()]),
+    )
+    monkeypatch.setattr(cli, "LlamaCppLLM", _FakeLLM)
+    monkeypatch.setenv("KE_AI_LLM_MODEL_PATH", str(tmp_path / "model.gguf"))
+    sources = tmp_path / "sources.csv"
+    evidence = tmp_path / "evidence.jsonl"
+    sources.write_text("")
+    evidence.write_text("")
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "ask",
+            "does semaglutide reduce lean mass",
+            "--sources",
+            str(sources),
+            "--evidence",
+            str(evidence),
+            "--synthesize",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "AI-generated synthesis" in _unwrapped(result.output)
+
+
+def test_ask_synthesize_json_includes_the_synthesis_field(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        cli,
+        "enriched_evidence_report",
+        lambda *args, **kwargs: _report(papers=[_paper_with_intelligence()]),
+    )
+    monkeypatch.setattr(cli, "LlamaCppLLM", _FakeLLM)
+    sources = tmp_path / "sources.csv"
+    evidence = tmp_path / "evidence.jsonl"
+    sources.write_text("")
+    evidence.write_text("")
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "ask",
+            "does semaglutide reduce lean mass",
+            "--sources",
+            str(sources),
+            "--evidence",
+            str(evidence),
+            "--synthesize",
+            "--llm-model",
+            str(tmp_path / "model.gguf"),
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["synthesis"] == "Semaglutide reduced lean mass [ev-1]."
+
+
+def test_ask_without_synthesize_flag_never_touches_the_llm(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def _fail_if_constructed(model_path: Path) -> _FakeLLM:
+        raise AssertionError("LlamaCppLLM should not be constructed without --synthesize")
+
+    monkeypatch.setattr(cli, "enriched_evidence_report", lambda *args, **kwargs: _report(papers=[]))
+    monkeypatch.setattr(cli, "LlamaCppLLM", _fail_if_constructed)
+    sources = tmp_path / "sources.csv"
+    evidence = tmp_path / "evidence.jsonl"
+    sources.write_text("")
+    evidence.write_text("")
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "ask",
+            "does semaglutide reduce lean mass",
+            "--sources",
+            str(sources),
+            "--evidence",
+            str(evidence),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+
+
 def test_ask_rejects_an_invalid_format(tmp_path: Path) -> None:
     sources = tmp_path / "sources.csv"
     evidence = tmp_path / "evidence.jsonl"

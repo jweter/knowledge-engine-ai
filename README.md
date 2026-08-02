@@ -9,12 +9,14 @@ what this first milestone actually builds.
 
 ## Status
 
-Early. One real capability exists: `ke-ai ask`, Retrieval Intelligence
-over `core`'s corpus via `ke evidence-report --format json`, now also
-attaching each matched claim's Evidence Intelligence (Evidence Quality/
-Consensus/Claim Confidence/Coverage) via `ke evidence-intelligence
---format json` where a graph claim exists. No LLM integration yet -- see
-`docs/ai_design.md`'s "no LLM integration yet" decision.
+Early. `ke-ai ask` is Retrieval Intelligence over `core`'s corpus via
+`ke evidence-report --format json`, attaching each matched claim's
+Evidence Intelligence (Evidence Quality/Consensus/Claim Confidence/
+Coverage) via `ke evidence-intelligence --format json` where a graph
+claim exists. `--synthesize` (opt-in) has a local, offline LLM
+(`llama-cpp-python`, no API key) narrate that same evidence into one
+grounded paragraph, citing an `evidence_record_id` for every claim it
+states -- see `docs/ai_design.md`'s "Decision: local LLM".
 
 ## The Seam
 
@@ -22,11 +24,15 @@ Consensus/Claim Confidence/Coverage) via `ke evidence-intelligence
 that evidence means for a person's actual question -- see
 `knowledge-engine-core/docs/core_interface_contract.md`'s "The seam"
 section. This project holds the exact same boundary, restated for a
-judgment layer: the LLM (once one is wired in) explains, it never
-judges. Any confidence number this project ever presents must decompose
-into named, independently-inspectable components computed by this
-project's own deterministic code -- never a bare model-generated
-percentage. See `knowledge-engine-core`'s `docs/ai_layer_architecture.md`
+judgment layer: the LLM explains, it never judges. Any confidence number
+this project ever presents must decompose into named,
+independently-inspectable components computed by this project's own
+deterministic code -- never a bare model-generated percentage.
+`--synthesize`'s local LLM is held to this directly: it is given only
+already-computed fields (`claim_text`, `result_summary`, Evidence
+Quality/Consensus/Claim Confidence) and told to cite an
+`evidence_record_id` for every claim, never to introduce a new fact or
+score. See `knowledge-engine-core`'s `docs/ai_layer_architecture.md`
 before adding anything that might blur this line.
 
 ## Requirements
@@ -55,6 +61,23 @@ poetry run ke-ai ask "does semaglutide reduce lean mass" \
 Every paper and evidence record printed traces back to a real `ke
 evidence-report` field. No synthesis, no confidence rating.
 
+To also have a local LLM narrate that same evidence into one grounded,
+citation-required paragraph, download a small instruction-tuned GGUF
+model once:
+
+```bash
+curl -L -o qwen2.5-1.5b-instruct-q4_k_m.gguf \
+  https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf
+export KE_AI_LLM_MODEL_PATH="$(pwd)/qwen2.5-1.5b-instruct-q4_k_m.gguf"
+poetry run ke-ai ask "does semaglutide reduce lean mass" \
+  --sources /path/to/sources.csv \
+  --evidence /path/to/evidence_records.jsonl \
+  --synthesize
+```
+
+No API key, no network call at inference time -- everything runs on the
+local machine.
+
 ## Architecture
 
 This project never imports `knowledge_engine` as a Python package --
@@ -71,10 +94,12 @@ scope.
 - `ke-ai ask` -- Retrieval Intelligence: natural-language question to
   ranked, source-linked evidence (done).
 - `ke-ai ask` enriched with per-claim Evidence Intelligence and
-  `--format json` (done) -- unblocks `knowledge-engine-web`'s
-  question-first "Ask" page, next up.
-- Citation-grounded chat with individual papers -- needs an explicit
-  LLM-provider decision first; see `docs/ai_design.md`'s open questions.
+  `--format json` (done) -- unblocked `knowledge-engine-web`'s
+  question-first "Ask" page.
+- `ke-ai ask --synthesize` -- a local, offline LLM narrates the
+  retrieved evidence into one grounded, citation-required paragraph
+  (done; see `docs/ai_design.md`'s "Decision: local LLM"). One-question-
+  in, one-answer-out -- not multi-turn chat.
 - Analytical Intelligence, Discovery Intelligence -- later stages in
   `knowledge-engine-core`'s `docs/ai_layer_architecture.md` build
   sequence.
