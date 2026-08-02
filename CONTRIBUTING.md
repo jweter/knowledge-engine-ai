@@ -61,17 +61,22 @@ poetry run pytest
   (see `core_interface_contract.md` in `knowledge-engine-core`, and this
   project's own `docs/ai_design.md`). Never invoke `ke` via `shell=True`
   or with interpolated arguments.
-- The LLM (once one is wired in) explains; it never judges. Any number
-  presented as a confidence score must decompose into named,
-  independently-inspectable components computed by this project's own
-  deterministic code -- never a bare model-generated percentage. See
-  `docs/ai_layer_architecture.md` in `knowledge-engine-core`.
+- The LLM explains; it never judges. Any number presented as a
+  confidence score must decompose into named, independently-inspectable
+  components computed by this project's own deterministic code -- never
+  a bare model-generated percentage. See `docs/ai_layer_architecture.md`
+  in `knowledge-engine-core`.
+- LLM inference stays local and offline (`knowledge_engine_ai/llm.py`).
+  Never add a hosted-API call or an `ANTHROPIC_API_KEY`/`OPENAI_API_KEY`
+  -style secret without an explicit owner decision first -- see
+  `docs/ai_design.md`'s "Decision: local LLM".
 
 ## Tests
 
 Tests should be small, deterministic, and offline. Fake `ke` subprocess
-calls rather than shelling out to a real corpus in unit tests; reserve
-real invocations for documented live-verification steps.
+calls and fake `LocalLLM` implementations rather than shelling out to a
+real corpus or loading a real model file in unit tests; reserve real
+invocations for documented live-verification steps.
 
 ## Architecture Decisions
 

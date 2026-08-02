@@ -24,13 +24,26 @@ to unblock the project owner's next priority: a question-first "Ask"
 experience in `knowledge-engine-web`, which will shell out to `ke-ai
 ask --format json` the same way this repository shells out to `ke`.
 
+**Revised (M3 slice):** the project owner made the LLM-provider call
+this document's original "Decision: no LLM integration yet" section
+left open -- a local, offline model, not a hosted API (see "Decision:
+local LLM" below, which replaces that section). `ke-ai ask --synthesize`
+now has an LLM narrate the same evidence `--format json` already
+exposes into one grounded paragraph, strictly constrained to cite an
+`evidence_record_id` for every claim it states. This is the one place
+in this project a model-generated string is allowed to appear -- see
+`knowledge_engine_ai/synthesis.py`'s module docstring for exactly how
+the seam still holds.
+
 ## Mission
 
 Turn a natural-language research question into ranked, source-linked
 evidence from `core`'s corpus -- Retrieval Intelligence, Phase 1 of the
 five-stage build sequence `ai_layer_architecture.md` lays out. No
-synthesis, no confidence scoring, no LLM call yet. Those are named,
-sequenced, and deliberately deferred, not omitted by oversight.
+confidence *scoring* by this project (M1/M2's boundary, still held).
+M3 adds one opt-in exception to "no LLM call": `--synthesize`, a local
+model narrating that same retrieval into a grounded paragraph -- see
+"Decision: local LLM" below.
 
 ## The seam (restated, inherited without exception)
 
@@ -112,28 +125,107 @@ knowledge_engine_ai/
                        EvidenceIntelligence and its four nested scores) --
                        typed, not a raw dict, so callers get autocomplete
                        and mypy coverage instead of string-keyed lookups.
+    llm.py          -- `LocalLLM`, a one-method `Protocol` (`generate`),
+                       and `OllamaLLM`, its only real implementation: a
+                       bounded HTTP client (`urllib` only, no SDK) for a
+                       running Ollama server's `/api/chat` endpoint. No
+                       API key. Tests substitute a fake `OllamaTransport`
+                       instead of requiring a real `ollama serve`
+                       process and a downloaded model.
+    synthesis.py    -- `build_synthesis_prompt`/`synthesize_answer`:
+                       assembles a strict, evidence-only prompt from an
+                       `EvidenceReport` (every `claim_text`/
+                       `result_summary`/Evidence Intelligence number
+                       already in it, nothing else) and calls a
+                       `LocalLLM` to narrate it. Returns `None` without
+                       calling the model at all when there is no
+                       evidence to ground on.
     cli.py          -- `ke-ai ask QUESTION --sources ... --evidence ...
-                       [--format text|json]`, a typer app printing a
-                       compact, readable summary (or the full structured
-                       result as JSON for a downstream consumer like
-                       `knowledge-engine-web`).
+                       [--format text|json] [--synthesize] [--llm-model
+                       NAME] [--ollama-host URL]`, a typer app printing
+                       a compact, readable summary (or the full
+                       structured result as JSON for a downstream
+                       consumer like `knowledge-engine-web`).
+                       `--synthesize` is opt-in and additive -- the
+                       retrieval/Evidence Intelligence output is
+                       unchanged either way.
 ```
 
-## Decision: no LLM integration yet
+## Decision: local LLM
+
+**Owner decision (M3, revised):** local, offline inference served by
+[Ollama](https://ollama.com) -- an open-weight model (e.g. Qwen, Gemma)
+running on-machine via Ollama's own long-lived process (`ollama serve`),
+not a hosted API. No `ANTHROPIC_API_KEY`/`OPENAI_API_KEY`-style secret
+anywhere in this project as a result. This resolves the original "no LLM
+integration yet" open question below in favor of the option that needs
+no key management at all: `ollama pull <model>` once, point
+`--llm-model`/`KE_AI_LLM_MODEL` at that model's name, and it just runs
+-- the same "download once, run offline" shape M31's local
+`sentence-transformers` embedding generator already established in
+`core`.
+
+An earlier draft of this milestone loaded a GGUF model file directly
+in-process via `llama-cpp-python`. The project owner's team recommended
+Ollama instead, and this document agrees: Ollama's own long-running
+process handles model download/management, quantization, GPU
+acceleration, and memory across requests, so it doesn't reload a
+multi-gigabyte model on every single `ke-ai ask` invocation the way an
+in-process library would -- a real difference once this moves toward
+serving more than one CLI call at a time. `LocalLLM`'s one-method
+`Protocol` shape meant swapping the implementation touched only
+`llm.py`; `synthesis.py` and `cli.py`'s public contract were unaffected.
+
+Live-verified against the real GLP-1 corpus with `qwen2.5:1.5b` (a
+small, non-reasoning instruction-tuned model, ~1GB, CPU-only, a few
+seconds per question after Ollama's first load). Model choice is a
+runtime/deployment decision, not hardcoded -- any Ollama chat model
+works via `--llm-model`. The project owner's team specifically suggested
+benchmarking `qwen3:8b` and `gemma3:4b`/`gemma3:12b` on real tasks once
+running on real hardware; `--llm-model` supports switching without a
+code change. Note: Qwen3's hybrid-reasoning models interleave a
+`<think>...</think>` block into the same response field rather than a
+separate one -- `llm.py` strips it before returning, so `synthesis.py`
+never sees the model's internal reasoning as part of its answer.
+
+`knowledge_engine_ai/llm.py` defines `LocalLLM` as a one-method
+`Protocol` (`generate(prompt) -> str`), so `synthesis.py` and `cli.py`
+never depend on Ollama's wire format directly and tests substitute a
+fake `OllamaTransport` instead of requiring a real `ollama serve`
+process and a downloaded model -- the same fake-transport pattern
+`core` uses for its own live network lookups (e.g.
+`knowledge_engine.rxnorm_http`).
+
+`--synthesize` is opt-in, off by default: real local inference costs
+real CPU time and requires Ollama running with a model already pulled,
+unlike this command's default retrieval-only path. `ollama serve` itself
+is a separate process this project does not manage or start -- see the
+Out of scope section for the production-deployment implications of that
+(a laptop cannot durably serve the AI layer to the public web; this
+document scopes exactly the same "development is free, public
+deployment needs its own architecture" split the project owner's team
+raised).
+
+## Historical: why this was deferred past M1/M2
 
 `ai_layer_architecture.md`'s five-stage sequence puts "citation-grounded
 chat with individual papers" inside Stage 1, but that specific piece
-needs a real LLM-provider decision (which API, how keys are managed,
-cost implications) this document does not make unilaterally -- a
+needed a real LLM-provider decision (which API, how keys are managed,
+cost implications) this document did not make unilaterally -- a
 product/infrastructure choice for the project owner, not something to
-guess at. This milestone builds everything in Stage 1 that does *not*
-require that decision: natural-language search and structured,
-source-linked results. Conversational chat over individual papers is
-the next real slice once that decision is made.
+guess at. M1/M2 built everything in Stage 1 that did *not* require that
+decision: natural-language search and structured, source-linked results.
+M3 (above) is that next slice, now that the decision has been made.
 
 ## Out of scope (this milestone)
 
-- **Any LLM call, of any kind.** No synthesis, no chat, no summarization.
+- **Conversational, multi-turn chat.** `--synthesize` (M3) is one
+  question in, one grounded paragraph out -- no session state, no
+  follow-up questions, no memory of a prior answer. Still Retrieval
+  Intelligence's shape, not a chat product.
+- **Any LLM call that is not `--synthesize`'s grounded narration.** No
+  summarization of a whole paper, no cross-question reasoning, no
+  freeform chat.
 - **PICO-shaped query decomposition.** `ai_layer_architecture.md`'s
   Phase 1 names this; it is closer to a judgment call (parsing informal
   free text into P/I/C/O) than the parts already deterministic in
@@ -151,11 +243,29 @@ the next real slice once that decision is made.
   revision above), Statistics Auditor, Discovery Intelligence, domain
   profiles -- all later stages in `ai_layer_architecture.md`'s
   sequence, not this one.
+- **Running `ollama serve` for the user, or managing it as a service.**
+  This project only ever calls the API a running Ollama process already
+  exposes; it never starts, stops, or supervises that process itself.
+- **A public-facing deployment of the LLM layer.** A laptop (or any
+  single machine) running `ollama serve` is a real, working development
+  setup, not a durable public architecture -- it disappears on sleep,
+  reboot, or a lost connection, and Ollama's raw port should never be
+  exposed directly to the Internet. Moving `--ollama-host` to point at a
+  dedicated always-on machine (a home server, a rented GPU, a cloud
+  instance) is future infrastructure work, not a code change here.
 
 ## Open questions (owner decisions, not resolved here)
 
-- **LLM provider and key management**, once Stage 1's conversational
-  piece is actually built.
+- **Conversational, multi-turn chat**, if ever wanted -- `--synthesize`
+  (M3) deliberately stays one-question-in, one-answer-out.
+- **Model choice for `--synthesize`** beyond the live-verified default
+  (`qwen2.5:1.5b`) -- a deployment/quality tradeoff for whoever runs
+  this, not fixed by this document. Any Ollama chat model works via
+  `--llm-model`; the project owner's team suggested benchmarking
+  `qwen3:8b` and `gemma3:4b`/`gemma3:12b` against real extraction/
+  synthesis tasks once running on real hardware.
+- **Where Ollama itself runs in a public deployment** -- see the Out of
+  scope bullet above. Not this document's call.
 - **Package structure once a second capability exists** (Evidence
   Intelligence, Analytical Intelligence) -- not designed against one
   capability, revisit at the second real slice, the same discipline
