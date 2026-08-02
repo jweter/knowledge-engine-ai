@@ -11,6 +11,19 @@ This document does not repeat that; it scopes down to what this
 milestone actually builds and why, the same "smallest honest version
 first" discipline `web_design.md` followed for its own bootstrap.
 
+**Revised (M2 slice):** `ke-ai ask` now also attaches each matched
+evidence record's Evidence Intelligence (Evidence Quality/Consensus/
+Claim Confidence/Coverage) via `core`'s new `ke evidence-intelligence
+--format json` (`core`'s M63). This does **not** loosen the "no
+Evidence Quality/Consensus/Claim Confidence scoring" boundary below --
+this project still never *computes* any of those numbers; it only
+*displays* numbers `core` already computed and stood behind elsewhere
+(the same numbers `knowledge-engine-web`'s claim pages already show).
+No new judgment, no cross-claim synthesis, still zero LLM calls. Built
+to unblock the project owner's next priority: a question-first "Ask"
+experience in `knowledge-engine-web`, which will shell out to `ke-ai
+ask --format json` the same way this repository shells out to `ke`.
+
 ## Mission
 
 Turn a natural-language research question into ranked, source-linked
@@ -83,18 +96,27 @@ here is generated, summarized, or reworded by a model.
 
 ```
 knowledge_engine_ai/
-    ke_client.py   -- subprocess wrapper: runs `ke evidence-report
-                       --format json`, parses and validates the JSON
-                       contract, raises a typed error on a schema
-                       mismatch or non-zero exit rather than silently
-                       returning partial data.
-    models.py       -- frozen dataclasses mirroring the JSON contract
-                       (EvidenceReport, RetrievedPaper, EvidenceRecord)
-                       -- typed, not a raw dict, so callers get
-                       autocomplete and mypy coverage instead of
-                       string-keyed lookups.
-    cli.py          -- `ke-ai ask QUESTION --sources ... --evidence ...`,
-                       a typer app printing a compact, readable summary.
+    ke_client.py   -- subprocess wrapper: `evidence_report()` runs `ke
+                       evidence-report --format json`; `evidence_intelligence()`
+                       runs `ke evidence-intelligence --format json` for one
+                       claim, returning `None` (not an error) when the
+                       claim has no graph entry yet; `enriched_evidence_report()`
+                       combines both -- retrieval, then a best-effort
+                       Evidence Intelligence lookup per matched record.
+                       Parses and validates each JSON contract, raises a
+                       typed error on a schema mismatch or non-zero exit
+                       (the "no graph claim" case excepted) rather than
+                       silently returning partial data.
+    models.py       -- frozen dataclasses mirroring both JSON contracts
+                       (EvidenceReport, RetrievedPaper, EvidenceRecord,
+                       EvidenceIntelligence and its four nested scores) --
+                       typed, not a raw dict, so callers get autocomplete
+                       and mypy coverage instead of string-keyed lookups.
+    cli.py          -- `ke-ai ask QUESTION --sources ... --evidence ...
+                       [--format text|json]`, a typer app printing a
+                       compact, readable summary (or the full structured
+                       result as JSON for a downstream consumer like
+                       `knowledge-engine-web`).
 ```
 
 ## Decision: no LLM integration yet
@@ -124,9 +146,11 @@ the next real slice once that decision is made.
   choice -- real setup this milestone does not assume exists. FTS5
   lexical retrieval (what `evidence-report` already uses) needs no such
   setup and is a real, working starting point.
-- **Evidence Quality/Consensus/Claim Confidence scoring**, Statistics
-  Auditor, Discovery Intelligence, domain profiles -- all later stages
-  in `ai_layer_architecture.md`'s sequence, not this one.
+- **Computing Evidence Quality/Consensus/Claim Confidence** (as opposed
+  to displaying `core`'s already-computed numbers, added in the M2
+  revision above), Statistics Auditor, Discovery Intelligence, domain
+  profiles -- all later stages in `ai_layer_architecture.md`'s
+  sequence, not this one.
 
 ## Open questions (owner decisions, not resolved here)
 
