@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -299,3 +300,49 @@ def test_enriched_evidence_report_leaves_intelligence_none_without_evidence_reco
 
     assert len(calls) == 1
     assert report.papers[0].evidence_records[0].evidence_intelligence is None
+
+
+def test_evidence_report_resolves_the_ke_executable_via_shutil_which(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A Windows-only regression: Poetry's `ke` entry point is `ke.cmd` there,
+
+    and Windows only auto-appends `.exe` when locating a bare command name
+    for a subprocess -- `shutil.which` is what actually finds `ke.cmd`.
+    """
+
+    monkeypatch.setattr(
+        shutil, "which", lambda name: r"C:\venv\Scripts\ke.cmd" if name == "ke" else None
+    )
+    captured: dict[str, list[str]] = {}
+
+    def fake_run(command: list[str], **kwargs: object) -> _FakeCompletedProcess:
+        captured["command"] = command
+        return _FakeCompletedProcess(0, json.dumps(_VALID_PAYLOAD))
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    evidence_report(
+        "q", sources=tmp_path / "s.csv", evidence=tmp_path / "e.jsonl", ke_executable="ke"
+    )
+
+    assert captured["command"][0] == r"C:\venv\Scripts\ke.cmd"
+
+
+def test_evidence_report_falls_back_to_the_unresolved_name_when_which_finds_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    captured: dict[str, list[str]] = {}
+
+    def fake_run(command: list[str], **kwargs: object) -> _FakeCompletedProcess:
+        captured["command"] = command
+        return _FakeCompletedProcess(0, json.dumps(_VALID_PAYLOAD))
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    evidence_report(
+        "q", sources=tmp_path / "s.csv", evidence=tmp_path / "e.jsonl", ke_executable="ke"
+    )
+
+    assert captured["command"][0] == "ke"

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -34,6 +35,26 @@ class KeCommandError(RuntimeError):
 _NO_GRAPH_CLAIM_MARKER = "No graph claim found"
 
 
+def _resolve_ke_executable(ke_executable: str) -> str:
+    """Resolve `ke_executable` to a real path via a PATHEXT-aware `PATH` search.
+
+    Windows's `CreateProcess` (what `subprocess.run` uses under the hood)
+    only auto-appends `.exe` when locating a bare command name -- it does
+    not consult `PATHEXT` the way a shell or `shutil.which` does. Poetry's
+    generated Windows entry point for `ke` is `ke.cmd`, not `ke.exe`, so
+    an unresolved `subprocess.run(["ke", ...])` silently fails to find it
+    there (`FileNotFoundError`), even with core correctly installed and
+    core's venv `Scripts` directory on `PATH`. `shutil.which` performs the
+    correct search on every platform and is a safe no-op on POSIX, where
+    this was never an issue. Falls back to the original string unresolved
+    if not found, so the existing `FileNotFoundError` handling below still
+    raises its clear "is knowledge-engine-core installed and on PATH?"
+    error instead of a new failure mode.
+    """
+
+    return shutil.which(ke_executable) or ke_executable
+
+
 def evidence_report(
     question: str,
     *,
@@ -51,7 +72,7 @@ def evidence_report(
     """
 
     command = [
-        ke_executable,
+        _resolve_ke_executable(ke_executable),
         "evidence-report",
         question,
         "--sources",
@@ -102,7 +123,7 @@ def evidence_intelligence(
     """
 
     command = [
-        ke_executable,
+        _resolve_ke_executable(ke_executable),
         "evidence-intelligence",
         "--evidence",
         str(evidence),
