@@ -1,9 +1,10 @@
-"""Typed models mirroring `ke evidence-report --format json`'s schema.
+"""Typed models mirroring `core`'s `--format json` CLI contracts.
 
-Parsed from the documented, versioned contract `core`'s
-`core_interface_contract.md` describes -- never a raw dict a caller has
-to string-key into, and never silently accepting a shape this project
-does not recognize.
+Parsed from the documented, versioned contracts `core`'s
+`core_interface_contract.md` describes (`ke evidence-report --format
+json` and `ke evidence-intelligence --format json`) -- never a raw dict
+a caller has to string-key into, and never silently accepting a shape
+this project does not recognize.
 """
 
 from __future__ import annotations
@@ -12,10 +13,15 @@ from dataclasses import dataclass
 from typing import Any
 
 SUPPORTED_SCHEMA_VERSION = 1
+SUPPORTED_EVIDENCE_INTELLIGENCE_SCHEMA_VERSION = 1
 
 
 class EvidenceReportParseError(RuntimeError):
     """`ke evidence-report --format json`'s output did not match the expected shape."""
+
+
+class EvidenceIntelligenceParseError(RuntimeError):
+    """`ke evidence-intelligence --format json`'s output did not match the expected shape."""
 
 
 @dataclass(frozen=True)
@@ -29,6 +35,68 @@ class EvidenceSummary:
     rejected: int
     unspecified: int
     readiness_note: str
+
+
+@dataclass(frozen=True)
+class EvidenceQuality:
+    """One claim's Evidence Quality score, verbatim from `ke evidence-intelligence`."""
+
+    score: int
+    study_design_tier: str
+    manually_reviewed: bool
+
+
+@dataclass(frozen=True)
+class EvidenceConsensus:
+    """One claim's Evidence Consensus score, verbatim from `ke evidence-intelligence`."""
+
+    relationship_edge_count: int
+    supports_count: int
+    contradicts_count: int
+    agreement_total: int
+    score: int | None
+    reliability: str
+
+
+@dataclass(frozen=True)
+class ClaimConfidence:
+    """One claim's Claim Confidence score, verbatim from `ke evidence-intelligence`."""
+
+    score: int | None
+    reliability: str
+
+
+@dataclass(frozen=True)
+class EvidenceCoverage:
+    """Corpus-relative Evidence Coverage, verbatim from `ke evidence-intelligence`."""
+
+    records_in_relationship: int
+    total_records: int
+    percentage: int
+
+
+@dataclass(frozen=True)
+class EvidenceIntelligence:
+    """One claim's full Evidence Intelligence report, verbatim from `core` -- nothing re-derived.
+
+    Parsed from `ke evidence-intelligence --format json`. Not part of
+    `ke evidence-report`'s own JSON contract -- attached to an
+    `EvidenceRecord` as a best-effort enrichment pass, `None` when the
+    record has no graph claim yet (see `ke_client.evidence_intelligence`).
+    Same three-numbers-never-collapsed discipline `core` enforces:
+    `evidence_quality`, `evidence_consensus`, and `claim_confidence`
+    always stay separate fields here too.
+    """
+
+    schema_version: int
+    evidence_record_id: str
+    claim_id: int
+    evidence_quality: EvidenceQuality
+    evidence_consensus: EvidenceConsensus
+    claim_confidence: ClaimConfidence
+    evidence_coverage: EvidenceCoverage
+    synthesis: list[str]
+    scope_note: str
 
 
 @dataclass(frozen=True)
@@ -53,6 +121,7 @@ class EvidenceRecord:
     uncertainty_notes: str | None
     confidence_note: str | None
     source_span: dict[str, Any] | None
+    evidence_intelligence: EvidenceIntelligence | None = None
 
 
 @dataclass(frozen=True)
@@ -127,6 +196,62 @@ def parse_evidence_report(payload: dict[str, Any]) -> EvidenceReport:
         )
     except KeyError as exc:
         raise EvidenceReportParseError(f"evidence-report JSON is missing field: {exc}") from exc
+
+
+def parse_evidence_intelligence(payload: dict[str, Any]) -> EvidenceIntelligence:
+    """Parse `ke evidence-intelligence --format json`'s output into `EvidenceIntelligence`.
+
+    Raises `EvidenceIntelligenceParseError` on an unsupported
+    `schema_version` or a missing required field -- never guesses a
+    default for data `core` did not actually provide.
+    """
+
+    schema_version = payload.get("schema_version")
+    if schema_version != SUPPORTED_EVIDENCE_INTELLIGENCE_SCHEMA_VERSION:
+        raise EvidenceIntelligenceParseError(
+            f"Unsupported evidence-intelligence schema_version: {schema_version!r} "
+            f"(this project understands "
+            f"{SUPPORTED_EVIDENCE_INTELLIGENCE_SCHEMA_VERSION!r})."
+        )
+
+    try:
+        quality_payload = payload["evidence_quality"]
+        consensus_payload = payload["evidence_consensus"]
+        confidence_payload = payload["claim_confidence"]
+        coverage_payload = payload["evidence_coverage"]
+        return EvidenceIntelligence(
+            schema_version=schema_version,
+            evidence_record_id=payload["evidence_record_id"],
+            claim_id=payload["claim_id"],
+            evidence_quality=EvidenceQuality(
+                score=quality_payload["score"],
+                study_design_tier=quality_payload["study_design_tier"],
+                manually_reviewed=quality_payload["manually_reviewed"],
+            ),
+            evidence_consensus=EvidenceConsensus(
+                relationship_edge_count=consensus_payload["relationship_edge_count"],
+                supports_count=consensus_payload["supports_count"],
+                contradicts_count=consensus_payload["contradicts_count"],
+                agreement_total=consensus_payload["agreement_total"],
+                score=consensus_payload["score"],
+                reliability=consensus_payload["reliability"],
+            ),
+            claim_confidence=ClaimConfidence(
+                score=confidence_payload["score"],
+                reliability=confidence_payload["reliability"],
+            ),
+            evidence_coverage=EvidenceCoverage(
+                records_in_relationship=coverage_payload["records_in_relationship"],
+                total_records=coverage_payload["total_records"],
+                percentage=coverage_payload["percentage"],
+            ),
+            synthesis=list(payload["synthesis"]),
+            scope_note=payload["scope_note"],
+        )
+    except KeyError as exc:
+        raise EvidenceIntelligenceParseError(
+            f"evidence-intelligence JSON is missing field: {exc}"
+        ) from exc
 
 
 def _parse_paper(payload: dict[str, Any]) -> RetrievedPaper:

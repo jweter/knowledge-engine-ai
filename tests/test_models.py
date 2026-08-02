@@ -4,7 +4,12 @@ from typing import Any
 
 import pytest
 
-from knowledge_engine_ai.models import EvidenceReportParseError, parse_evidence_report
+from knowledge_engine_ai.models import (
+    EvidenceIntelligenceParseError,
+    EvidenceReportParseError,
+    parse_evidence_intelligence,
+    parse_evidence_report,
+)
 
 _VALID_PAYLOAD: dict[str, Any] = {
     "schema_version": 1,
@@ -114,3 +119,72 @@ def test_parse_evidence_report_defaults_missing_optional_evidence_record_fields(
     assert record.evidence_record_id == "ev-2"
     assert record.claim_text is None
     assert record.limitations == []
+
+
+_VALID_INTELLIGENCE_PAYLOAD: dict[str, Any] = {
+    "schema_version": 1,
+    "evidence_record_id": "ev-1",
+    "claim_id": 1,
+    "evidence_quality": {
+        "score": 94,
+        "study_design_tier": "randomized_controlled_trial",
+        "manually_reviewed": True,
+    },
+    "evidence_consensus": {
+        "relationship_edge_count": 2,
+        "supports_count": 2,
+        "contradicts_count": 0,
+        "agreement_total": 2,
+        "score": 100,
+        "reliability": "moderate",
+    },
+    "claim_confidence": {"score": 89, "reliability": "moderate"},
+    "evidence_coverage": {
+        "records_in_relationship": 7,
+        "total_records": 155,
+        "percentage": 5,
+    },
+    "synthesis": ["Evidence Quality: 94/100."],
+    "scope_note": "Every number above is computed deterministically.",
+}
+
+
+def test_parse_evidence_intelligence_returns_a_fully_typed_result() -> None:
+    intelligence = parse_evidence_intelligence(_VALID_INTELLIGENCE_PAYLOAD)
+
+    assert intelligence.schema_version == 1
+    assert intelligence.evidence_record_id == "ev-1"
+    assert intelligence.claim_id == 1
+    assert intelligence.evidence_quality.score == 94
+    assert intelligence.evidence_consensus.agreement_total == 2
+    assert intelligence.claim_confidence.score == 89
+    assert intelligence.evidence_coverage.percentage == 5
+    assert intelligence.synthesis == ["Evidence Quality: 94/100."]
+
+
+def test_parse_evidence_intelligence_handles_not_yet_assessable_scores() -> None:
+    payload = dict(_VALID_INTELLIGENCE_PAYLOAD)
+    payload["evidence_consensus"] = dict(
+        payload["evidence_consensus"], score=None, reliability="insufficient"
+    )
+    payload["claim_confidence"] = {"score": None, "reliability": "insufficient"}
+
+    intelligence = parse_evidence_intelligence(payload)
+
+    assert intelligence.evidence_consensus.score is None
+    assert intelligence.claim_confidence.score is None
+
+
+def test_parse_evidence_intelligence_rejects_an_unsupported_schema_version() -> None:
+    payload = dict(_VALID_INTELLIGENCE_PAYLOAD, schema_version=2)
+
+    with pytest.raises(EvidenceIntelligenceParseError, match="schema_version"):
+        parse_evidence_intelligence(payload)
+
+
+def test_parse_evidence_intelligence_rejects_a_missing_required_field() -> None:
+    payload = dict(_VALID_INTELLIGENCE_PAYLOAD)
+    del payload["claim_id"]
+
+    with pytest.raises(EvidenceIntelligenceParseError, match="missing field"):
+        parse_evidence_intelligence(payload)

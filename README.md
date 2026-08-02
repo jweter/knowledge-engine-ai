@@ -10,9 +10,11 @@ what this first milestone actually builds.
 ## Status
 
 Early. One real capability exists: `ke-ai ask`, Retrieval Intelligence
-over `core`'s corpus via `ke evidence-report --format json`. No LLM
-integration yet -- see `docs/ai_design.md`'s "no LLM integration yet"
-decision.
+over `core`'s corpus via `ke evidence-report --format json`, now also
+attaching each matched claim's Evidence Intelligence (Evidence Quality/
+Consensus/Claim Confidence/Coverage) via `ke evidence-intelligence
+--format json` where a graph claim exists. No LLM integration yet -- see
+`docs/ai_design.md`'s "no LLM integration yet" decision.
 
 ## The Seam
 
@@ -68,11 +70,14 @@ scope.
 
 - `ke-ai ask` -- Retrieval Intelligence: natural-language question to
   ranked, source-linked evidence (done).
+- `ke-ai ask` enriched with per-claim Evidence Intelligence and
+  `--format json` (done) -- unblocks `knowledge-engine-web`'s
+  question-first "Ask" page, next up.
 - Citation-grounded chat with individual papers -- needs an explicit
   LLM-provider decision first; see `docs/ai_design.md`'s open questions.
-- Evidence Intelligence, Analytical Intelligence, Discovery Intelligence
-  -- later stages in `knowledge-engine-core`'s `docs/ai_layer_architecture.md`
-  build sequence.
+- Analytical Intelligence, Discovery Intelligence -- later stages in
+  `knowledge-engine-core`'s `docs/ai_layer_architecture.md` build
+  sequence.
 
 ## Repository Family
 
