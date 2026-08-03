@@ -62,7 +62,19 @@ poetry run ke-ai ask "does semaglutide reduce lean mass" \
 ```
 
 Every paper and evidence record printed traces back to a real `ke
-evidence-report` field. No synthesis, no confidence rating.
+evidence-report` field. Default retrieval performs no synthesis. The command
+may display core's deterministic Evidence Intelligence values, but this
+repository does not compute them; `--synthesize` is the explicit opt-in path
+described below.
+
+Public entry points:
+
+- [Project showcase](https://knowledge-engine.steelzombie9999.chatgpt.site/)
+- [Working web alpha](https://knowledge-engine-web-alpha.onrender.com/)
+
+This repository is an implementation layer behind that experience. Its job is
+to improve traceable retrieval and carefully bounded narration, not to market
+model output as scientific judgment.
 
 To also have a local LLM narrate that same evidence into one grounded,
 citation-required paragraph, install [Ollama](https://ollama.com), start
@@ -97,6 +109,22 @@ scope.
 
 ## Roadmap
 
+The repository family now follows one ordered project path: unify the public
+showcase and live alpha; benchmark and improve Ask retrieval; complete one
+defensible GLP-1/body-weight evidence map; begin structured Evidence and
+Analytical Intelligence only over that evaluated foundation; then replace this
+client's per-call core subprocesses with the read-only persistent host when its
+deployment trigger is met. Core's `docs/roadmap.md` is canonical.
+
+The first three shared tasks are:
+
+1. Make the showcase, alpha, and repository documentation one coherent public
+   journey with explicit trust boundaries.
+2. Create a golden-question benchmark and improve retrieval ranking before
+   expanding synthesis behavior.
+3. Complete the GLP-1/body-weight evidence map that later Evidence and
+   Analytical Intelligence can be evaluated against.
+
 - `ke-ai ask` -- Retrieval Intelligence: natural-language question to
   ranked, source-linked evidence (done).
 - `ke-ai ask` enriched with per-claim Evidence Intelligence and
@@ -106,9 +134,13 @@ scope.
   retrieved evidence into one grounded, citation-required paragraph
   (done; see `docs/ai_design.md`'s "Decision: local LLM"). One-question-
   in, one-answer-out -- not multi-turn chat.
-- Analytical Intelligence, Discovery Intelligence -- later stages in
-  `knowledge-engine-core`'s `docs/ai_layer_architecture.md` build
-  sequence.
+- Golden-question retrieval evaluation and structured multi-record Evidence
+  Intelligence -- next, coordinated with the core and web roadmaps.
+- Analytical Intelligence -- begins only after the golden evidence map can
+  exercise real agreement, disagreement, population differences, and missing
+  evidence. Deterministic statistical checks precede broader narration.
+- Discovery Intelligence -- later, after Analytical Intelligence and adequate
+  relationship coverage; not the next milestone.
 
 ## Repository Family
 
