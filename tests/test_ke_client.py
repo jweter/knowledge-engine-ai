@@ -40,6 +40,7 @@ _VALID_INTELLIGENCE_PAYLOAD = {
         "score": 94,
         "study_design_tier": "randomized_controlled_trial",
         "manually_reviewed": True,
+        "extraction_tier": "manual",
     },
     "evidence_consensus": {
         "relationship_edge_count": 2,

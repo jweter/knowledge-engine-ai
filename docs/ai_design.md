@@ -23,6 +23,10 @@ No new judgment, no cross-claim synthesis, still zero LLM calls. Built
 to unblock the project owner's next priority: a question-first "Ask"
 experience in `knowledge-engine-web`, which will shell out to `ke-ai
 ask --format json` the same way this repository shells out to `ke`.
+The typed Evidence Quality model preserves core's canonical three-way
+`extraction_tier` (`manual`, `llm_grounded`, or `automated`) in addition
+to the backward-compatible `manually_reviewed` boolean; this repository
+does not collapse or recompute that provenance.
 
 **Revised (M3 slice):** the project owner made the LLM-provider call
 this document's original "Decision: no LLM integration yet" section

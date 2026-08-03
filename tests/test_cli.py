@@ -191,7 +191,10 @@ def _paper_with_intelligence() -> RetrievedPaper:
         evidence_record_id="ev-1",
         claim_id=1,
         evidence_quality=EvidenceQuality(
-            score=94, study_design_tier="randomized_controlled_trial", manually_reviewed=True
+            score=94,
+            study_design_tier="randomized_controlled_trial",
+            manually_reviewed=True,
+            extraction_tier="manual",
         ),
         evidence_consensus=EvidenceConsensus(
             relationship_edge_count=2,

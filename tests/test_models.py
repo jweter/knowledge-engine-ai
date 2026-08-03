@@ -129,6 +129,7 @@ _VALID_INTELLIGENCE_PAYLOAD: dict[str, Any] = {
         "score": 94,
         "study_design_tier": "randomized_controlled_trial",
         "manually_reviewed": True,
+        "extraction_tier": "manual",
     },
     "evidence_consensus": {
         "relationship_edge_count": 2,
@@ -156,10 +157,23 @@ def test_parse_evidence_intelligence_returns_a_fully_typed_result() -> None:
     assert intelligence.evidence_record_id == "ev-1"
     assert intelligence.claim_id == 1
     assert intelligence.evidence_quality.score == 94
+    assert intelligence.evidence_quality.extraction_tier == "manual"
     assert intelligence.evidence_consensus.agreement_total == 2
     assert intelligence.claim_confidence.score == 89
     assert intelligence.evidence_coverage.percentage == 5
     assert intelligence.synthesis == ["Evidence Quality: 94/100."]
+
+
+@pytest.mark.parametrize("extraction_tier", ["manual", "llm_grounded", "automated"])
+def test_parse_evidence_intelligence_preserves_each_extraction_tier(
+    extraction_tier: str,
+) -> None:
+    payload = dict(_VALID_INTELLIGENCE_PAYLOAD)
+    payload["evidence_quality"] = dict(payload["evidence_quality"], extraction_tier=extraction_tier)
+
+    intelligence = parse_evidence_intelligence(payload)
+
+    assert intelligence.evidence_quality.extraction_tier == extraction_tier
 
 
 def test_parse_evidence_intelligence_handles_not_yet_assessable_scores() -> None:
@@ -187,4 +201,13 @@ def test_parse_evidence_intelligence_rejects_a_missing_required_field() -> None:
     del payload["claim_id"]
 
     with pytest.raises(EvidenceIntelligenceParseError, match="missing field"):
+        parse_evidence_intelligence(payload)
+
+
+def test_parse_evidence_intelligence_requires_extraction_tier() -> None:
+    payload = dict(_VALID_INTELLIGENCE_PAYLOAD)
+    payload["evidence_quality"] = dict(payload["evidence_quality"])
+    del payload["evidence_quality"]["extraction_tier"]
+
+    with pytest.raises(EvidenceIntelligenceParseError, match="extraction_tier"):
         parse_evidence_intelligence(payload)

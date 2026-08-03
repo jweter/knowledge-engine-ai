@@ -44,6 +44,7 @@ class EvidenceQuality:
     score: int
     study_design_tier: str
     manually_reviewed: bool
+    extraction_tier: str
 
 
 @dataclass(frozen=True)
@@ -227,6 +228,7 @@ def parse_evidence_intelligence(payload: dict[str, Any]) -> EvidenceIntelligence
                 score=quality_payload["score"],
                 study_design_tier=quality_payload["study_design_tier"],
                 manually_reviewed=quality_payload["manually_reviewed"],
+                extraction_tier=quality_payload["extraction_tier"],
             ),
             evidence_consensus=EvidenceConsensus(
                 relationship_edge_count=consensus_payload["relationship_edge_count"],
