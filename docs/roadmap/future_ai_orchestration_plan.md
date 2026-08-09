@@ -913,6 +913,19 @@ Build session persistence, event log, checkpointing, and continuation.
 
 **Success criterion:** a workflow can stop and resume without losing or duplicating state.
 
+**Status (2026-08-09): success criterion met and verified.**
+`ResearchSession`/`ResearchEvent` and a SQLite-backed
+`SessionRepository` are implemented in `knowledge_engine_ai/sessions/`
+-- see `docs/ai_o2_design.md`. `create_session`/`append_event` raise
+typed errors (`DuplicateSessionError`/`DuplicateEventError`) on a
+re-used ID instead of silently duplicating a row, and a test exercises
+the actual success criterion end to end: create a session, append an
+event, close the database connection entirely (simulating a crash),
+open a fresh connection against the same file, check before
+re-appending, append a new event, and confirm the final event log has
+no duplicates and preserves append order. No orchestrator, no LLM
+call, and no real workflow node connects to this yet -- that is AI-O3.
+
 ### AI-O3 — Deterministic Orchestrator
 
 Connect existing core retrieval, Evidence Intelligence, evidence-map, and statistical-verification capabilities using fixed workflow rules.
