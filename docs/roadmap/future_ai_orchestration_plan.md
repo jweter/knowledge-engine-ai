@@ -893,6 +893,20 @@ Build `ResearchPlan`, task types, execution policy, structured planner output, a
 
 **Success criterion:** a question is reliably converted into an inspectable bounded plan.
 
+**Status (2026-08-09): contracts and validator built, planner not yet
+started.** `ResearchPlan`/`ResearchTask`, the `TaskType` enum, the
+`ConsequenceLevel`/`ExecutionDecision` execution policy, and
+`validate_research_plan()`/`parse_research_plan()` are implemented in
+`knowledge_engine_ai/copilot/` -- see `docs/ai_o1_design.md`. This
+milestone's success criterion is not yet met: nothing yet converts a
+real question into a plan (that is AI-O4, "Local Query Planner", which
+adds LLM generation behind this same schema validator). What exists
+today is the inspectable, validated *shape* a plan must have, plus a
+test suite proving the validator actually catches malformed plans
+(duplicate task IDs, unresolved/cyclic dependencies, understated
+consequence levels, capability/task mismatches) -- the prerequisite
+AI-O2/AI-O3/AI-O4 build on, not those milestones themselves.
+
 ### AI-O2 — Durable Research Session
 
 Build session persistence, event log, checkpointing, and continuation.
