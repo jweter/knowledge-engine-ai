@@ -9,6 +9,21 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **AI-O2: durable `ResearchSession`/`ResearchEvent` persistence.**
+  New `knowledge_engine_ai/sessions/` subpackage
+  (`models.py`/`repository.py`): `SessionStatus` (the design doc's
+  nine lifecycle states), frozen `ResearchSession`/`ResearchEvent`
+  dataclasses (the session stores only header fields -- everything the
+  design doc's `retrieval_runs[]`-style list fields represent is
+  derived from the event log, not duplicated), and a SQLite-backed
+  `SessionRepository` whose `create_session`/`append_event` raise
+  typed `Duplicate*Error`s on a re-used ID rather than silently
+  duplicating a row. Success criterion ("a workflow can stop and
+  resume without losing or duplicating state") verified end to end by
+  a test that closes and reopens a real file-backed database
+  connection mid-session. No orchestrator, no LLM call. 12 new tests
+  in `tests/sessions/`. See `docs/ai_o2_design.md`.
+
 - **AI-O1: `ResearchPlan`/`ResearchTask` contracts, `TaskType` enum,
   execution-consequence policy, and schema validator.** New
   `knowledge_engine_ai/copilot/` subpackage
