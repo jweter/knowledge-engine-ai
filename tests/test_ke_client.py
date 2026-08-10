@@ -11,7 +11,9 @@ from knowledge_engine_ai.ke_client import (
     KeCommandError,
     enriched_evidence_report,
     evidence_intelligence,
+    evidence_map_report,
     evidence_report,
+    statistical_verify,
 )
 
 _VALID_PAYLOAD = {
@@ -347,3 +349,117 @@ def test_evidence_report_falls_back_to_the_unresolved_name_when_which_finds_noth
     )
 
     assert captured["command"][0] == "ke"
+
+
+def test_evidence_map_report_runs_the_expected_command_and_returns_markdown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run(command: list[str], **kwargs: object) -> _FakeCompletedProcess:
+        captured["command"] = command
+        return _FakeCompletedProcess(0, "# Evidence Map Report\n\n...")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    map_path = tmp_path / "map.json"
+    evidence = tmp_path / "e.jsonl"
+    relationships = tmp_path / "rel.jsonl"
+    sources = tmp_path / "s.csv"
+
+    report = evidence_map_report(
+        map_path, evidence=evidence, relationships=relationships, sources=sources
+    )
+
+    assert report == "# Evidence Map Report\n\n..."
+    assert captured["command"] == [
+        "ke",
+        "evidence-map-report",
+        str(map_path),
+        "--evidence",
+        str(evidence),
+        "--relationships",
+        str(relationships),
+        "--sources",
+        str(sources),
+    ]
+
+
+def test_evidence_map_report_raises_on_a_nonzero_exit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fake_run(command: list[str], **kwargs: object) -> _FakeCompletedProcess:
+        return _FakeCompletedProcess(1, "", "Evidence map report failed; map validation failed.")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    with pytest.raises(KeCommandError, match="map validation failed"):
+        evidence_map_report(
+            tmp_path / "map.json",
+            evidence=tmp_path / "e.jsonl",
+            relationships=tmp_path / "rel.jsonl",
+            sources=tmp_path / "s.csv",
+        )
+
+
+def test_statistical_verify_runs_the_expected_command_without_binary_inputs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run(command: list[str], **kwargs: object) -> _FakeCompletedProcess:
+        captured["command"] = command
+        return _FakeCompletedProcess(0, "# Statistical Verification\n\n...")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    inputs_path = tmp_path / "stats.jsonl"
+    evidence = tmp_path / "e.jsonl"
+
+    report = statistical_verify(inputs_path, evidence=evidence)
+
+    assert report == "# Statistical Verification\n\n..."
+    assert captured["command"] == [
+        "ke",
+        "statistical-verify",
+        str(inputs_path),
+        "--evidence",
+        str(evidence),
+    ]
+
+
+def test_statistical_verify_includes_binary_inputs_flag_when_supplied(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run(command: list[str], **kwargs: object) -> _FakeCompletedProcess:
+        captured["command"] = command
+        return _FakeCompletedProcess(0, "# Statistical Verification\n\n...")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    inputs_path = tmp_path / "stats.jsonl"
+    evidence = tmp_path / "e.jsonl"
+    binary_inputs = tmp_path / "binary.jsonl"
+
+    statistical_verify(inputs_path, evidence=evidence, binary_inputs=binary_inputs)
+
+    assert captured["command"] == [
+        "ke",
+        "statistical-verify",
+        str(inputs_path),
+        "--evidence",
+        str(evidence),
+        "--binary-inputs",
+        str(binary_inputs),
+    ]
+
+
+def test_statistical_verify_raises_a_clear_error_when_ke_is_not_installed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fake_run(command: list[str], **kwargs: object) -> _FakeCompletedProcess:
+        raise FileNotFoundError("ke")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    with pytest.raises(KeCommandError, match="is knowledge-engine-core installed"):
+        statistical_verify(tmp_path / "stats.jsonl", evidence=tmp_path / "e.jsonl")

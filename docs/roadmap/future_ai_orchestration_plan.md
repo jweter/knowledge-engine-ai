@@ -932,6 +932,22 @@ Connect existing core retrieval, Evidence Intelligence, evidence-map, and statis
 
 **Success criterion:** one session can call multiple existing Knowledge Engine capabilities and assemble structured results without an LLM dynamically deciding execution.
 
+**Status (2026-08-10): success criterion met and live-verified.**
+`knowledge_engine_ai/orchestrator/workflow.py`'s `run_fixed_evidence_workflow`
+runs a hardcoded step sequence (retrieval + Evidence Intelligence always;
+evidence-map and statistical-verification only when the caller supplies
+their required curated inputs) against an already-created AI-O2
+`ResearchSession`, appending one `ResearchEvent` per step whether it
+succeeds or fails. Two new `ke_client.py` wrappers
+(`evidence_map_report`/`statistical_verify`) added for this -- neither
+`ke evidence-map-report` nor `ke statistical-verify` has a `--format
+json` mode, so both return their rendered Markdown verbatim. Live-verified
+against the real GLP-1 corpus with `core`'s actual `ke` executable (not
+mocked): all three steps succeeded end to end, each producing a real,
+non-null `output_hash`. See `docs/ai_o3_design.md`. No LLM call, no
+`ResearchPlan` consumption yet (that connection is AI-O4's job, sitting
+above this module), no retry logic.
+
 ### AI-O4 — Local Query Planner
 
 Add LLM plan generation behind schema validation.
