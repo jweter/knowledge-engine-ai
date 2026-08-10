@@ -158,6 +158,89 @@ def evidence_intelligence(
         raise KeCommandError(str(exc)) from exc
 
 
+def evidence_map_report(
+    map_path: Path,
+    *,
+    evidence: Path,
+    relationships: Path,
+    sources: Path,
+    ke_executable: str = "ke",
+) -> str:
+    """Run `ke evidence-map-report` and return its rendered Markdown report verbatim.
+
+    `ke evidence-map-report` has no `--format json` -- it renders a
+    deterministic cross-study Markdown report from a curated,
+    human-authored evidence map, evidence file, and relationship file,
+    and there is no richer structured contract to parse here. Returns
+    the report text as-is; raises `KeCommandError` on any non-zero
+    exit (an invalid map, invalid evidence/relationships, or `ke` not
+    installed) rather than a partial result.
+    """
+
+    command = [
+        _resolve_ke_executable(ke_executable),
+        "evidence-map-report",
+        str(map_path),
+        "--evidence",
+        str(evidence),
+        "--relationships",
+        str(relationships),
+        "--sources",
+        str(sources),
+    ]
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, check=False)
+    except FileNotFoundError as exc:
+        raise KeCommandError(
+            f"Could not run {ke_executable!r} -- is knowledge-engine-core installed and on PATH?"
+        ) from exc
+
+    if result.returncode != 0:
+        message = result.stderr.strip() or result.stdout.strip()
+        raise KeCommandError(f"`ke evidence-map-report` exited {result.returncode}: {message}")
+
+    return result.stdout
+
+
+def statistical_verify(
+    inputs_path: Path,
+    *,
+    evidence: Path,
+    binary_inputs: Path | None = None,
+    ke_executable: str = "ke",
+) -> str:
+    """Run `ke statistical-verify` and return its rendered Markdown report verbatim.
+
+    Like `evidence_map_report`, there is no `--format json` for this
+    command -- it verifies explicitly curated effect arithmetic against
+    a curated statistical-inputs file and renders Markdown, nothing
+    this project re-derives. Raises `KeCommandError` on any non-zero
+    exit rather than a partial result.
+    """
+
+    command = [
+        _resolve_ke_executable(ke_executable),
+        "statistical-verify",
+        str(inputs_path),
+        "--evidence",
+        str(evidence),
+    ]
+    if binary_inputs is not None:
+        command += ["--binary-inputs", str(binary_inputs)]
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, check=False)
+    except FileNotFoundError as exc:
+        raise KeCommandError(
+            f"Could not run {ke_executable!r} -- is knowledge-engine-core installed and on PATH?"
+        ) from exc
+
+    if result.returncode != 0:
+        message = result.stderr.strip() or result.stdout.strip()
+        raise KeCommandError(f"`ke statistical-verify` exited {result.returncode}: {message}")
+
+    return result.stdout
+
+
 def enriched_evidence_report(
     question: str,
     *,

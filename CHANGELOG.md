@@ -9,6 +9,24 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **AI-O3: fixed-order deterministic orchestrator.** New
+  `knowledge_engine_ai/orchestrator/workflow.py`:
+  `run_fixed_evidence_workflow` connects retrieval + Evidence
+  Intelligence (always) and the evidence-map / statistical-verification
+  steps (only when the caller supplies their required curated inputs)
+  to an AI-O2 `ResearchSession`, appending one `ResearchEvent` per step
+  whether it succeeds or fails. No LLM call anywhere -- the step
+  sequence and each step's run condition are fixed by this module's own
+  code, meeting the roadmap's AI-O3 success criterion verbatim ("one
+  session can call multiple existing Knowledge Engine capabilities and
+  assemble structured results without an LLM dynamically deciding
+  execution"). Two new `ke_client.py` wrappers
+  (`evidence_map_report`/`statistical_verify`) support this -- neither
+  underlying `ke` command has a `--format json` mode, so both return
+  their rendered Markdown verbatim. Live-verified end to end against
+  the real GLP-1 corpus with `core`'s actual `ke` executable. 12 new
+  tests. See `docs/ai_o3_design.md`.
+
 - **AI-O2: durable `ResearchSession`/`ResearchEvent` persistence.**
   New `knowledge_engine_ai/sessions/` subpackage
   (`models.py`/`repository.py`): `SessionStatus` (the design doc's
