@@ -893,19 +893,17 @@ Build `ResearchPlan`, task types, execution policy, structured planner output, a
 
 **Success criterion:** a question is reliably converted into an inspectable bounded plan.
 
-**Status (2026-08-09): contracts and validator built, planner not yet
-started.** `ResearchPlan`/`ResearchTask`, the `TaskType` enum, the
-`ConsequenceLevel`/`ExecutionDecision` execution policy, and
-`validate_research_plan()`/`parse_research_plan()` are implemented in
-`knowledge_engine_ai/copilot/` -- see `docs/ai_o1_design.md`. This
-milestone's success criterion is not yet met: nothing yet converts a
-real question into a plan (that is AI-O4, "Local Query Planner", which
-adds LLM generation behind this same schema validator). What exists
-today is the inspectable, validated *shape* a plan must have, plus a
-test suite proving the validator actually catches malformed plans
-(duplicate task IDs, unresolved/cyclic dependencies, understated
-consequence levels, capability/task mismatches) -- the prerequisite
-AI-O2/AI-O3/AI-O4 build on, not those milestones themselves.
+**Status (2026-08-09): contracts and validator built.** `ResearchPlan`/
+`ResearchTask`, the `TaskType` enum, the `ConsequenceLevel`/
+`ExecutionDecision` execution policy, and `validate_research_plan()`/
+`parse_research_plan()` are implemented in `knowledge_engine_ai/copilot/`
+-- see `docs/ai_o1_design.md`. What exists is the inspectable, validated
+*shape* a plan must have, plus a test suite proving the validator
+actually catches malformed plans (duplicate task IDs, unresolved/cyclic
+dependencies, understated consequence levels, capability/task
+mismatches) -- the prerequisite AI-O2/AI-O3/AI-O4 build on, not those
+milestones themselves. AI-O4 (below) is what converts a real question
+into a plan against this same validator.
 
 ### AI-O2 — Durable Research Session
 
@@ -953,6 +951,29 @@ above this module), no retry logic.
 Add LLM plan generation behind schema validation.
 
 **Success criterion:** natural-language questions reliably map to bounded workflow plans.
+
+**Status (2026-08-10): success criterion live-verified against a real
+Ollama server.** `knowledge_engine_ai/copilot/planner.py`'s
+`plan_from_question` prompts a local model for a `ResearchPlan` JSON
+object, extracts it with a brace-balanced scan (survives markdown-fence
+wrapping and surrounding prose), force-overwrites `plan_id`/`created_at`
+with the values it generated (never trusts the model's echo of those two
+fields), and runs the result through AI-O1's unmodified
+`parse_research_plan`/`validate_research_plan`. Raises `PlannerError`
+with the raw model output attached on any parse or validation failure --
+no retry, no repair. Live-verified with a real, running `ollama serve`
+process (not mocked): 3 of 3 real questions, one per this project's
+three corpus domains, each produced a schema-valid plan with a correctly
+domain-matched `domain` field on the first attempt (39-49 seconds each
+against `qwen2.5:1.5b` on CPU-only hardware). `qwen3:4b` was tried first
+and found unusable in this environment at default settings -- its
+hybrid-reasoning "thinking" tokens consumed the entire response budget
+before producing an answer, and a full-length run exceeded `OllamaLLM`'s
+120-second default timeout. See `docs/ai_o4_design.md` for the full
+verification record, including what a 3-question sample does and does
+not establish. No orchestrator wiring yet -- AI-O3's fixed workflow does
+not consume a produced plan's `tasks`; that connection remains future
+work.
 
 ### AI-O5 — Parallel Retrieval + Contradiction Search
 

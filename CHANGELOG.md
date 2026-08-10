@@ -9,6 +9,25 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **AI-O4: local LLM query planner.** New
+  `knowledge_engine_ai/copilot/planner.py`: `plan_from_question` prompts
+  a local Ollama model to decompose a natural-language question into a
+  `ResearchPlan` JSON object, extracts it with a brace-balanced scan
+  (survives markdown-fence wrapping), force-overwrites the model's
+  `plan_id`/`created_at` with deterministically generated values rather
+  than trusting the model to echo them, and validates the result through
+  AI-O1's unmodified `parse_research_plan`/`validate_research_plan`.
+  Raises `PlannerError` with the raw model output attached on any parse
+  or validation failure -- no retry, no repair. Live-verified against a
+  real, running `ollama serve` process: 3 of 3 real questions (one per
+  this project's three corpus domains) produced a schema-valid,
+  correctly domain-matched plan on the first attempt. `qwen3:4b`'s
+  hybrid-reasoning "thinking" mode was found unusable at default
+  settings in this CPU-only environment (its reasoning tokens consumed
+  the entire response budget); verification instead used `qwen2.5:1.5b`.
+  16 new tests in `tests/copilot/test_planner.py`. See
+  `docs/ai_o4_design.md`.
+
 - **AI-O3: fixed-order deterministic orchestrator.** New
   `knowledge_engine_ai/orchestrator/workflow.py`:
   `run_fixed_evidence_workflow` connects retrieval + Evidence
