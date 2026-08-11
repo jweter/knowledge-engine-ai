@@ -9,6 +9,31 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **AI-O7: Research Session Synthesis.** New
+  `knowledge_engine_ai/orchestrator/session_report.py`:
+  `build_session_report(narrative, report, verification)` resolves each
+  `[evidence_record_id]` citation a `synthesis.py` narrative actually
+  makes into a `SourcedClaim` carrying the containing `RetrievedPaper`'s
+  real title, authors, year, DOI, citation string, and source URL -- the
+  join from an evidence-record-level citation up to paper-level
+  bibliography that no earlier module performed.
+  `SessionReport.unresolved_citations` reuses AI-O6's own
+  `VerificationResult.hallucinated_citations` (taken as a parameter, not
+  recomputed) so a citation is never independently re-checked twice; a
+  citation repeated more than once in the narrative resolves to exactly
+  one `SourcedClaim`, in order of first appearance.
+  `SessionReport.is_fully_sourced` is `True` only when
+  `unresolved_citations` is empty. `verification.py`'s citation regex
+  moved from a private `_CITATION_RE` to a shared, exported
+  `CITATION_PATTERN` constant both modules now import, rather than each
+  maintaining its own copy. 5 new tests in `tests/test_session_report.py`.
+  Live-verified by re-resolving the real narrative and `EvidenceReport`
+  AI-O6's own live check already captured against the real GLP-1 corpus:
+  both of the narrative's genuine citations resolved to their correct
+  source papers with real DOIs
+  (`10.3389/fphar.2022.935823`, `10.1038/s41591-024-02996-7`), zero
+  unresolved citations, `is_fully_sourced=True`. See `docs/ai_o7_design.md`.
+
 - **AI-O6: deterministic Skeptic/Verifier.** New
   `knowledge_engine_ai/orchestrator/verification.py`: `verify_synthesis`
   checks a `synthesis.py`-generated narrative against the

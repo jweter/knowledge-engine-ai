@@ -38,7 +38,12 @@ from dataclasses import dataclass
 
 from knowledge_engine_ai.models import EvidenceRecord, EvidenceReport
 
-_CITATION_RE = re.compile(r"\[([A-Za-z0-9_\-]+)\]")
+CITATION_PATTERN = re.compile(r"\[([A-Za-z0-9_\-]+)\]")
+"""Shared with `session_report.py` (AI-O7) -- both modules extract the
+same `[evidence_record_id]` citation shape `synthesis.py`'s prompt
+requires, so the pattern lives in one place rather than two copies that
+could silently drift apart."""
+
 _NUMBER_RE = re.compile(r"\d+\.\d+|\d+")
 _QUALIFYING_DIRECTIONS = {"qualifies", "contradicts"}
 
@@ -77,7 +82,7 @@ def verify_synthesis(narrative: str, report: EvidenceReport) -> VerificationResu
         if record.evidence_record_id
     }
 
-    cited_ids = tuple(dict.fromkeys(_CITATION_RE.findall(narrative)))
+    cited_ids = tuple(dict.fromkeys(CITATION_PATTERN.findall(narrative)))
     hallucinated = tuple(cited_id for cited_id in cited_ids if cited_id not in records_by_id)
 
     grounded_text = " ".join(
@@ -90,7 +95,7 @@ def verify_synthesis(narrative: str, report: EvidenceReport) -> VerificationResu
     # Strip citation brackets first -- "[ev-1]" otherwise contributes a
     # spurious numeric token ("1") that has nothing to do with a stated
     # statistic.
-    narrative_without_citations = _CITATION_RE.sub(" ", narrative)
+    narrative_without_citations = CITATION_PATTERN.sub(" ", narrative)
     narrative_numbers = _NUMBER_RE.findall(narrative_without_citations)
     ungrounded = tuple(
         dict.fromkeys(number for number in narrative_numbers if number not in grounded_numbers)
