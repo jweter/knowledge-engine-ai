@@ -1,7 +1,7 @@
 # AI-O8 — Model Router
 
-**Status:** Planned, not yet implemented (this document is the plan;
-implementation follows in the same branch).
+**Status:** Implemented and live-verified (2026-08-11) -- see "Live
+verification" below.
 **Depends on:** `llm.py` (`LocalLLM`, `OllamaLLM`), `routing.py`
 (`ModelRole`, `ProviderSpec`, `select_provider` -- merged just ahead of
 this milestone), AI-O4's `planner.py` (`plan_from_question` +
@@ -199,14 +199,41 @@ omitted from the recommendation, not an error;
 `provider_specs_from_benchmark` produces one `ProviderSpec` per
 recommended role with `local=True` and the given `max_privacy`.
 
-## Live verification (to be run and recorded here)
+## Live verification
 
-Run the real benchmark against both models actually pulled in this
-environment (`qwen2.5:1.5b`, `qwen3:4b`) using a real running
-`ollama serve`, the planning task against a real question, and the
-synthesis task against the same real GLP-1 `EvidenceReport` AI-O6/AI-O7
-already live-verified against -- reusing that same fixture rather than
-inventing a new one. Result recorded once run, including whether
-`qwen3:4b`'s previously-observed "thinking" budget problem reproduces
-here as a benchmark failure (the expected, and itself informative,
-outcome if so).
+Ran the real benchmark against both models actually pulled in this
+environment (`qwen2.5:1.5b`, `qwen3:4b`) with a real running
+`ollama serve`: the planning task against a real question ("Does
+semaglutide reduce body weight more than placebo in adults with
+obesity?"), and the synthesis task against the same real GLP-1
+`EvidenceReport` AI-O6/AI-O7 already live-verified against.
+
+First run used `OllamaLLM`'s 120s default per-call timeout and both
+models timed out on the planning task -- but a follow-up isolated retry
+of `qwen2.5:1.5b`'s planning probe alone, with a 480s timeout, completed
+in **36.2 seconds**. The 120s default was too tight for this
+environment's first (cold-loaded) call, not evidence the model cannot
+plan -- re-running the full sweep with `timeout_seconds=300.0` gives an
+honest read instead of an artifact of an under-tuned timeout:
+
+| model | planning (`REASONER`) | synthesis + citation compliance (`SYNTHESIS`) |
+|---|---|---|
+| `qwen2.5:1.5b` | **passed** -- produced a schema-valid `ResearchPlan` | **passed** -- `hallucinated_citations=()`, `ungrounded_numbers=()` |
+| `qwen3:4b` | **failed** -- timed out at 300s | **failed** -- `synthesize_answer` returned an empty response (Ollama's `content` field was empty after `_strip_thinking` removed the `<think>...</think>` block, i.e. the "thinking" tokens consumed the entire response budget) |
+
+`recommend_models_by_role` -> `{ModelRole.REASONER: "qwen2.5:1.5b",
+ModelRole.SYNTHESIS: "qwen2.5:1.5b"}`. `provider_specs_from_benchmark`
+turned that into two local `ProviderSpec`s, `max_privacy=SENSITIVE`,
+ready for `routing.select_provider` to rank.
+
+This is a genuine, not contrived, result: with only two models pulled
+in this environment, "smallest model meeting the bar" trivially
+resolves to the one model that clears both bars, but the benchmark
+independently *confirmed* AI-O4's prior anecdotal finding about
+`qwen3:4b`'s CPU-only unusability as a reproducible, automated result
+rather than a one-off observation -- and the timeout-tuning episode
+above is itself a real, worth-keeping finding: a benchmark harness on
+CPU-only hardware needs a materially longer per-call timeout than a
+single interactive request would, because cold model load time can
+exceed a "generous-looking" 120s budget even when actual inference
+takes under a minute once warm.
