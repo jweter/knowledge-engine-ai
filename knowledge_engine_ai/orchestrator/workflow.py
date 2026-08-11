@@ -1,4 +1,4 @@
-"""AI-O3: connect existing `core` capabilities to a `ResearchSession` via fixed rules.
+"""AI-O3/AI-O5: connect existing `core` capabilities to a `ResearchSession` via fixed rules.
 
 `docs/roadmap/future_ai_orchestration_plan.md`'s AI-O3 success criterion:
 "one session can call multiple existing Knowledge Engine capabilities and
@@ -7,13 +7,26 @@ execution." This module is that connection, and nothing more: it does
 not plan, does not choose which capability to run based on the
 question's content, and does not call an LLM. The step sequence and
 each step's run condition are fixed by this module's own code --
-retrieval + Evidence Intelligence always run; the evidence-map and
+retrieval (AI-O5: primary and contradiction-oriented, in parallel) plus
+Evidence Intelligence always run; the evidence-map and
 statistical-verification steps run only when the caller supplies their
 required curated inputs, an "if configured" branch evaluated once
 per call, not a judgment call any executor makes per-question. Real
 per-question planning (deciding *which* capabilities a question needs)
 is AI-O4's "Local Query Planner" behind this same schema, not this
 module's job.
+
+AI-O5 widened the single "retrieval" step into `orchestrator.parallel_retrieval`'s
+`run_parallel_retrieval`: primary retrieval and a second,
+contradiction-oriented-worded retrieval run concurrently against the
+same corpus, each recorded as its own `ResearchEvent` so a caller (or a
+future AI-O6 Skeptic step) can inspect both branches' results
+independently, plus the concrete recall-gain signal
+(`contradiction_only_evidence_record_ids`) AI-O5's success criterion
+asks to measure. `WorkflowResult.evidence_report` still points at the
+primary branch's report alone, for backward compatibility with callers
+built against AI-O3's single-report shape; `WorkflowResult.parallel_retrieval`
+carries the full two-branch detail.
 
 Session lifecycle is the caller's responsibility, matching AI-O2's own
 "no implicit chat-order state" discipline: `run_fixed_evidence_workflow`
@@ -35,17 +48,22 @@ from pathlib import Path
 
 from knowledge_engine_ai.ke_client import (
     KeCommandError,
-    enriched_evidence_report,
     evidence_map_report,
     statistical_verify,
 )
 from knowledge_engine_ai.models import EvidenceReport
+from knowledge_engine_ai.orchestrator.parallel_retrieval import (
+    ExternalDiscoveryCallable,
+    ParallelRetrievalResult,
+    run_parallel_retrieval,
+)
 from knowledge_engine_ai.sessions.models import ResearchEvent
 from knowledge_engine_ai.sessions.repository import SessionRepository
 
 _EXECUTOR_TYPE = "deterministic_tool"
 
 _RETRIEVAL_NODE = "retrieval_and_evidence_intelligence"
+_CONTRADICTION_RETRIEVAL_NODE = "contradiction_oriented_retrieval"
 _EVIDENCE_MAP_NODE = "evidence_map"
 _STATISTICAL_VERIFICATION_NODE = "statistical_verification"
 
@@ -63,11 +81,19 @@ class WorkflowStepResult:
 
 @dataclass(frozen=True)
 class WorkflowResult:
-    """The assembled, structured result of one fixed-workflow run."""
+    """The assembled, structured result of one fixed-workflow run.
+
+    `evidence_report` is the primary retrieval branch's report alone,
+    kept for backward compatibility with callers built against AI-O3's
+    single-report shape. `parallel_retrieval` (AI-O5) carries the full
+    two-branch detail, including the recall-gain signal
+    (`contradiction_only_evidence_record_ids`).
+    """
 
     session_id: str
     question: str
     evidence_report: EvidenceReport | None
+    parallel_retrieval: ParallelRetrievalResult | None
     steps: tuple[WorkflowStepResult, ...]
 
 
@@ -83,6 +109,7 @@ def run_fixed_evidence_workflow(
     relationships: Path | None = None,
     statistical_inputs: Path | None = None,
     binary_statistical_inputs: Path | None = None,
+    external_discovery: ExternalDiscoveryCallable | None = None,
     ke_executable: str = "ke",
 ) -> WorkflowResult:
     """Run the fixed step sequence against an already-created `session_id`.
@@ -94,40 +121,65 @@ def run_fixed_evidence_workflow(
     remaining fixed steps from being attempted; `WorkflowResult.steps`
     reports every outcome so a caller can see exactly what happened
     without re-deriving it from the event log.
+
+    AI-O5: retrieval runs primary and contradiction-oriented queries
+    concurrently (`orchestrator.parallel_retrieval.run_parallel_retrieval`),
+    always, the same "always run" status the single retrieval step had
+    under AI-O3 -- not gated behind an "if configured" branch the way
+    the evidence-map/statistical-verification steps below are, since
+    AI-O5's milestone text names this "in parallel" with primary
+    retrieval, not conditional on it. Each branch is recorded as its own
+    `ResearchEvent`.
     """
 
     steps: list[WorkflowStepResult] = []
     report: EvidenceReport | None = None
+    parallel_result: ParallelRetrievalResult | None = None
 
-    try:
-        report = enriched_evidence_report(
-            question, sources=sources, evidence=evidence, limit=limit, ke_executable=ke_executable
+    parallel_result = run_parallel_retrieval(
+        question,
+        sources=sources,
+        evidence=evidence,
+        limit=limit,
+        external_discovery=external_discovery,
+        ke_executable=ke_executable,
+    )
+    report = parallel_result.primary.report
+    steps.append(
+        _record_step(
+            session_repository,
+            session_id=session_id,
+            workflow_node=_RETRIEVAL_NODE,
+            tool_name="ke evidence-report",
+            output=_retrieval_summary(report) if report is not None else None,
+            output_hash=_retrieval_output_hash(report) if report is not None else None,
+            output_schema_version=report.schema_version if report is not None else None,
+            error=parallel_result.primary.error,
         )
-        steps.append(
-            _record_step(
-                session_repository,
-                session_id=session_id,
-                workflow_node=_RETRIEVAL_NODE,
-                tool_name="ke evidence-report",
-                output=_retrieval_summary(report),
-                output_hash=_retrieval_output_hash(report),
-                output_schema_version=report.schema_version,
-                error=None,
-            )
+    )
+    contradiction_report = parallel_result.contradiction.report
+    steps.append(
+        _record_step(
+            session_repository,
+            session_id=session_id,
+            workflow_node=_CONTRADICTION_RETRIEVAL_NODE,
+            tool_name="ke evidence-report (contradiction-oriented)",
+            output=(
+                _retrieval_summary(contradiction_report)
+                if contradiction_report is not None
+                else None
+            ),
+            output_hash=(
+                _retrieval_output_hash(contradiction_report)
+                if contradiction_report is not None
+                else None
+            ),
+            output_schema_version=(
+                contradiction_report.schema_version if contradiction_report is not None else None
+            ),
+            error=parallel_result.contradiction.error,
         )
-    except KeCommandError as exc:
-        steps.append(
-            _record_step(
-                session_repository,
-                session_id=session_id,
-                workflow_node=_RETRIEVAL_NODE,
-                tool_name="ke evidence-report",
-                output=None,
-                output_hash=None,
-                output_schema_version=None,
-                error=str(exc),
-            )
-        )
+    )
 
     if evidence_map is not None and relationships is not None:
         try:
@@ -199,7 +251,11 @@ def run_fixed_evidence_workflow(
             )
 
     return WorkflowResult(
-        session_id=session_id, question=question, evidence_report=report, steps=tuple(steps)
+        session_id=session_id,
+        question=question,
+        evidence_report=report,
+        parallel_retrieval=parallel_result,
+        steps=tuple(steps),
     )
 
 

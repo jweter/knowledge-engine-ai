@@ -9,6 +9,47 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **AI-O5: parallel retrieval + contradiction-oriented retrieval.** New
+  `knowledge_engine_ai/orchestrator/parallel_retrieval.py`:
+  `run_parallel_retrieval` widens AI-O3's single always-run retrieval
+  step into two, run concurrently via a `ThreadPoolExecutor` -- the
+  unmodified question (primary) and the same question with `core`'s own
+  already-validated same-PICO-contradiction-audit negative-signal
+  phrase set appended (contradiction-oriented). No new `core`-side
+  capability and no LLM call; each branch's `KeCommandError` is caught
+  independently rather than aborting its sibling, matching AI-O3's
+  "one step's failure does not stop the rest" discipline.
+  `ParallelRetrievalResult.contradiction_only_evidence_record_ids` is
+  the concrete recall-gain signal AI-O5's success criterion asks to
+  measure. `run_fixed_evidence_workflow` now records both branches as
+  separate `ResearchEvent`s (`retrieval_and_evidence_intelligence`,
+  `contradiction_oriented_retrieval`); `WorkflowResult.parallel_retrieval`
+  carries the full two-branch detail, `evidence_report` still points at
+  the primary branch alone for backward compatibility. Optional
+  external discovery is an injectable callable, deliberately left
+  unwired to any concrete `core` capability (`ke discovery-cycle-run`'s
+  persisted pagination-offset semantics do not fit a per-question call
+  -- see the design doc). Live-verified against `core`'s real GLP-1 and
+  oncology corpora with the actual `ke` executable, at two retrieval
+  depths for the oncology check: at a shallow window (`--limit 5`/`8`)
+  both corpora showed zero recall gain (the GLP-1 result matches
+  `core`'s own contradiction audit finding no contradiction exists
+  there -- a correct null result); at a deeper window (`--limit 20`)
+  the oncology corpus showed a real, substantial gain -- 63 primary IDs
+  vs. 145 contradiction IDs, 121 net-new against only 37 lost, roughly
+  3.3x net-new records vs. lost. Retrieval depth, not just query
+  wording, materially changes whether the gain is visible at all --
+  whether those 121 net-new records are disproportionately genuine
+  contradiction candidates was not manually spot-checked and is named
+  explicit follow-up work. See `docs/ai_o5_design.md`'s "what this does
+  not establish" section for the full honest interpretation. A real,
+  narrow concurrency defect was found and
+  worked around during verification (two `ke` subprocesses racing to
+  apply the same pending schema migration to one on-disk SQLite file on
+  first concurrent use), documented rather than silently patched. 6 new
+  tests in `tests/test_parallel_retrieval.py`; `tests/test_orchestrator_workflow.py`
+  updated for the two-event retrieval step. See `docs/ai_o5_design.md`.
+
 - **AI-O4: local LLM query planner.** New
   `knowledge_engine_ai/copilot/planner.py`: `plan_from_question` prompts
   a local Ollama model to decompose a natural-language question into a
