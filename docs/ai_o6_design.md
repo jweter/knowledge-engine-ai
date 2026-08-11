@@ -1,7 +1,8 @@
 # AI-O6 — Skeptic + Verifier
 
-**Status:** Planned, not yet implemented (this document is the plan;
-implementation follows in the same branch).
+**Status:** Implemented and live-verified end to end against a real
+`ke` corpus, a real running Ollama model, and this module's own checker
+(2026-08-11) -- see "Live verification" below.
 **Depends on:** `knowledge_engine_ai/synthesis.py` (the only place a
 model-generated narrative string exists in this project) and AI-O1's
 `TaskType.CONTRADICTION_SEARCH` docstring, which already named the
@@ -139,6 +140,40 @@ class VerificationResult:
   `EvidenceReport`, the same "not mocked" discipline AI-O4's and AI-O5's
   live checks used, reported honestly in this document's own follow-up
   status section once run.
+
+## Live verification
+
+Run end to end against the real GLP-1 corpus with `core`'s actual `ke`
+executable, a real running Ollama server (`qwen2.5:1.5b`, the model
+AI-O4's own live check found usable in this environment), and this
+module's own checker (not mocked anywhere in the chain):
+
+`enriched_evidence_report("does semaglutide reduce body weight more
+than placebo", limit=5)` retrieved 4 evidence records
+(`ev-glp1-gao-meta-analysis-body-weight-001`,
+`ev-glp1-gao-meta-analysis-safety-discontinuation-001`,
+`ev-glp1-select-trial-weight-loss-208wk-001`,
+`ev-glp1-step5-body-weight-week104-001`). `synthesize_answer` produced a
+real narrative citing only two of those four
+(`ev-glp1-gao-meta-analysis-body-weight-001`,
+`ev-glp1-select-trial-weight-loss-208wk-001`) -- it did mention "fewer
+serious adverse events but higher rates of discontinuation" in prose,
+but without a citation bracket, and never referenced the STEP5
+week-104 record at all. `verify_synthesis` correctly caught both as
+`missed_qualifiers`: `hallucinated_citations=()`,
+`ungrounded_numbers=()`, `missed_qualifiers=('ev-glp1-gao-meta-analysis-safety-discontinuation-001',
+'ev-glp1-step5-body-weight-week104-001')`.
+
+This is a genuinely useful first real signal, not a contrived example:
+the model's citation and numeric fidelity were clean (every number and
+citation it did produce checked out against the evidence it was given),
+but it silently dropped two of four retrieved records from its answer
+-- exactly the "missed qualifier" failure mode this milestone's success
+criterion names, caught by a deterministic check with no LLM
+involved in the checking. A single real run is not a benchmark (the
+same "small sample" caveat every prior AI-O live check has carried);
+it does establish that the checker fires on genuine model behavior in
+this environment, not only on hand-built test fixtures.
 
 ## Open questions (not resolved here)
 
