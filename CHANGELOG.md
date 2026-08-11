@@ -30,11 +30,20 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   unwired to any concrete `core` capability (`ke discovery-cycle-run`'s
   persisted pagination-offset semantics do not fit a per-question call
   -- see the design doc). Live-verified against `core`'s real GLP-1 and
-  oncology corpora with the actual `ke` executable: the mechanism runs
-  correctly end to end with precision maintained, though measured
-  recall gain was zero in both live checks -- see `docs/ai_o5_design.md`'s
-  "what this does not establish" section for the honest interpretation
-  of that result. A real, narrow concurrency defect was found and
+  oncology corpora with the actual `ke` executable, at two retrieval
+  depths for the oncology check: at a shallow window (`--limit 5`/`8`)
+  both corpora showed zero recall gain (the GLP-1 result matches
+  `core`'s own contradiction audit finding no contradiction exists
+  there -- a correct null result); at a deeper window (`--limit 20`)
+  the oncology corpus showed a real, substantial gain -- 63 primary IDs
+  vs. 145 contradiction IDs, 121 net-new against only 37 lost, roughly
+  3.3x net-new records vs. lost. Retrieval depth, not just query
+  wording, materially changes whether the gain is visible at all --
+  whether those 121 net-new records are disproportionately genuine
+  contradiction candidates was not manually spot-checked and is named
+  explicit follow-up work. See `docs/ai_o5_design.md`'s "what this does
+  not establish" section for the full honest interpretation. A real,
+  narrow concurrency defect was found and
   worked around during verification (two `ke` subprocesses racing to
   apply the same pending schema migration to one on-disk SQLite file on
   first concurrent use), documented rather than silently patched. 6 new

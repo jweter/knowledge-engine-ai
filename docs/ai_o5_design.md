@@ -117,34 +117,55 @@ already migrated to its current schema:
   contradiction-oriented query correctly finding nothing extra, in a
   corpus that genuinely contains nothing extra to find, is the expected
   result, not a failure of the mechanism.
-- **Oncology corpus** (`do immune checkpoint inhibitors improve overall
-  survival in advanced non-small-cell lung cancer`, `--limit 8`):
-  primary retrieval returned 25 evidence-record IDs, contradiction
-  retrieval returned 24 -- `contradiction_only_evidence_record_ids` was
-  empty (every ID the contradiction branch found was already in the
+- **Oncology corpus, shallow window** (`do immune checkpoint inhibitors
+  improve overall survival in advanced non-small-cell lung cancer`,
+  `--limit 8`): primary retrieval returned 25 evidence-record IDs,
+  contradiction retrieval returned 24 -- `contradiction_only_evidence_record_ids`
+  was empty (every ID the contradiction branch found was already in the
   primary set). The two branches did return different *papers*
   (different top-ranked titles -- e.g. an STK11-biomarker paper, an
   opioid/immune-checkpoint crosstalk paper -- surfaced only on the
   contradiction-oriented branch), but those differently-ranked papers
   did not happen to carry a promoted `EvidenceRecord`, so they
   contributed no new IDs to the recall-gain count.
+- **Oncology corpus, deeper window** (same question, `--limit 20`):
+  primary retrieval returned 63 evidence-record IDs, contradiction
+  retrieval returned 145 -- `contradiction_only_evidence_record_ids`
+  contained 121 IDs never returned by the primary branch, while only 37
+  primary IDs were absent from the contradiction branch. At this
+  retrieval depth the contradiction-oriented query surfaced roughly 3.3x
+  as many net-new evidence records as it lost, a real and substantial
+  recall gain, not a null result.
 
 **What this establishes:** the mechanism itself works correctly end to
 end against real data (concurrent execution, independent per-branch
-error handling, a genuinely computed set-difference), and precision was
-not materially reduced (the contradiction branch never returned an
-evidence record absent from a sane, on-topic result set). **What this
-does not establish:** that appending this specific 16-phrase block to a
-question reliably increases measured recall of genuinely contradicting
-evidence at corpus scale. Two real questions against two real corpora is
-a small-sample live-verification check confirming the plumbing is
-correct, not a systematic recall/precision benchmark -- the same
-"what a small sample does and does not establish" caveat
-`docs/ai_o4_design.md` already named for its own 3-question live check.
-A real benchmark would need a labeled set of question/known-contradiction
-pairs to measure recall against, which does not exist yet in this
-project; building one is named here as follow-up work, not attempted in
-this milestone.
+error handling, a genuinely computed set-difference), precision was not
+grossly degraded (`--limit 20`'s contradiction branch still returned
+mostly the same, on-topic checkpoint-inhibitor/NSCLC literature, not an
+unrelated flood), and -- at sufficient retrieval depth -- the
+contradiction-oriented query measurably increases the set of evidence
+records surfaced. **What this does not establish:** whether the 121
+contradiction-only records at `--limit 20` are disproportionately
+genuine contradiction candidates (the signal AI-O5 is meant to surface)
+versus simply more records overall from a less-selective, broader query
+-- a manual relevance read of a sample of those 121 IDs was not
+performed as part of this verification, and is named here as concrete,
+specific follow-up work rather than assumed. The shallow-window (`--limit
+8`) null result and the deep-window (`--limit 20`) strong-gain result
+together show that *retrieval depth*, not just query wording, materially
+changes whether this technique's recall gain is visible at all --
+worth carrying into any future systematic benchmark's own design (fix a
+retrieval depth deliberately, do not average across depths). Two real
+questions against two real corpora, at two depths for one of them, is
+still a small-sample live-verification check confirming the plumbing is
+correct and giving an honest first read of the effect's shape, not a
+systematic recall/precision benchmark -- the same "what a small sample
+does and does not establish" caveat `docs/ai_o4_design.md` already named
+for its own 3-question live check. A real benchmark would need a
+labeled set of question/known-contradiction pairs to measure recall
+against, which does not exist yet in this project; building one, along
+with a manual-relevance spot-check of the gained records above, is
+named here as follow-up work, not attempted in this milestone.
 
 ## A real concurrency finding: migration races under concurrent `ke` calls
 

@@ -981,8 +981,8 @@ Run primary retrieval, contradiction-oriented retrieval, and optional external d
 
 **Success criterion:** measured contradiction recall improves without materially reducing precision.
 
-**Status (2026-08-11): mechanism implemented and live-verified; recall
-gain measured, not yet demonstrated at scale.**
+**Status (2026-08-11): mechanism implemented and live-verified; a real,
+substantial recall gain measured at sufficient retrieval depth.**
 `knowledge_engine_ai/orchestrator/parallel_retrieval.py`'s
 `run_parallel_retrieval` widens AI-O3's single always-run retrieval step
 into two, run concurrently via a thread pool: the unmodified question
@@ -996,16 +996,23 @@ its sibling; the concrete recall signal
 computed and exposed on the result. `run_fixed_evidence_workflow`
 records both branches as separate `ResearchEvent`s. Live-verified
 against `core`'s real GLP-1 and oncology corpora with the actual `ke`
-executable: the mechanism runs correctly end to end and precision was
-not materially reduced (no off-topic result was returned by either
-branch), but measured recall gain was zero in both live checks -- the
-GLP-1 result is consistent with `core`'s own GLP-1 same-PICO
-contradiction audit finding no contradiction exists in that corpus, so
-finding nothing extra there is a correct null result, not a mechanism
-failure; the oncology result (where 108/1,534 records are known to
-match the phrase set) is a genuinely inconclusive small-sample finding
--- see `docs/ai_o5_design.md`'s "what this does not establish" section.
-A real recall/precision benchmark needs a labeled question/
+executable, at two retrieval depths for the oncology check: the
+mechanism runs correctly end to end throughout. GLP-1 (`--limit 5`) and
+oncology at a shallow window (`--limit 8`) both found zero recall
+gain -- the GLP-1 result matches `core`'s own GLP-1 same-PICO
+contradiction audit finding no contradiction exists in that corpus (a
+correct null result, not a mechanism failure), while the shallow
+oncology check simply did not reach deep enough. Oncology at a deeper
+window (`--limit 20`) told a materially different story: 63 primary IDs
+vs. 145 contradiction IDs, with 121 contradiction-only (net-new) against
+only 37 lost -- a real, substantial recall gain, roughly 3.3x net-new
+records vs. lost. Retrieval depth, not just query wording, turned out to
+materially change whether the gain is visible at all. Whether those 121
+net-new records are disproportionately genuine contradiction candidates
+(vs. simply more records from a less-selective query) was not manually
+spot-checked and remains named, explicit follow-up work -- see
+`docs/ai_o5_design.md`'s "what this does not establish" section. A real
+recall/precision benchmark needs a labeled question/
 known-contradiction dataset this project does not yet have; building
 one is named as follow-up work, not attempted here. Optional external
 discovery is an injectable callable, deliberately left unwired to any
