@@ -6,6 +6,12 @@ from knowledge_engine_ai.orchestrator.close_gate import (
     SessionCloseResult,
     attempt_session_close,
 )
+from knowledge_engine_ai.orchestrator.observability import (
+    EventTrace,
+    SessionTrace,
+    build_session_trace,
+    render_session_trace,
+)
 from knowledge_engine_ai.orchestrator.parallel_retrieval import (
     CONTRADICTION_SIGNAL_PHRASES,
     ExternalDiscoveryCallable,
@@ -33,11 +39,13 @@ from knowledge_engine_ai.orchestrator.workflow import (
 __all__ = [
     "CITATION_PATTERN",
     "CONTRADICTION_SIGNAL_PHRASES",
+    "EventTrace",
     "ExternalDiscoveryCallable",
     "ParallelRetrievalResult",
     "RetrievalBranchResult",
     "SessionCloseResult",
     "SessionReport",
+    "SessionTrace",
     "SourcedClaim",
     "VerificationResult",
     "WorkflowResult",
@@ -45,6 +53,8 @@ __all__ = [
     "attempt_session_close",
     "build_contradiction_query",
     "build_session_report",
+    "build_session_trace",
+    "render_session_trace",
     "run_fixed_evidence_workflow",
     "run_parallel_retrieval",
     "verify_synthesis",

@@ -64,7 +64,8 @@ CREATE TABLE IF NOT EXISTS research_events (
     source_ids TEXT NOT NULL,
     parent_event_ids TEXT NOT NULL,
     retry_of TEXT,
-    notes TEXT
+    notes TEXT,
+    duration_ms INTEGER
 );
 
 CREATE INDEX IF NOT EXISTS idx_research_events_session_sequence
@@ -309,8 +310,9 @@ class SessionRepository:
                     event_id, session_id, sequence_number, timestamp, workflow_node,
                     executor_type, validation_status, output_schema_version, output_hash,
                     inputs_hash, model_name, model_version, prompt_template_version,
-                    tool_name, tool_version, source_ids, parent_event_ids, retry_of, notes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    tool_name, tool_version, source_ids, parent_event_ids, retry_of, notes,
+                    duration_ms
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     event.event_id,
@@ -332,6 +334,7 @@ class SessionRepository:
                     json.dumps(list(event.parent_event_ids)),
                     event.retry_of,
                     event.notes,
+                    event.duration_ms,
                 ),
             )
         except sqlite3.IntegrityError as exc:
@@ -420,6 +423,7 @@ def _event_from_row(row: sqlite3.Row) -> ResearchEvent:
         parent_event_ids=tuple(json.loads(row["parent_event_ids"])),
         retry_of=row["retry_of"],
         notes=row["notes"],
+        duration_ms=row["duration_ms"],
     )
 
 

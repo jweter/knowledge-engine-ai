@@ -1085,6 +1085,22 @@ Add workflow tracing and resource metrics.
 
 **Success criterion:** every session can answer what ran, why, what model/tool was used, where time was spent, what failed, and what evidence supported the output.
 
+**Status (2026-08-11): implemented and live-verified.** Closed two real
+gaps in AI-O2's `ResearchEvent` (no duration field; `source_ids` never
+populated) additively, then added
+`knowledge_engine_ai/orchestrator/observability.py`:
+`build_session_trace`/`render_session_trace` project a session's
+existing event log into an answer to all six success-criterion
+questions -- a read-side reporting layer over AI-O2's store, not a new
+one. "Why" is answered at the session level (the original question),
+since no per-step reasoning data exists in this project yet.
+Budgeting/cost metrics beyond wall-clock duration are named as explicit
+follow-up, since nothing here tracks a cost unit today. Live-verified
+against the real GLP-1 corpus with all four fixed workflow steps: all
+six trace sections rendered with real data, including 4 real
+evidence-record IDs surfaced via `source_ids` for the first time and a
+real `total_duration_ms=120,058`. See `docs/ai_o9_design.md`.
+
 ### AI-O10 — Discovery Intelligence
 
 Only after analytical and graph prerequisites are met. Build contradiction explanation, Unknowns Engine, and gap ranking.

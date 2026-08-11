@@ -117,3 +117,4 @@ class ResearchEvent:
     parent_event_ids: tuple[str, ...] = field(default_factory=tuple)
     retry_of: str | None = None
     notes: str | None = None
+    duration_ms: int | None = None

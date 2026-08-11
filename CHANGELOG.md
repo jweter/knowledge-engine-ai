@@ -9,6 +9,38 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **AI-O9: Observability + Budgeting.** Closed two real gaps in AI-O2's
+  `ResearchEvent` schema and added a read-side reporting layer over it,
+  rather than a new persistence mechanism. `ResearchEvent` gains an
+  additive `duration_ms: int | None` field (no schema-version bump);
+  `orchestrator/workflow.py`'s `_record_step` now times every fixed
+  step and populates `duration_ms`, and populates the already-existing
+  but previously-never-written `source_ids` field with each retrieval
+  step's retrieved evidence-record IDs. New
+  `knowledge_engine_ai/orchestrator/observability.py`:
+  `build_session_trace(session, events)` projects a session's event log
+  into a `SessionTrace` (deduplicated `evidence_record_ids` in
+  first-appearance order, `total_duration_ms` summing only events with
+  a known duration, `failed_events`); `render_session_trace` renders it
+  as plain text with one section per success-criterion question. "Why"
+  is answered at the session level (`session.user_question_original`),
+  not a per-step field -- this project has no per-step reasoning data
+  today, since `run_fixed_evidence_workflow`'s step sequence is fixed by
+  its own code (AI-O3), not chosen by a model that could explain a
+  choice. Resource/cost budgeting beyond wall-clock duration is
+  explicitly out of scope for this slice -- nothing in this project
+  tracks a cost unit today (Ollama is local and free per-call, no cloud
+  provider is wired in). 12 new tests (`tests/test_observability.py`
+  plus new duration/source_ids assertions in
+  `tests/test_orchestrator_workflow.py`). Live-verified end to end
+  against the real GLP-1 corpus with `core`'s actual `ke` executable,
+  all four fixed steps: all six trace sections rendered with real data
+  -- 4 real evidence-record IDs surfaced via `source_ids` for the first
+  time, `total_duration_ms=120,058` (58,166ms for the combined
+  parallel-retrieval call, itself a genuine and worth-keeping
+  observation rather than tuned away), `all_succeeded=True`. See
+  `docs/ai_o9_design.md`.
+
 - **AI-O8: Model Router.** New `knowledge_engine_ai/model_benchmark.py`:
   `run_model_benchmark` runs a set of role-tagged `BenchmarkTask` probes
   against each candidate model, reusing this project's own existing
