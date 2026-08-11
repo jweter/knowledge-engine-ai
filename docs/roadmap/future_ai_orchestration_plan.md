@@ -1107,7 +1107,7 @@ Only after analytical and graph prerequisites are met. Build contradiction expla
 
 ### AI-O11 — Hypothesis / Experiment Assistance
 
-Late-stage capability requiring explicit speculation labels, evidence provenance, falsifiability, and human scientific review.
+Late-stage capability requiring explicit speculation labels, evidence provenance, and falsifiability. Follows this project's established grounding-verification pattern (`core`'s M52/M69, and M72's `relationship_classification.classify_relationship`): a proposed hypothesis is accepted by default only when its cited evidence passes a deterministic grounding check against the source records it claims to draw from, not on a human reviewer's say-so for every item. Human scientific review remains available on any hypothesis, and is the honest expectation before acting on one outside this system -- but it is oversight of a labeled, falsifiable, evidence-linked proposal, not a required gate this project blocks on for every record at scale, the same distinction `Relationship to the Existing Knowledge Engine` draws below.
 
 ## Release Gates
 
