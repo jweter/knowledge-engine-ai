@@ -1109,6 +1109,30 @@ Only after analytical and graph prerequisites are met. Build contradiction expla
 
 Late-stage capability requiring explicit speculation labels, evidence provenance, and falsifiability. Follows this project's established grounding-verification pattern (`core`'s M52/M69, and M72's `relationship_classification.classify_relationship`): a proposed hypothesis is accepted by default only when its cited evidence passes a deterministic grounding check against the source records it claims to draw from, not on a human reviewer's say-so for every item. Human scientific review remains available on any hypothesis, and is the honest expectation before acting on one outside this system -- but it is oversight of a labeled, falsifiable, evidence-linked proposal, not a required gate this project blocks on for every record at scale, the same distinction `Relationship to the Existing Knowledge Engine` draws below.
 
+## Web Integration (AI-O12 — AI-O17): making the orchestrator the live product
+
+**Status (2026-08-11): planned, not started.** See
+`docs/web_integration_design.md` for the full design, the exact current-state
+audit (what AI-O1-O9 actually built vs. what anything calls in production --
+the honest answer today is "nothing calls the composed pipeline anywhere"),
+the architecture decision (library integration into `knowledge-engine-web`,
+not a standalone service, for this phase -- with the reasoning for why and
+when that would change), and the complete step-wise breakdown
+(AI-O12: compose the orchestrator into one callable pipeline; AI-O13: add
+`knowledge-engine-ai` as a `knowledge-engine-web` dependency; AI-O14: route
+`/ask` through it; AI-O15: session-persistence decision for the deployed
+environment; AI-O16: guardrails for a real, publicly-reachable,
+LLM-cost-bearing endpoint; AI-O17: live end-to-end verification and closing
+the `long_term_vision.md` "finished product" claim). `AI-O12-O17` continues
+this same numbering sequence rather than a separate track: it exposes what
+`AI-O1`-`AI-O9` already built, it does not add new analytical capability the
+way `AI-O10`/`AI-O11` above will, and it does not require those two to be
+built first -- the same way `core`'s own `M#` sequence has never required
+strict in-order completion. Whoever picks this up next
+should start by reading that document's Status lines, not this summary,
+since this paragraph will not be kept in sync step-by-step the way the
+design doc's own per-step Status lines are meant to be.
+
 ## Release Gates
 
 A workflow should not become default until explicit gates pass.
