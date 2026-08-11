@@ -1,7 +1,11 @@
-"""AI-O3/AI-O5: the fixed-order orchestrator. See `workflow.py`/`parallel_retrieval.py`."""
+"""Research Copilot orchestration primitives."""
 
 from __future__ import annotations
 
+from knowledge_engine_ai.orchestrator.close_gate import (
+    SessionCloseResult,
+    attempt_session_close,
+)
 from knowledge_engine_ai.orchestrator.parallel_retrieval import (
     CONTRADICTION_SIGNAL_PHRASES,
     ExternalDiscoveryCallable,
@@ -25,9 +29,11 @@ __all__ = [
     "ExternalDiscoveryCallable",
     "ParallelRetrievalResult",
     "RetrievalBranchResult",
+    "SessionCloseResult",
     "VerificationResult",
     "WorkflowResult",
     "WorkflowStepResult",
+    "attempt_session_close",
     "build_contradiction_query",
     "run_fixed_evidence_workflow",
     "run_parallel_retrieval",

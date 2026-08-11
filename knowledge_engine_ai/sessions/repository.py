@@ -1,24 +1,14 @@
-"""AI-O2: SQLite-backed persistence for `ResearchSession`/`ResearchEvent`.
+"""SQLite-backed persistence for durable Research Copilot workflow state.
 
-This is the concrete piece that makes AI-O2's success criterion real:
-"a workflow can stop and resume without losing or duplicating state."
-Two guarantees back that claim, both enforced by the database itself
-rather than caller discipline:
+The session/event store remains append-oriented: sessions are durable headers,
+important workflow actions are immutable ``ResearchEvent`` rows, and the
+LifeOS-inspired Research ISA is attached as a typed run contract rather than
+buried in chat transcript or model prose.
 
-- `create_session` raises `DuplicateSessionError` on a re-used
-  `session_id` -- a resuming caller must explicitly `get_session`
-  first and branch, the same "no implicit chat-order state" discipline
-  the design doc's BLOCK 10 requires, rather than this module silently
-  guessing whether a second `create_session` call means "resume" or
-  "a real bug."
-- `append_event` raises `DuplicateEventError` on a re-used `event_id`
-  -- an orchestrator that does not know whether a step already ran
-  (the exact situation a crash-and-resume leaves it in) gets an
-  unambiguous signal instead of a silent duplicate insert.
-
-No orchestrator, no LLM call, and no real workflow node calls this
-module yet -- AI-O3 connects it to actual retrieval/Evidence
-Intelligence/statistics capabilities.
+ISA criterion results are append-only observations. When the same probe runs
+again, a new row is recorded; callers evaluate the latest observation for each
+criterion. This preserves the history needed to explain why a previously
+blocked run later became closable.
 """
 
 from __future__ import annotations
@@ -26,6 +16,12 @@ from __future__ import annotations
 import json
 import sqlite3
 
+from knowledge_engine_ai.copilot.intent import (
+    CriterionResult,
+    CriterionStatus,
+    IdealStateCriterion,
+    ResearchISA,
+)
 from knowledge_engine_ai.sessions.models import (
     SUPPORTED_RESEARCH_SESSION_SCHEMA_VERSION,
     ResearchEvent,
@@ -73,30 +69,55 @@ CREATE TABLE IF NOT EXISTS research_events (
 
 CREATE INDEX IF NOT EXISTS idx_research_events_session_sequence
     ON research_events(session_id, sequence_number);
+
+CREATE TABLE IF NOT EXISTS research_isas (
+    session_id TEXT PRIMARY KEY REFERENCES research_sessions(session_id),
+    run_id TEXT NOT NULL UNIQUE,
+    schema_version INTEGER NOT NULL,
+    question TEXT NOT NULL,
+    ideal_state TEXT NOT NULL,
+    known_json TEXT NOT NULL,
+    unknown_json TEXT NOT NULL,
+    constraints_json TEXT NOT NULL,
+    criteria_json TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS research_isa_results (
+    result_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL REFERENCES research_sessions(session_id),
+    criterion_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    evidence TEXT NOT NULL,
+    recorded_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_research_isa_results_session_criterion
+    ON research_isa_results(session_id, criterion_id, result_id);
 """
 
 
 class DuplicateSessionError(RuntimeError):
-    """`create_session` was called with a `session_id` that already exists."""
+    """``create_session`` was called with a ``session_id`` that already exists."""
 
 
 class DuplicateEventError(RuntimeError):
-    """`append_event` was called with an `event_id` that already exists."""
+    """``append_event`` was called with an ``event_id`` that already exists."""
+
+
+class DuplicateISAError(RuntimeError):
+    """A session already has an attached immutable Research ISA."""
 
 
 class UnknownSessionError(RuntimeError):
-    """An event referenced a `session_id` with no matching `ResearchSession`."""
+    """An operation referenced a ``session_id`` with no matching session."""
+
+
+class UnknownISAError(RuntimeError):
+    """An ISA-result operation referenced a session with no attached ISA."""
 
 
 class SessionRepository:
-    """SQLite-backed store for `ResearchSession`/`ResearchEvent`.
-
-    Takes an already-open `sqlite3.Connection` rather than a path, so
-    tests can use `sqlite3.connect(":memory:")` and a future caller can
-    reuse a connection this package does not own the lifecycle of --
-    the same dependency-injection shape `knowledge_engine.database`
-    uses in `core`.
-    """
+    """SQLite-backed store for session, event, and Research ISA state."""
 
     def __init__(self, connection: sqlite3.Connection) -> None:
         self._connection = connection
@@ -155,12 +176,125 @@ class SessionRepository:
             raise UnknownSessionError(f"No session with session_id {session_id!r}.")
         self._connection.commit()
 
-    def append_event(self, event: ResearchEvent) -> None:
-        session_row = self._connection.execute(
-            "SELECT 1 FROM research_sessions WHERE session_id = ?", (event.session_id,)
+    def attach_research_isa(self, session_id: str, isa: ResearchISA) -> None:
+        """Attach one immutable task-level definition of done to a session.
+
+        The ISA is intentionally write-once. If the research objective changes
+        materially, create a new run/session rather than rewriting the original
+        completion contract and erasing what the run was originally asked to do.
+        """
+
+        self._require_session(session_id)
+        try:
+            self._connection.execute(
+                """
+                INSERT INTO research_isas (
+                    session_id, run_id, schema_version, question, ideal_state,
+                    known_json, unknown_json, constraints_json, criteria_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    session_id,
+                    isa.run_id,
+                    isa.schema_version,
+                    isa.question,
+                    isa.ideal_state,
+                    json.dumps(list(isa.known)),
+                    json.dumps(list(isa.unknown)),
+                    json.dumps(list(isa.constraints)),
+                    json.dumps(
+                        [
+                            {
+                                "criterion_id": criterion.criterion_id,
+                                "claim": criterion.claim,
+                                "probe": criterion.probe,
+                                "required": criterion.required,
+                            }
+                            for criterion in isa.criteria
+                        ],
+                        sort_keys=True,
+                    ),
+                ),
+            )
+        except sqlite3.IntegrityError as exc:
+            raise DuplicateISAError(
+                f"Session {session_id!r} already has an ISA or run_id {isa.run_id!r} is in use."
+            ) from exc
+        self._connection.commit()
+
+    def get_research_isa(self, session_id: str) -> ResearchISA | None:
+        row = self._connection.execute(
+            "SELECT * FROM research_isas WHERE session_id = ?", (session_id,)
         ).fetchone()
-        if session_row is None:
-            raise UnknownSessionError(f"No session with session_id {event.session_id!r}.")
+        if row is None:
+            return None
+        return _isa_from_row(row)
+
+    def record_criterion_result(
+        self,
+        session_id: str,
+        result: CriterionResult,
+        *,
+        recorded_at: str,
+    ) -> None:
+        """Append one evidence-bearing probe observation for an attached ISA."""
+
+        isa = self.get_research_isa(session_id)
+        if isa is None:
+            self._require_session(session_id)
+            raise UnknownISAError(f"Session {session_id!r} has no attached Research ISA.")
+
+        criterion_ids = {criterion.criterion_id for criterion in isa.criteria}
+        if result.criterion_id not in criterion_ids:
+            raise ValueError(
+                f"Unknown criterion_id {result.criterion_id!r} for session {session_id!r}."
+            )
+
+        self._connection.execute(
+            """
+            INSERT INTO research_isa_results (
+                session_id, criterion_id, status, evidence, recorded_at
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                session_id,
+                result.criterion_id,
+                result.status.value,
+                result.evidence,
+                recorded_at,
+            ),
+        )
+        self._connection.commit()
+
+    def latest_criterion_results(self, session_id: str) -> tuple[CriterionResult, ...]:
+        """Return the latest append-only observation for each ISA criterion."""
+
+        rows = self._connection.execute(
+            """
+            SELECT r.criterion_id, r.status, r.evidence
+            FROM research_isa_results AS r
+            JOIN (
+                SELECT criterion_id, MAX(result_id) AS max_result_id
+                FROM research_isa_results
+                WHERE session_id = ?
+                GROUP BY criterion_id
+            ) AS latest ON latest.max_result_id = r.result_id
+            WHERE r.session_id = ?
+            ORDER BY r.result_id
+            """,
+            (session_id, session_id),
+        ).fetchall()
+        return tuple(
+            CriterionResult(
+                criterion_id=row["criterion_id"],
+                status=CriterionStatus(row["status"]),
+                evidence=row["evidence"],
+            )
+            for row in rows
+        )
+
+    def append_event(self, event: ResearchEvent) -> None:
+        self._require_session(event.session_id)
 
         next_sequence = self._connection.execute(
             "SELECT COALESCE(MAX(sequence_number), 0) + 1 FROM research_events "
@@ -219,6 +353,13 @@ class SessionRepository:
         ).fetchall()
         return [_event_from_row(row) for row in rows]
 
+    def _require_session(self, session_id: str) -> None:
+        row = self._connection.execute(
+            "SELECT 1 FROM research_sessions WHERE session_id = ?", (session_id,)
+        ).fetchone()
+        if row is None:
+            raise UnknownSessionError(f"No session with session_id {session_id!r}.")
+
 
 def _session_from_row(row: sqlite3.Row) -> ResearchSession:
     return ResearchSession(
@@ -234,6 +375,28 @@ def _session_from_row(row: sqlite3.Row) -> ResearchSession:
         corpus_snapshot_id=row["corpus_snapshot_id"],
         evidence_cutoff_time=row["evidence_cutoff_time"],
         final_status=row["final_status"],
+    )
+
+
+def _isa_from_row(row: sqlite3.Row) -> ResearchISA:
+    criteria_payload = json.loads(row["criteria_json"])
+    return ResearchISA(
+        schema_version=row["schema_version"],
+        run_id=row["run_id"],
+        question=row["question"],
+        ideal_state=row["ideal_state"],
+        known=tuple(json.loads(row["known_json"])),
+        unknown=tuple(json.loads(row["unknown_json"])),
+        constraints=tuple(json.loads(row["constraints_json"])),
+        criteria=tuple(
+            IdealStateCriterion(
+                criterion_id=item["criterion_id"],
+                claim=item["claim"],
+                probe=item["probe"],
+                required=bool(item["required"]),
+            )
+            for item in criteria_payload
+        ),
     )
 
 
@@ -261,13 +424,7 @@ def _event_from_row(row: sqlite3.Row) -> ResearchEvent:
 
 
 def new_connection(database_path: str) -> sqlite3.Connection:
-    """Open a `sqlite3.Connection` with `row_factory` set for this module's row-parsing helpers.
-
-    `database_path` may be a filesystem path or `":memory:"`. Does not
-    call `SessionRepository` itself -- callers construct one from the
-    returned connection, matching the dependency-injection shape
-    documented on `SessionRepository`.
-    """
+    """Open a connection configured for this repository's row parsers."""
 
     connection = sqlite3.connect(database_path)
     connection.row_factory = sqlite3.Row
@@ -277,8 +434,10 @@ def new_connection(database_path: str) -> sqlite3.Connection:
 __all__ = [
     "SUPPORTED_RESEARCH_SESSION_SCHEMA_VERSION",
     "DuplicateEventError",
+    "DuplicateISAError",
     "DuplicateSessionError",
     "SessionRepository",
+    "UnknownISAError",
     "UnknownSessionError",
     "new_connection",
 ]
