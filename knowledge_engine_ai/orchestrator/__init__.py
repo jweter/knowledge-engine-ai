@@ -14,7 +14,13 @@ from knowledge_engine_ai.orchestrator.parallel_retrieval import (
     build_contradiction_query,
     run_parallel_retrieval,
 )
+from knowledge_engine_ai.orchestrator.session_report import (
+    SessionReport,
+    SourcedClaim,
+    build_session_report,
+)
 from knowledge_engine_ai.orchestrator.verification import (
+    CITATION_PATTERN,
     VerificationResult,
     verify_synthesis,
 )
@@ -25,16 +31,20 @@ from knowledge_engine_ai.orchestrator.workflow import (
 )
 
 __all__ = [
+    "CITATION_PATTERN",
     "CONTRADICTION_SIGNAL_PHRASES",
     "ExternalDiscoveryCallable",
     "ParallelRetrievalResult",
     "RetrievalBranchResult",
     "SessionCloseResult",
+    "SessionReport",
+    "SourcedClaim",
     "VerificationResult",
     "WorkflowResult",
     "WorkflowStepResult",
     "attempt_session_close",
     "build_contradiction_query",
+    "build_session_report",
     "run_fixed_evidence_workflow",
     "run_parallel_retrieval",
     "verify_synthesis",

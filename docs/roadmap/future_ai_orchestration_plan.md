@@ -1037,6 +1037,21 @@ Generate a final report from validated structured objects.
 
 **Success criterion:** every material scientific claim resolves to evidence IDs and source citations.
 
+**Status (2026-08-11): implemented and live-verified.** New
+`knowledge_engine_ai/orchestrator/session_report.py`: `build_session_report`
+resolves each `[evidence_record_id]` citation a `synthesis.py` narrative
+actually makes into a `SourcedClaim` carrying the containing paper's real
+title, authors, year, DOI, citation string, and source URL -- a join from
+evidence-record-level citation up to paper-level bibliography no earlier
+module performed. Takes AI-O6's already-computed `VerificationResult` as
+a parameter rather than recomputing it, so `unresolved_citations` is
+exactly AI-O6's `hallucinated_citations`, and `is_fully_sourced` is a
+simple derived fact. Live-verified by resolving the real narrative and
+`EvidenceReport` AI-O6's own live check already captured: both of the
+narrative's real citations resolved to their correct source papers (with
+real DOIs), zero unresolved citations, `is_fully_sourced=True`. See
+`docs/ai_o7_design.md`.
+
 ### AI-O8 — Model Router
 
 Benchmark local models on planning, extraction, evidence comparison, synthesis, and citation compliance.
