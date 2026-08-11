@@ -9,6 +9,49 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`docs/web_integration_design.md`: the Web Integration plan (AI-O12-O17),
+  doc-only.** Audited the actual current state rather than assuming it from
+  milestone names: AI-O1-O9's orchestrator (`run_fixed_evidence_workflow`,
+  `verify_synthesis`, `build_session_report`, `attempt_session_close`,
+  `build_session_trace`) is fully built and tested, but grepping the whole
+  repo for callers outside `tests/` finds none -- not even this repo's own
+  `ke-ai ask` CLI command uses it, and `knowledge-engine-web`'s live `/ask`
+  page doesn't import `knowledge-engine-ai` at all (it reimplements a
+  simpler version directly against `core`). Three layers, none connected.
+  Recorded the architecture decision (library integration into
+  `knowledge-engine-web`, not a standalone orchestration service, for this
+  phase -- the reasoning: `ai` has no web-framework dependency today, `web`
+  already imports `core` directly as a package so the "shell out to `ke`,
+  never import `core`" weight-avoidance concern `ke_client.py` was built
+  around doesn't apply the same way to `ai` itself becoming a `web`
+  dependency; a standalone service is deferred to AI-O18+, not rejected, for
+  when a second consumer or real multi-tenant load justifies it) and the
+  full step-wise breakdown, each step with its own definition of done:
+  AI-O12 (compose the orchestrator into one callable pipeline -- the actual
+  missing piece everything else depends on), AI-O13 (add `knowledge-engine-ai`
+  as a `knowledge-engine-web` dependency), AI-O14 (route `/ask` through it),
+  AI-O15 (session-persistence decision for the deployed environment), AI-O16
+  (guardrails for a real, publicly-reachable, LLM-cost-bearing endpoint),
+  AI-O17 (live end-to-end verification, then close
+  `long_term_vision.md`'s "finished product" claim in `knowledge-engine-core`
+  for real). Also engages honestly with two things a first pass missed:
+  `knowledge-engine-web/docs/web_design.md`'s existing "Decision: local
+  LLM" section already rejected a `knowledge-engine-ai` dependency once,
+  for a much smaller case (~150 lines of Ollama-client duplication) --
+  that reasoning stands for that decision but doesn't apply the same way
+  to reusing the entire orchestrator, and AI-O13 should update that
+  section rather than leave two contradictory rationales on record; and
+  the deployed Render alpha has **no LLM inference in production at all
+  today** (`web_design.md`: "deliberately presents retrieval-only Ask
+  until it gets a separately hosted, secured, and operationally durable
+  inference architecture -- not attempted here") -- AI-O12-O14 are fully
+  buildable and live-verifiable in local/dev now, but AI-O17's
+  public-alpha half is blocked on that unresolved hosting question,
+  named explicitly rather than silently assumed away by AI-O15/AI-O16's
+  guardrail work. See `docs/roadmap/future_ai_orchestration_plan.md`'s
+  new "Web Integration" section for the pointer. Nothing implemented
+  yet -- this is the plan, not the work.
+
 - **AI-O9: Observability + Budgeting.** Closed two real gaps in AI-O2's
   `ResearchEvent` schema and added a read-side reporting layer over it,
   rather than a new persistence mechanism. `ResearchEvent` gains an
