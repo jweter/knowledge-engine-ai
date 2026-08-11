@@ -9,6 +9,28 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **AI-O6: deterministic Skeptic/Verifier.** New
+  `knowledge_engine_ai/orchestrator/verification.py`: `verify_synthesis`
+  checks a `synthesis.py`-generated narrative against the
+  `EvidenceReport` it was built from -- hallucinated citations (a cited
+  `[evidence_record_id]` absent from the report), ungrounded numbers (a
+  numeric token not present in any cited record's
+  `claim_text`/`result_summary`, reusing `core`'s
+  `golden_map_grounding.py` numeric-presence technique), and missed
+  qualifiers (a `qualifies`/`contradicts`-direction or
+  `limitations`-bearing record never cited at all). No LLM verifying
+  another LLM, matching AI-O3/AI-O5's deterministic-first precedent. 9
+  new tests; one real bug the tests themselves caught (the number
+  regex initially matched the "1" inside `[ev-1]` citation brackets as
+  a false ungrounded-number finding, fixed by stripping citations
+  before extracting numbers). Live-verified end to end against the real
+  GLP-1 corpus, `core`'s actual `ke` executable, and a real running
+  Ollama model (`qwen2.5:1.5b`): the model's real narrative cited only
+  2 of 4 retrieved evidence records, and the checker correctly flagged
+  the 2 silently-dropped records as missed qualifiers, with zero
+  hallucinated citations or ungrounded numbers -- a genuine first
+  real-world signal, not a contrived example. See `docs/ai_o6_design.md`.
+
 - **AI-O5: parallel retrieval + contradiction-oriented retrieval.** New
   `knowledge_engine_ai/orchestrator/parallel_retrieval.py`:
   `run_parallel_retrieval` widens AI-O3's single always-run retrieval

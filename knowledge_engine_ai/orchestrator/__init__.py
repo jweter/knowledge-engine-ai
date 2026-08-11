@@ -10,6 +10,10 @@ from knowledge_engine_ai.orchestrator.parallel_retrieval import (
     build_contradiction_query,
     run_parallel_retrieval,
 )
+from knowledge_engine_ai.orchestrator.verification import (
+    VerificationResult,
+    verify_synthesis,
+)
 from knowledge_engine_ai.orchestrator.workflow import (
     WorkflowResult,
     WorkflowStepResult,
@@ -21,9 +25,11 @@ __all__ = [
     "ExternalDiscoveryCallable",
     "ParallelRetrievalResult",
     "RetrievalBranchResult",
+    "VerificationResult",
     "WorkflowResult",
     "WorkflowStepResult",
     "build_contradiction_query",
     "run_fixed_evidence_workflow",
     "run_parallel_retrieval",
+    "verify_synthesis",
 ]
