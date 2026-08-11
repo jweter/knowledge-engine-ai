@@ -234,6 +234,27 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (AI-O3 onward). 16 new tests in `tests/copilot/`. See
   `docs/ai_o1_design.md`.
 
+### Changed
+
+- **Reframed AI-O11 (Hypothesis / Experiment Assistance)'s "human
+  scientific review" language in `docs/roadmap/future_ai_orchestration_plan.md`.**
+  `knowledge-engine-core`'s M72 (jweter/knowledge-engine-core#343)
+  established this project's real default for review: an LLM proposes,
+  a deterministic grounding check accepts or drops the proposal, and
+  human review stays available without being a required gate for every
+  record. AI-O11's own text still said a generated hypothesis requires
+  human scientific review outright, which no longer matches the pattern
+  this project has since built and applied consistently (M52, M69,
+  M72). Reframed to name the same grounding-verification pattern as the
+  default acceptance mechanism, with human review available and
+  expected before acting on a hypothesis outside this system, but not a
+  blocking gate this project imposes on every proposal at scale.
+  Left `Level 4 -- external consequential action`'s "explicit human
+  authorization" language untouched: that gate is about irreversible
+  real-world side effects (an action outside this system, not a
+  scientific-content classification), a different risk category from
+  the review-gate language this pass targets.
+
 ### Fixed
 
 - Preserve core's three-way Evidence Quality `extraction_tier`
