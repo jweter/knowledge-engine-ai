@@ -4,7 +4,13 @@ import json
 
 import pytest
 
-from knowledge_engine_ai.llm import DEFAULT_OLLAMA_HOST, LocalLLMError, OllamaLLM
+import knowledge_engine_ai.llm as llm_module
+from knowledge_engine_ai.llm import (
+    DEFAULT_OLLAMA_HOST,
+    LocalLLMError,
+    OllamaLLM,
+    UrllibOllamaTransport,
+)
 
 
 class _FakeResponse:
@@ -120,3 +126,22 @@ def test_generate_raises_for_an_empty_content_field() -> None:
 
     with pytest.raises(LocalLLMError):
         llm.generate("question")
+
+
+def test_urllib_transport_wraps_a_slow_response_timeout_as_local_llm_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # `urlopen`'s `timeout=` bounds every socket read, not just the
+    # connect -- a slow generation raises a bare `TimeoutError`, not a
+    # `URLError`, that must be caught separately or it escapes `post`
+    # unwrapped and crashes the caller (found live against `qwen3:4b`).
+    def _raise_timeout(*args: object, **kwargs: object) -> object:
+        raise TimeoutError("timed out")
+
+    monkeypatch.setattr(llm_module, "urlopen", _raise_timeout)
+    transport = UrllibOllamaTransport()
+
+    with pytest.raises(LocalLLMError) as excinfo:
+        transport.post(url="http://127.0.0.1:11434/api/chat", payload=b"{}", timeout_seconds=120.0)
+
+    assert "did not respond within 120s" in str(excinfo.value)

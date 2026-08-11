@@ -8,6 +8,8 @@ from typer.testing import CliRunner
 
 import knowledge_engine_ai.cli as cli
 from knowledge_engine_ai.cli import app
+from knowledge_engine_ai.copilot.intent import ISAValidationResult
+from knowledge_engine_ai.copilot.run_research_question import ResearchQuestionResult
 from knowledge_engine_ai.ke_client import KeCommandError
 from knowledge_engine_ai.models import (
     ClaimConfidence,
@@ -20,6 +22,11 @@ from knowledge_engine_ai.models import (
     EvidenceSummary,
     RetrievedPaper,
 )
+from knowledge_engine_ai.orchestrator.close_gate import SessionCloseResult
+from knowledge_engine_ai.orchestrator.observability import SessionTrace
+from knowledge_engine_ai.orchestrator.verification import VerificationResult
+from knowledge_engine_ai.orchestrator.workflow import WorkflowResult
+from knowledge_engine_ai.sessions.models import SessionStatus
 
 
 def _unwrapped(output: str) -> str:
@@ -552,3 +559,221 @@ def test_ask_rejects_an_invalid_format(tmp_path: Path) -> None:
     )
 
     assert result.exit_code != 0
+
+
+def _research_result(
+    *,
+    narrative: str | None = "Semaglutide reduced lean mass [ev-1].",
+    synthesis_error: str | None = None,
+    close_status: SessionStatus = SessionStatus.COMPLETED,
+    unresolved_required_criteria: tuple[str, ...] = (),
+) -> ResearchQuestionResult:
+    verification = (
+        None
+        if narrative is None
+        else VerificationResult(
+            narrative=narrative,
+            hallucinated_citations=(),
+            ungrounded_numbers=(),
+            missed_qualifiers=(),
+        )
+    )
+    workflow = WorkflowResult(
+        session_id="sess-research-1",
+        question="does semaglutide reduce lean mass",
+        evidence_report=None,
+        parallel_retrieval=None,
+        steps=(),
+    )
+    trace = SessionTrace(
+        session_id="sess-research-1",
+        question="does semaglutide reduce lean mass",
+        events=(),
+        failed_events=(),
+        total_duration_ms=None,
+        evidence_record_ids=(),
+    )
+    return ResearchQuestionResult(
+        session_id="sess-research-1",
+        question="does semaglutide reduce lean mass",
+        workflow=workflow,
+        narrative=narrative,
+        synthesis_error=synthesis_error,
+        verification=verification,
+        session_report=None,
+        close_result=SessionCloseResult(
+            session_id="sess-research-1",
+            status=close_status,
+            validation=ISAValidationResult(
+                complete=not unresolved_required_criteria,
+                unresolved_required_criteria=unresolved_required_criteria,
+            ),
+        ),
+        trace=trace,
+    )
+
+
+def test_research_requires_a_model_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    sources = tmp_path / "sources.csv"
+    evidence = tmp_path / "evidence.jsonl"
+    sources.write_text("")
+    evidence.write_text("")
+    monkeypatch.delenv("KE_AI_LLM_MODEL", raising=False)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "research",
+            "does semaglutide reduce lean mass",
+            "--sources",
+            str(sources),
+            "--evidence",
+            str(evidence),
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "requires --llm-model" in result.output
+
+
+def test_research_prints_narrative_and_session_status(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sources = tmp_path / "sources.csv"
+    evidence = tmp_path / "evidence.jsonl"
+    sources.write_text("")
+    evidence.write_text("")
+    monkeypatch.setattr(cli, "OllamaLLM", _FakeLLM)
+    monkeypatch.setattr(cli, "run_research_question", lambda *args, **kwargs: _research_result())
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "research",
+            "does semaglutide reduce lean mass",
+            "--sources",
+            str(sources),
+            "--evidence",
+            str(evidence),
+            "--llm-model",
+            "qwen2.5:1.5b",
+            "--session-db",
+            str(tmp_path / "sessions.db"),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    unwrapped = _unwrapped(result.output)
+    assert "sess-research-1" in unwrapped
+    assert "Semaglutide reduced lean mass [ev-1]." in unwrapped
+    assert "Skeptic verification: clean" in unwrapped
+    assert "Session status:" in unwrapped
+    assert "completed" in unwrapped
+
+
+def test_research_reports_a_blocked_session_and_unresolved_criteria(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sources = tmp_path / "sources.csv"
+    evidence = tmp_path / "evidence.jsonl"
+    sources.write_text("")
+    evidence.write_text("")
+    monkeypatch.setattr(cli, "OllamaLLM", _FakeLLM)
+    monkeypatch.setattr(
+        cli,
+        "run_research_question",
+        lambda *args, **kwargs: _research_result(
+            close_status=SessionStatus.BLOCKED,
+            unresolved_required_criteria=("citation_integrity",),
+        ),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "research",
+            "does semaglutide reduce lean mass",
+            "--sources",
+            str(sources),
+            "--evidence",
+            str(evidence),
+            "--llm-model",
+            "qwen2.5:1.5b",
+            "--session-db",
+            str(tmp_path / "sessions.db"),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    unwrapped = _unwrapped(result.output)
+    assert "blocked" in unwrapped
+    assert "citation_integrity" in unwrapped
+
+
+def test_research_format_json_includes_expected_fields(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sources = tmp_path / "sources.csv"
+    evidence = tmp_path / "evidence.jsonl"
+    sources.write_text("")
+    evidence.write_text("")
+    monkeypatch.setattr(cli, "OllamaLLM", _FakeLLM)
+    monkeypatch.setattr(cli, "run_research_question", lambda *args, **kwargs: _research_result())
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "research",
+            "does semaglutide reduce lean mass",
+            "--sources",
+            str(sources),
+            "--evidence",
+            str(evidence),
+            "--llm-model",
+            "qwen2.5:1.5b",
+            "--session-db",
+            str(tmp_path / "sessions.db"),
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["session_id"] == "sess-research-1"
+    assert payload["narrative"] == "Semaglutide reduced lean mass [ev-1]."
+    assert payload["close_status"] == "completed"
+    assert payload["close_complete"] is True
+    assert payload["verification"]["is_clean"] is True
+
+
+def test_research_no_narrative_prints_explanation_not_a_crash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sources = tmp_path / "sources.csv"
+    evidence = tmp_path / "evidence.jsonl"
+    sources.write_text("")
+    evidence.write_text("")
+    monkeypatch.setattr(cli, "OllamaLLM", _FakeLLM)
+    monkeypatch.setattr(
+        cli, "run_research_question", lambda *args, **kwargs: _research_result(narrative=None)
+    )
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "research",
+            "does semaglutide reduce lean mass",
+            "--sources",
+            str(sources),
+            "--evidence",
+            str(evidence),
+            "--llm-model",
+            "qwen2.5:1.5b",
+            "--session-db",
+            str(tmp_path / "sessions.db"),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "No evidence with a stated claim was retrieved to narrate" in _unwrapped(result.output)

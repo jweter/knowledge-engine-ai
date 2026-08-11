@@ -5,6 +5,12 @@ real `ke evidence-report`/`ke evidence-intelligence` field. `--synthesize`
 is the one opt-in exception: a local, offline LLM narrates that same
 already-computed evidence into a paragraph -- see `docs/ai_design.md`'s
 "Decision: local LLM" section and `knowledge_engine_ai/synthesis.py`.
+
+`research` (AI-O12) is a second, separate path: it runs the full composed
+orchestrator -- durable session, parallel retrieval, Skeptic-verified
+synthesis, ISA close gate, full trace -- rather than `ask`'s direct
+retrieval-plus-narration call. See
+`knowledge_engine_ai/copilot/run_research_question.py`.
 """
 
 from __future__ import annotations
@@ -20,9 +26,15 @@ import typer
 from rich.console import Console
 from rich.markup import escape
 
+from knowledge_engine_ai.copilot.run_research_question import (
+    ResearchQuestionResult,
+    run_research_question,
+)
 from knowledge_engine_ai.ke_client import KeCommandError, enriched_evidence_report
 from knowledge_engine_ai.llm import DEFAULT_OLLAMA_HOST, LocalLLMError, OllamaLLM
 from knowledge_engine_ai.models import EvidenceReport
+from knowledge_engine_ai.orchestrator.observability import render_session_trace
+from knowledge_engine_ai.sessions.repository import SessionRepository, new_connection
 from knowledge_engine_ai.synthesis import synthesize_answer
 
 app = typer.Typer(add_completion=False)
@@ -78,6 +90,16 @@ OllamaHostOption = Annotated[
     typer.Option(
         "--ollama-host",
         help=f"Ollama server URL. Falls back to KE_AI_OLLAMA_HOST, then {DEFAULT_OLLAMA_HOST}.",
+    ),
+]
+SessionDbOption = Annotated[
+    Path | None,
+    typer.Option(
+        "--session-db",
+        help=(
+            "SQLite database path for durable Research Copilot sessions. Falls back to "
+            "KE_AI_SESSION_DB_PATH, then './research_sessions.db' in the current directory."
+        ),
     ),
 ]
 
@@ -194,3 +216,133 @@ def _print_report(report: EvidenceReport) -> None:
         console.print()
 
     console.print(f"[dim]{report.disclaimer}[/dim]")
+
+
+@app.command()
+def research(
+    question: QuestionArgument,
+    sources: SourcesOption,
+    evidence: EvidenceOption,
+    llm_model: LlmModelOption = None,
+    ollama_host: OllamaHostOption = None,
+    session_db: SessionDbOption = None,
+    limit: LimitOption = 5,
+    output_format: FormatOption = "text",
+) -> None:
+    """Run the composed AI-O12 orchestrator pipeline for one research question.
+
+    Unlike `ask --synthesize`, which calls `enriched_evidence_report` and
+    `synthesize_answer` directly, this command runs the full composed
+    pipeline: a durable session is created (AI-O2), primary and
+    contradiction-oriented retrieval run together (AI-O5), the answer is
+    synthesized and independently Skeptic-verified (AI-O6), resolved into
+    sourced claims (AI-O7), the session's Research ISA close gate is
+    evaluated (AI-O2/AI-O12), and a full trace is assembled (AI-O9) --
+    every step recorded as a durable, inspectable `ResearchEvent`, not
+    just printed and discarded. This is this repo's own first caller of
+    that composed pipeline, exercising it before `knowledge-engine-web`
+    ever does (AI-O14).
+    """
+
+    if output_format not in ("text", "json"):
+        raise typer.BadParameter("--format must be 'text' or 'json'.")
+
+    model = llm_model or os.environ.get("KE_AI_LLM_MODEL")
+    if model is None:
+        console.print("[red]Error:[/red] research requires --llm-model or KE_AI_LLM_MODEL.")
+        raise typer.Exit(1)
+    host = ollama_host or os.environ.get("KE_AI_OLLAMA_HOST") or DEFAULT_OLLAMA_HOST
+    llm = OllamaLLM(model=model, host=host)
+
+    db_path = session_db or Path(os.environ.get("KE_AI_SESSION_DB_PATH", "research_sessions.db"))
+    session_repository = SessionRepository(new_connection(str(db_path)))
+
+    try:
+        result = run_research_question(
+            question,
+            session_repository=session_repository,
+            sources=sources,
+            evidence=evidence,
+            llm=llm,
+            limit=limit,
+        )
+    except KeCommandError as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(1) from exc
+
+    if output_format == "json":
+        payload = {
+            "session_id": result.session_id,
+            "question": result.question,
+            "narrative": result.narrative,
+            "synthesis_error": result.synthesis_error,
+            "verification": (
+                None
+                if result.verification is None
+                else {
+                    "is_clean": result.verification.is_clean,
+                    "hallucinated_citations": list(result.verification.hallucinated_citations),
+                    "ungrounded_numbers": list(result.verification.ungrounded_numbers),
+                    "missed_qualifiers": list(result.verification.missed_qualifiers),
+                }
+            ),
+            "close_status": result.close_result.status.value,
+            "close_complete": result.close_result.validation.complete,
+            "unresolved_required_criteria": list(
+                result.close_result.validation.unresolved_required_criteria
+            ),
+            "trace": render_session_trace(result.trace),
+        }
+        sys.stdout.write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+        return
+
+    _print_research_result(result)
+
+
+def _print_research_result(result: ResearchQuestionResult) -> None:
+    console.print(f"[bold]Session:[/bold] {result.session_id}")
+    console.print(f"[bold]Question:[/bold] {result.question}")
+    console.print()
+
+    if result.narrative is None:
+        if result.synthesis_error is not None:
+            console.print(f"[red]Synthesis failed:[/red] {escape(result.synthesis_error)}")
+        else:
+            console.print(
+                "[yellow]No evidence with a stated claim was retrieved to narrate.[/yellow]"
+            )
+    else:
+        console.print("[bold]Synthesized answer[/bold] (local model, Skeptic-verified):")
+        console.print(escape(result.narrative))
+        console.print()
+        verification = result.verification
+        if verification is None:  # pragma: no cover - narrative implies verification ran.
+            raise AssertionError("A narrative was produced without a verification result.")
+        if verification.is_clean:
+            console.print(
+                "[green]Skeptic verification: clean[/green] -- no hallucinated citations, "
+                "ungrounded numbers, or omitted qualifying evidence found."
+            )
+        else:
+            console.print("[yellow]Skeptic verification flagged issues:[/yellow]")
+            if verification.hallucinated_citations:
+                console.print(
+                    f"  Hallucinated citations: {', '.join(verification.hallucinated_citations)}"
+                )
+            if verification.ungrounded_numbers:
+                console.print(f"  Ungrounded numbers: {', '.join(verification.ungrounded_numbers)}")
+            if verification.missed_qualifiers:
+                console.print(
+                    f"  Missed qualifying evidence: {', '.join(verification.missed_qualifiers)}"
+                )
+
+    console.print()
+    status = result.close_result.status.value
+    status_color = "green" if result.close_result.validation.complete else "yellow"
+    console.print(f"[bold]Session status:[/bold] [{status_color}]{status}[/{status_color}]")
+    if not result.close_result.validation.complete:
+        unresolved = ", ".join(result.close_result.validation.unresolved_required_criteria)
+        console.print(f"  Unresolved required criteria: {unresolved}")
+
+    console.print()
+    console.print(escape(render_session_trace(result.trace)))

@@ -76,6 +76,19 @@ class UrllibOllamaTransport:
                 f"Could not reach Ollama at {url}: {exc.reason}. "
                 "Is `ollama serve` running, and is the host/port correct?"
             ) from exc
+        except TimeoutError as exc:
+            # `urlopen`'s `timeout=` bounds every socket read, not just the
+            # connect -- a slow generation (a larger or reasoning model,
+            # e.g. Qwen3's "thinking" mode) can time out reading the
+            # response body itself. That raises a bare `TimeoutError`,
+            # not a `URLError`, so it needs its own catch here; otherwise
+            # it escapes this method unwrapped and crashes the caller
+            # instead of being reported as an ordinary `LocalLLMError`.
+            raise LocalLLMError(
+                f"Ollama at {url} did not respond within {timeout_seconds:.0f}s. "
+                "The model may still be generating -- a larger or reasoning "
+                "model can need more time than the default timeout."
+            ) from exc
 
         if len(body) > _MAX_RESPONSE_BYTES:
             raise LocalLLMError(f"Ollama response from {url} exceeded {_MAX_RESPONSE_BYTES} bytes.")
