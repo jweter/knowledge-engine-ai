@@ -9,6 +9,38 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **AI-O5: parallel retrieval + contradiction-oriented retrieval.** New
+  `knowledge_engine_ai/orchestrator/parallel_retrieval.py`:
+  `run_parallel_retrieval` widens AI-O3's single always-run retrieval
+  step into two, run concurrently via a `ThreadPoolExecutor` -- the
+  unmodified question (primary) and the same question with `core`'s own
+  already-validated same-PICO-contradiction-audit negative-signal
+  phrase set appended (contradiction-oriented). No new `core`-side
+  capability and no LLM call; each branch's `KeCommandError` is caught
+  independently rather than aborting its sibling, matching AI-O3's
+  "one step's failure does not stop the rest" discipline.
+  `ParallelRetrievalResult.contradiction_only_evidence_record_ids` is
+  the concrete recall-gain signal AI-O5's success criterion asks to
+  measure. `run_fixed_evidence_workflow` now records both branches as
+  separate `ResearchEvent`s (`retrieval_and_evidence_intelligence`,
+  `contradiction_oriented_retrieval`); `WorkflowResult.parallel_retrieval`
+  carries the full two-branch detail, `evidence_report` still points at
+  the primary branch alone for backward compatibility. Optional
+  external discovery is an injectable callable, deliberately left
+  unwired to any concrete `core` capability (`ke discovery-cycle-run`'s
+  persisted pagination-offset semantics do not fit a per-question call
+  -- see the design doc). Live-verified against `core`'s real GLP-1 and
+  oncology corpora with the actual `ke` executable: the mechanism runs
+  correctly end to end with precision maintained, though measured
+  recall gain was zero in both live checks -- see `docs/ai_o5_design.md`'s
+  "what this does not establish" section for the honest interpretation
+  of that result. A real, narrow concurrency defect was found and
+  worked around during verification (two `ke` subprocesses racing to
+  apply the same pending schema migration to one on-disk SQLite file on
+  first concurrent use), documented rather than silently patched. 6 new
+  tests in `tests/test_parallel_retrieval.py`; `tests/test_orchestrator_workflow.py`
+  updated for the two-event retrieval step. See `docs/ai_o5_design.md`.
+
 - **AI-O4: local LLM query planner.** New
   `knowledge_engine_ai/copilot/planner.py`: `plan_from_question` prompts
   a local Ollama model to decompose a natural-language question into a

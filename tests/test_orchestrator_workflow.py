@@ -120,18 +120,29 @@ def test_runs_retrieval_step_only_when_no_optional_inputs_supplied(
         evidence=tmp_path / "e.jsonl",
     )
 
-    assert [step.workflow_node for step in result.steps] == ["retrieval_and_evidence_intelligence"]
+    assert [step.workflow_node for step in result.steps] == [
+        "retrieval_and_evidence_intelligence",
+        "contradiction_oriented_retrieval",
+    ]
     assert result.steps[0].succeeded
+    assert result.steps[1].succeeded
     assert result.evidence_report is not None
     assert result.evidence_report.papers[0].paper_id == 1
+    assert result.parallel_retrieval is not None
+    assert result.parallel_retrieval.primary.error is None
+    assert result.parallel_retrieval.contradiction.error is None
 
     events = repository.list_events("sess-1")
-    assert len(events) == 1
+    assert len(events) == 2
     assert events[0].workflow_node == "retrieval_and_evidence_intelligence"
     assert events[0].validation_status == "succeeded"
     assert events[0].tool_name == "ke evidence-report"
     assert events[0].output_hash is not None
     assert events[0].executor_type == "deterministic_tool"
+    assert events[1].workflow_node == "contradiction_oriented_retrieval"
+    assert events[1].validation_status == "succeeded"
+    assert events[1].tool_name == "ke evidence-report (contradiction-oriented)"
+    assert events[1].output_hash is not None
 
 
 def test_runs_all_fixed_steps_in_order_when_optional_inputs_supplied(
@@ -152,6 +163,7 @@ def test_runs_all_fixed_steps_in_order_when_optional_inputs_supplied(
 
     assert [step.workflow_node for step in result.steps] == [
         "retrieval_and_evidence_intelligence",
+        "contradiction_oriented_retrieval",
         "evidence_map",
         "statistical_verification",
     ]
@@ -160,11 +172,13 @@ def test_runs_all_fixed_steps_in_order_when_optional_inputs_supplied(
     events = repository.list_events("sess-1")
     assert [event.workflow_node for event in events] == [
         "retrieval_and_evidence_intelligence",
+        "contradiction_oriented_retrieval",
         "evidence_map",
         "statistical_verification",
     ]
     assert [event.tool_name for event in events] == [
         "ke evidence-report",
+        "ke evidence-report (contradiction-oriented)",
         "ke evidence-map-report",
         "ke statistical-verify",
     ]
@@ -184,7 +198,10 @@ def test_skips_evidence_map_step_without_relationships_even_if_map_path_given(
         evidence_map=tmp_path / "map.json",
     )
 
-    assert [step.workflow_node for step in result.steps] == ["retrieval_and_evidence_intelligence"]
+    assert [step.workflow_node for step in result.steps] == [
+        "retrieval_and_evidence_intelligence",
+        "contradiction_oriented_retrieval",
+    ]
 
 
 def test_a_failed_step_is_still_recorded_and_does_not_stop_later_steps(
@@ -210,17 +227,21 @@ def test_a_failed_step_is_still_recorded_and_does_not_stop_later_steps(
     assert result.evidence_report is None
     assert [step.workflow_node for step in result.steps] == [
         "retrieval_and_evidence_intelligence",
+        "contradiction_oriented_retrieval",
         "evidence_map",
     ]
     assert result.steps[0].succeeded is False
     assert "No relevant papers found" in (result.steps[0].error or "")
-    assert result.steps[1].succeeded is True
+    assert result.steps[1].succeeded is False
+    assert "No relevant papers found" in (result.steps[1].error or "")
+    assert result.steps[2].succeeded is True
 
     events = repository.list_events("sess-1")
     assert events[0].validation_status == "failed"
     assert events[0].notes is not None and "No relevant papers found" in events[0].notes
     assert events[0].output_hash is None
-    assert events[1].validation_status == "succeeded"
+    assert events[1].validation_status == "failed"
+    assert events[2].validation_status == "succeeded"
 
 
 def test_raises_unknown_session_error_when_session_was_never_created(
