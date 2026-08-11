@@ -14,7 +14,11 @@ from datetime import UTC, datetime
 
 from knowledge_engine_ai.copilot.intent import ISAValidationResult, evaluate_isa_close_gate
 from knowledge_engine_ai.sessions.models import ResearchEvent, SessionStatus
-from knowledge_engine_ai.sessions.repository import SessionRepository, UnknownISAError
+from knowledge_engine_ai.sessions.repository import (
+    SessionRepository,
+    UnknownISAError,
+    UnknownSessionError,
+)
 
 _CLOSE_GATE_NODE = "research_isa_close_gate"
 _EXECUTOR_TYPE = "deterministic_policy"
@@ -44,17 +48,12 @@ def attempt_session_close(
     auditable and resumable.
     """
 
+    session = session_repository.get_session(session_id)
+    if session is None:
+        raise UnknownSessionError(f"No session with session_id {session_id!r}.")
+
     isa = session_repository.get_research_isa(session_id)
     if isa is None:
-        # Preserve the repository's distinction between a real session with no
-        # ISA and an unknown session.
-        session = session_repository.get_session(session_id)
-        if session is None:
-            session_repository.update_session_status(
-                session_id,
-                SessionStatus.BLOCKED,
-                updated_at=_timestamp(timestamp),
-            )
         raise UnknownISAError(f"Session {session_id!r} has no attached Research ISA.")
 
     results = session_repository.latest_criterion_results(session_id)
