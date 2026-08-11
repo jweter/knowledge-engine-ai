@@ -1111,10 +1111,11 @@ Late-stage capability requiring explicit speculation labels, evidence provenance
 
 ## Web Integration (AI-O12 — AI-O17): making the orchestrator the live product
 
-**Status (2026-08-11): planned, not started.** See
+**Status (2026-08-11): AI-O12 done, AI-O13-O17 not started.** See
 `docs/web_integration_design.md` for the full design, the exact current-state
 audit (what AI-O1-O9 actually built vs. what anything calls in production --
-the honest answer today is "nothing calls the composed pipeline anywhere"),
+as of AI-O12, `knowledge_engine_ai/copilot/run_research_question.py` is the
+first thing that does, live-verified against the real GLP-1 corpus),
 the architecture decision (library integration into `knowledge-engine-web`,
 not a standalone service, for this phase -- with the reasoning for why and
 when that would change), and the complete step-wise breakdown

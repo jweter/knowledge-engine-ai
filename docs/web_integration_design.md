@@ -201,7 +201,17 @@ this project's history sometimes has.
 
 ### AI-O12: Compose the orchestrator into one callable pipeline
 
-**Status: not started.**
+**Status: done.** `knowledge_engine_ai/copilot/run_research_question.py`'s
+`run_research_question` composes all seven steps below into one call, with
+full unit-test coverage and a new `ke-ai research` CLI command that
+exercises it live. Live-verified against the real GLP-1 corpus with real
+Ollama models across three runs, each a different real outcome: a Skeptic
+verification catching a small model's missing citations and correctly
+blocking session close; a clean vacuous-pass completion when no evidence
+had a stated claim to narrate; and a pre-existing `llm.py` bug (a slow
+generation's response-read timeout escaping `LocalLLMError` unwrapped)
+that this live run surfaced and that is now fixed with a regression test.
+See `CHANGELOG.md` for the full account. AI-O13 is next.
 
 **Problem:** Layer 1 above — nothing composes
 `run_fixed_evidence_workflow` → `verify_synthesis` →

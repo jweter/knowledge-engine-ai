@@ -9,6 +9,52 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **AI-O12: compose the orchestrator into one callable pipeline.** The
+  actual missing piece `docs/web_integration_design.md` identified --
+  `knowledge_engine_ai/copilot/run_research_question.py`'s
+  `run_research_question` is this repo's first caller that composes
+  `SessionRepository.create_session` -> `run_fixed_evidence_workflow`
+  (AI-O3/AI-O5) -> `synthesize_answer` (opt-in local LLM) ->
+  `verify_synthesis` (AI-O6 Skeptic check) -> `build_session_report`
+  (AI-O7) -> `attempt_session_close` (AI-O2's ISA close gate) ->
+  `build_session_trace` (AI-O9) into one call, end to end. A
+  `ResearchISA` with two fixed criteria (citation integrity, no
+  qualifying/contradicting evidence silently omitted) is attached to
+  every session this creates; both criteria pass vacuously when no
+  narrative was produced (no evidence to narrate, or the local LLM call
+  itself failed) rather than requiring a dynamic `required` flag the
+  write-once ISA contract does not allow. A synthesis-step failure is
+  still durable and visible (its own failed `ResearchEvent`, surfaced on
+  `ResearchQuestionResult.synthesis_error`) without blocking session
+  close -- the close gate is scoped to narrative correctness, not
+  synthesis availability. New `ke-ai research` CLI command exercises the
+  composed pipeline (`--session-db` for the durable SQLite session
+  store, `--llm-model`/`--ollama-host` matching `ask --synthesize`'s
+  existing flags), so this repo's own CLI dogfoods the orchestrator
+  before `knowledge-engine-web` ever calls it (AI-O14). Live-verified
+  against the real GLP-1 corpus with real Ollama models, three real runs
+  read in full (not just checked for a non-error exit code), each a
+  genuinely different outcome: a `qwen2.5:1.5b` run produced a real
+  synthesized narrative that the Skeptic check correctly flagged for
+  missing bracket citations -- a real catch, not a contrived test
+  fixture -- blocking that session's close exactly as designed; a
+  `qwen3:4b` run against a narrower slice of the corpus (no evidence
+  record with a stated claim in the top matches) completed cleanly with
+  no narrative to verify, the vacuous-pass path exercised for real; and
+  a first `qwen3:4b` attempt at the wider slice **found a real,
+  pre-existing bug this live run is what surfaced**: `llm.py`'s
+  `UrllibOllamaTransport.post` only wrapped connect-phase failures into
+  `LocalLLMError` via `except URLError` -- a slow generation (Qwen3's
+  "thinking" mode) can time out reading the response body itself, which
+  `urlopen` raises as a bare `TimeoutError`, not a `URLError`, so it
+  escaped unwrapped and crashed the whole command instead of being
+  reported as an ordinary synthesis failure. Fixed with a dedicated
+  `except TimeoutError` catch and a regression test
+  (`test_urllib_transport_wraps_a_slow_response_timeout_as_local_llm_error`);
+  this was a pre-existing gap in `ask --synthesize` too, not something
+  AI-O12 introduced, just the first live run patient enough (a slower,
+  reasoning model over more evidence) to hit it.
+
 - **`docs/web_integration_design.md`: the Web Integration plan (AI-O12-O17),
   doc-only.** Audited the actual current state rather than assuming it from
   milestone names: AI-O1-O9's orchestrator (`run_fixed_evidence_workflow`,
