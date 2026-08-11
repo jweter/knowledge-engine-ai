@@ -9,6 +9,40 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **AI-O8: Model Router.** New `knowledge_engine_ai/model_benchmark.py`:
+  `run_model_benchmark` runs a set of role-tagged `BenchmarkTask` probes
+  against each candidate model, reusing this project's own existing
+  deterministic graders rather than inventing a new scoring method --
+  the planning probe wraps AI-O4's `plan_from_question` + AI-O1's
+  `validate_research_plan`, the synthesis probe wraps `synthesize_answer`
+  + AI-O6's `verify_synthesis` (passing only when neither
+  `hallucinated_citations` nor `ungrounded_numbers` fired).
+  `recommend_models_by_role` picks the smallest candidate
+  (`approx_parameter_count_billions`, caller-supplied) that passed every
+  task for a `ModelRole`, meeting the roadmap's literal success
+  criterion ("use the smallest model meeting task-quality thresholds");
+  a role with zero qualifying candidates is omitted, not an error.
+  `provider_specs_from_benchmark` closes the loop into the
+  provider-role-routing work merged just ahead of this milestone
+  (`routing.py`'s `ProviderSpec`/`select_provider`): a benchmark
+  recommendation becomes better-informed input to that one routing
+  mechanism instead of a second one, `max_privacy` never exceeding
+  `SENSITIVE`. 9 new tests in `tests/test_model_benchmark.py`.
+  Live-verified against both models actually pulled in this environment
+  (`qwen2.5:1.5b`, `qwen3:4b`) with a real running Ollama server, a real
+  planning question, and the same real GLP-1 `EvidenceReport` AI-O6/AI-O7
+  live-verified against: `qwen2.5:1.5b` passed both the planning and
+  synthesis/citation-compliance probes; `qwen3:4b` failed both (planning
+  timed out even at a 300s per-call budget; synthesis returned an empty
+  response because its "thinking" tokens consumed the entire response
+  budget, reproducing AI-O4's prior anecdotal finding as an automated,
+  repeatable benchmark result). A real timeout-tuning artifact was found
+  and corrected during verification -- `OllamaLLM`'s 120s default timeout
+  made even `qwen2.5:1.5b`'s planning probe appear to fail on a cold
+  model load, when an isolated retry with a longer timeout completed in
+  36.2 seconds; re-run with `timeout_seconds=300.0` for an honest read.
+  See `docs/ai_o8_design.md`.
+
 - **AI-O7: Research Session Synthesis.** New
   `knowledge_engine_ai/orchestrator/session_report.py`:
   `build_session_report(narrative, report, verification)` resolves each

@@ -1058,6 +1058,27 @@ Benchmark local models on planning, extraction, evidence comparison, synthesis, 
 
 **Success criterion:** use the smallest model meeting task-quality thresholds.
 
+**Status (2026-08-11): implemented and live-verified.** New
+`knowledge_engine_ai/model_benchmark.py`: `run_model_benchmark` runs
+role-tagged `BenchmarkTask` probes -- reusing AI-O1/AI-O4's
+`validate_research_plan`/`plan_from_question` for planning and AI-O6's
+`verify_synthesis` for synthesis/citation-compliance, not a new scoring
+method -- against each candidate model; `recommend_models_by_role`
+returns the smallest candidate that passed every task for a role.
+`provider_specs_from_benchmark` feeds a recommendation into PR #16's
+just-merged `routing.py` (`ProviderSpec`/`select_provider`) rather than
+building a second routing mechanism. Extraction and evidence-comparison
+benchmarking are out of scope for this slice -- neither has an
+LLM-based worker in this project yet to benchmark. Live-verified against
+both models pulled in this environment: `qwen2.5:1.5b` passed both
+probes; `qwen3:4b` failed both (planning timed out at 300s; synthesis
+returned empty because its "thinking" tokens consumed the response
+budget), turning AI-O4's prior anecdotal finding into a reproducible
+benchmark result. A real timeout-tuning artifact (a too-tight 120s
+default made even the passing model appear to fail on a cold model
+load) was found and corrected during verification. See
+`docs/ai_o8_design.md`.
+
 ### AI-O9 — Observability + Budgeting
 
 Add workflow tracing and resource metrics.
