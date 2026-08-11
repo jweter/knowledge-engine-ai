@@ -51,7 +51,9 @@ def run_doctor(probes: tuple[CapabilityProbe, ...]) -> tuple[Capability, ...]:
     return tuple(reports)
 
 
-def ollama_generation_probe(llm: LocalLLM, *, capability_name: str = "local_generation") -> Capability:
+def ollama_generation_probe(
+    llm: LocalLLM, *, capability_name: str = "local_generation"
+) -> Capability:
     """Verify that the configured local model can complete a minimal generation."""
 
     try:
