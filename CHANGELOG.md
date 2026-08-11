@@ -9,6 +9,28 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Correction to the AI-O12-O17 architecture decision's reasoning.**
+  The original decision text (this file's "Web Integration plan"
+  entry below) claimed `knowledge-engine-web` "already imports
+  `knowledge-engine-core` directly as a Python package," making
+  `knowledge-engine-ai` "cost almost nothing" to add alongside it.
+  Verified false while starting AI-O13: `web`'s `pyproject.toml` has
+  no `core` dependency, and `web`'s own `docs/web_design.md` explains
+  why -- it deliberately reads `core`'s SQLite database via reflection
+  specifically to avoid that dependency weight. `web` has zero ML
+  dependencies today. The real cost of adding `ai`: `ai`'s retrieval
+  shells out to the `ke` CLI, so `run_research_question` only actually
+  works in `web` (not just imports) once `core`'s full dependency
+  stack -- torch included -- is available too, and `web`'s deployed
+  data snapshot has no `sources.csv` (`ke evidence-report` needs one).
+  The decision (library integration over a standalone service) still
+  stands -- it just no longer stands on a "this is nearly free" claim
+  that was never true. See `docs/web_integration_design.md`'s
+  Architecture decision section for the corrected reasoning, and its
+  AI-O13 section for what this changes about that step's own scope.
+  The historical entry below is left as written -- this is a new entry
+  documenting the correction, not a silent edit of the record.
+
 - **AI-O12: compose the orchestrator into one callable pipeline.** The
   actual missing piece `docs/web_integration_design.md` identified --
   `knowledge_engine_ai/copilot/run_research_question.py`'s

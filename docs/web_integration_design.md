@@ -85,9 +85,9 @@ its own API, auth, and independent scaling — appropriate once there is a
 second consumer of the orchestrator, or real multi-tenant load to manage.
 
 That is not this project's situation today. `knowledge-engine-web` is a
-single Render service, low traffic, alpha-stage, basic-auth-gated. Two
-concrete facts make a separate service the wrong choice **for this
-phase**:
+single Render service, low traffic, alpha-stage, basic-auth-gated. One
+concrete fact makes a separate service the wrong choice **for this
+phase**, and one earlier claim in this section needs a correction:
 
 1. **`knowledge-engine-ai` has no web-framework dependency today**
    (`pyproject.toml`: `typer`, `click`, `rich` — nothing else). Building a
@@ -97,18 +97,41 @@ phase**:
    a second Ollama reachability story, and a second deploy pipeline to
    operate — real, ongoing infrastructure cost for zero current
    multi-tenant need.
-2. **`knowledge-engine-web` already imports `knowledge-engine-core`
-   directly as a Python package** (its own `pyproject.toml` dependency,
-   confirmed in `docs/web_design.md`) — the "never import `core` as a
-   package, only shell out to `ke`" discipline `ke_client.py`'s own
-   docstring describes is a `knowledge-engine-ai`-specific choice (to
-   avoid pulling `core`'s heavy ML dependencies — `torch`,
-   `sentence-transformers`, `faiss-cpu` — into a project that only needs
-   one CLI call). `knowledge-engine-web` already pays that dependency
-   cost for `core`. Adding `knowledge-engine-ai` as a second direct
-   dependency costs almost nothing next to that — `typer`/`click`/`rich`
-   are lightweight, and `ai`'s own calls into `core` continue to go
-   through `ke_client.py`'s existing subprocess boundary unchanged.
+2. **Correction (found during AI-O13, not caught before this doc
+   merged): `knowledge-engine-web` does *not* already import
+   `knowledge-engine-core` as a Python package.** Verified directly
+   against `knowledge-engine-web`'s own `pyproject.toml` (no `core`
+   dependency listed) and `docs/web_design.md`'s own "Decision: read
+   `core`'s SQLite database via SQLAlchemy reflection, not by
+   redeclaring its schema" section, which explains that `web`
+   deliberately reads `core`'s database via reflection *specifically to
+   avoid* a Python-package dependency on `core`. `web` today has zero
+   ML dependencies (no `torch`, `sentence-transformers`, `faiss-cpu`,
+   `qdrant-client`) -- the earlier claim that adding `ai` "costs almost
+   nothing next to" an existing `core` dependency was wrong; there is no
+   existing `core` dependency to compare against.
+
+   The real cost is materially different: `knowledge_engine_ai`'s
+   retrieval shells out to the `ke` CLI (`ke_client.py`'s subprocess
+   boundary, unchanged by this decision), so `run_research_question`
+   only actually *works* in `web` -- not just imports cleanly -- once
+   `ke` is on `PATH`, which means `web`'s deployment needs `core`'s full
+   dependency stack, torch included, for the first time. `web`'s data
+   snapshot also has no `sources.csv` today (only
+   `evidence_records.jsonl` and a SQLite DB), another precondition `ke
+   evidence-report` needs that this plan did not originally account
+   for.
+
+   This is a real, non-trivial deployment-weight question -- but it is
+   the same shape of gap this plan already named and deferred rather
+   than silently assumed away: the "no LLM inference in production
+   today" precondition below. Both are scoped to AI-O16 (guardrails for
+   a real, publicly-reachable endpoint) and AI-O17's public-alpha half,
+   not a blocker for AI-O13/AI-O14's local/dev-scoped work. The decision
+   below still stands on fact 1 alone -- avoiding a second service, a
+   second auth story, and a second deploy pipeline for a consumer that
+   does not yet exist -- it just no longer stands on a "this is nearly
+   free" claim that was never true.
 
 **Decision:** `knowledge-engine-web` adds `knowledge-engine-ai` as a
 direct Python dependency and calls the orchestrator in-process, in the
@@ -277,26 +300,45 @@ Concretely, in order:
 
 **Status: not started. Depends on AI-O12.**
 
+**Corrected premise (see the Architecture decision section above for the
+full account):** `knowledge-engine-web` has **no** existing
+`knowledge-engine-core` dependency to match the shape of -- it reads
+`core`'s SQLite database via reflection specifically to avoid one.
+`knowledge-engine-ai`'s own dependencies (`typer`/`click`/`rich`) are
+light, but `ai`'s retrieval shells out to the `ke` CLI, so making
+`run_research_question` actually work (not just import) in `web`
+requires `core`'s full dependency stack -- torch included -- on `web`'s
+`PATH` too. This is a real Docker-image-weight change, not a
+non-event; verify it live and record the actual before/after image
+size rather than assume it is small.
+
 **Deliverable:**
 - `knowledge-engine-web`'s `pyproject.toml` gains a
-  `knowledge-engine-ai` dependency (path or git dependency, matching
-  however `knowledge-engine-core` is already declared there).
-- Confirm the web repo's Docker build still succeeds and doesn't pull in
-  anything unexpectedly heavy — `ai`'s own dependencies are `typer`/
-  `click`/`rich` only, so this should be a non-event, but verify it
-  live rather than assume.
+  `knowledge-engine-ai` dependency (a git dependency pointing at this
+  repo, since there is no shared package registry between these sibling
+  repos and no existing `core`-dependency precedent to match).
+- Document the Docker-image-weight finding above rather than assume
+  it away; the actual `web` Docker build (pulling in `core` too, for
+  `ke` on `PATH`) is deferred to AI-O16 territory, not required for
+  this step's own definition of done below.
 - Decide and document the config surface: session-database path
   (`KE_AI_SESSION_DB_PATH` or similar — new env var), which `KE_WEB_*`
-  values (evidence path, sources path, Ollama host/model) get reused
-  vs. need `KE_AI_*` siblings. Prefer reusing web's existing settings
-  where the meaning is identical (e.g. one Ollama host, one model) —
-  don't invent a second config surface for the same value.
+  values (Ollama host/model) get reused vs. need `KE_AI_*` siblings, and
+  the new `sources.csv` config `web` has never needed before today
+  (its data snapshot currently ships `evidence_records.jsonl` and a
+  SQLite DB, not a `sources.csv` -- `ke evidence-report` needs both).
+  Prefer reusing web's existing settings where the meaning is identical
+  (e.g. one Ollama host, one model) — don't invent a second config
+  surface for the same value.
 
 **Definition of done:** `knowledge_engine_ai.copilot.run_research_question`
 is importable and callable from a `knowledge_engine_web` test, using
-web's real settings wiring. No route changes yet — this step is purely
-"the dependency exists and is wired to config," so AI-O14 is a smaller,
-more reviewable diff.
+web's real settings wiring and real corpus data (proving genuine
+callability, not just a clean import). No route changes yet, and no
+requirement that `web`'s own Docker/deployment story handle this yet —
+this step is purely "the dependency exists, is wired to config, and is
+provably callable," so AI-O14 is a smaller, more reviewable diff and
+AI-O16 is where the deployment-weight question gets solved for real.
 
 ### AI-O14: Route `/ask` through the orchestrator
 
