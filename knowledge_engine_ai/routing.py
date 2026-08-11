@@ -101,7 +101,9 @@ def select_provider(
             f"role={request.role.value!r}, privacy={request.privacy_class.value!r}."
         )
 
-    eligible.sort(key=lambda provider: (provider.priority, not provider.local, provider.provider_id))
+    eligible.sort(
+        key=lambda provider: (provider.priority, not provider.local, provider.provider_id)
+    )
     return eligible[0]
 
 
