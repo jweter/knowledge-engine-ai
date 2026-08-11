@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -136,6 +137,7 @@ def run_fixed_evidence_workflow(
     report: EvidenceReport | None = None
     parallel_result: ParallelRetrievalResult | None = None
 
+    retrieval_start = time.monotonic()
     parallel_result = run_parallel_retrieval(
         question,
         sources=sources,
@@ -144,6 +146,11 @@ def run_fixed_evidence_workflow(
         external_discovery=external_discovery,
         ke_executable=ke_executable,
     )
+    # Both branches run concurrently inside `run_parallel_retrieval`'s own
+    # thread pool, so this is the combined call's wall-clock time, not an
+    # isolated per-branch cost -- both retrieval events below get the same
+    # duration_ms for that reason (see docs/ai_o9_design.md).
+    retrieval_duration_ms = _elapsed_ms(retrieval_start)
     report = parallel_result.primary.report
     steps.append(
         _record_step(
@@ -155,6 +162,8 @@ def run_fixed_evidence_workflow(
             output_hash=_retrieval_output_hash(report) if report is not None else None,
             output_schema_version=report.schema_version if report is not None else None,
             error=parallel_result.primary.error,
+            duration_ms=retrieval_duration_ms,
+            source_ids=_evidence_record_ids(report) if report is not None else (),
         )
     )
     contradiction_report = parallel_result.contradiction.report
@@ -178,10 +187,17 @@ def run_fixed_evidence_workflow(
                 contradiction_report.schema_version if contradiction_report is not None else None
             ),
             error=parallel_result.contradiction.error,
+            duration_ms=retrieval_duration_ms,
+            source_ids=(
+                _evidence_record_ids(contradiction_report)
+                if contradiction_report is not None
+                else ()
+            ),
         )
     )
 
     if evidence_map is not None and relationships is not None:
+        evidence_map_start = time.monotonic()
         try:
             map_report = evidence_map_report(
                 evidence_map,
@@ -200,6 +216,7 @@ def run_fixed_evidence_workflow(
                     output_hash=_hash(map_report),
                     output_schema_version=None,
                     error=None,
+                    duration_ms=_elapsed_ms(evidence_map_start),
                 )
             )
         except KeCommandError as exc:
@@ -213,10 +230,12 @@ def run_fixed_evidence_workflow(
                     output_hash=None,
                     output_schema_version=None,
                     error=str(exc),
+                    duration_ms=_elapsed_ms(evidence_map_start),
                 )
             )
 
     if statistical_inputs is not None:
+        statistical_verification_start = time.monotonic()
         try:
             stats_report = statistical_verify(
                 statistical_inputs,
@@ -234,6 +253,7 @@ def run_fixed_evidence_workflow(
                     output_hash=_hash(stats_report),
                     output_schema_version=None,
                     error=None,
+                    duration_ms=_elapsed_ms(statistical_verification_start),
                 )
             )
         except KeCommandError as exc:
@@ -247,6 +267,7 @@ def run_fixed_evidence_workflow(
                     output_hash=None,
                     output_schema_version=None,
                     error=str(exc),
+                    duration_ms=_elapsed_ms(statistical_verification_start),
                 )
             )
 
@@ -259,15 +280,23 @@ def run_fixed_evidence_workflow(
     )
 
 
+def _evidence_record_ids(report: EvidenceReport) -> tuple[str, ...]:
+    """Every retrieved evidence-record identity in `report`, sorted for determinism."""
+
+    return tuple(
+        sorted(
+            record.evidence_record_id
+            for paper in report.papers
+            for record in paper.evidence_records
+            if record.evidence_record_id
+        )
+    )
+
+
 def _retrieval_summary(report: EvidenceReport) -> str:
     """A short, human-readable summary -- the durable audit trail is the event's `output_hash`."""
 
-    evidence_record_ids = sorted(
-        record.evidence_record_id
-        for paper in report.papers
-        for record in paper.evidence_records
-        if record.evidence_record_id
-    )
+    evidence_record_ids = _evidence_record_ids(report)
     return (
         f"{len(report.papers)} paper(s), {len(evidence_record_ids)} evidence record(s) retrieved."
     )
@@ -283,16 +312,15 @@ def _retrieval_output_hash(report: EvidenceReport) -> str:
     """
 
     paper_ids = [paper.paper_id for paper in report.papers]
-    evidence_record_ids = sorted(
-        record.evidence_record_id
-        for paper in report.papers
-        for record in paper.evidence_records
-        if record.evidence_record_id
-    )
     payload = json.dumps(
-        {"paper_ids": paper_ids, "evidence_record_ids": evidence_record_ids}, sort_keys=True
+        {"paper_ids": paper_ids, "evidence_record_ids": list(_evidence_record_ids(report))},
+        sort_keys=True,
     )
     return _hash(payload)
+
+
+def _elapsed_ms(start: float) -> int:
+    return round((time.monotonic() - start) * 1000)
 
 
 def _record_step(
@@ -305,6 +333,8 @@ def _record_step(
     output_hash: str | None,
     output_schema_version: int | None,
     error: str | None,
+    duration_ms: int | None = None,
+    source_ids: tuple[str, ...] = (),
 ) -> WorkflowStepResult:
     event = ResearchEvent(
         event_id=str(uuid.uuid4()),
@@ -317,6 +347,8 @@ def _record_step(
         output_hash=output_hash,
         tool_name=tool_name,
         notes=error,
+        duration_ms=duration_ms,
+        source_ids=source_ids,
     )
     session_repository.append_event(event)
     return WorkflowStepResult(

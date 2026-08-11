@@ -1,7 +1,7 @@
 # AI-O9 — Observability + Budgeting
 
-**Status:** Planned, not yet implemented (this document is the plan;
-implementation follows in the same branch).
+**Status:** Implemented and live-verified (2026-08-11) -- see "Live
+verification" below.
 **Depends on:** AI-O2's `ResearchSession`/`ResearchEvent`/`SessionRepository`
 (the durable event log this milestone reports over, not a new store),
 and `orchestrator/workflow.py`'s `run_fixed_evidence_workflow` (the one
@@ -200,13 +200,41 @@ module's contract). New `workflow.py` tests confirm `duration_ms` is
 populated (`>= 0`, not `None`) and `source_ids` carries the expected
 evidence-record IDs for the two retrieval steps specifically.
 
-## Live verification (to be run and recorded here)
+## Live verification
 
-Run `run_fixed_evidence_workflow` against the real GLP-1 corpus with
-`core`'s actual `ke` executable (the same live-verification shape every
-prior AI-O milestone has used), then `build_session_trace` +
-`render_session_trace` over the resulting real event log, confirming
-the rendered trace's six sections are each populated with real data
-(a real question, real tool names, real non-zero durations, the real
-retrieved evidence-record IDs) rather than only passing against
-hand-built unit-test fixtures. Result recorded once run.
+Ran `run_fixed_evidence_workflow` against the real GLP-1 corpus with
+`core`'s actual `ke` executable -- all four fixed steps supplied
+(retrieval, contradiction-oriented retrieval, evidence map, statistical
+verification) -- then `build_session_trace` + `render_session_trace`
+over the resulting real event log. All six sections rendered with real
+data, not placeholders:
+
+- **What ran** -- all 4 steps, all `[succeeded]`.
+- **Why** -- the real question, "does semaglutide reduce body weight
+  more than placebo."
+- **What model/tool was used** -- the real `ke` subcommand per step
+  (`ke evidence-report`, `ke evidence-report (contradiction-oriented)`,
+  `ke evidence-map-report`, `ke statistical-verify`).
+- **Where time was spent** -- real durations: the combined
+  parallel-retrieval call took 58,166ms (both retrieval events, same
+  combined-span duration as designed), evidence-map 1,994ms,
+  statistical-verification 1,732ms, for a real
+  `total_duration_ms=120,058`.
+- **What failed** -- nothing; `all_succeeded=True`.
+- **What evidence supported the output** -- 4 real, deduplicated
+  evidence-record IDs (`ev-glp1-gao-meta-analysis-body-weight-001`,
+  `ev-glp1-gao-meta-analysis-safety-discontinuation-001`,
+  `ev-glp1-select-trial-weight-loss-208wk-001`,
+  `ev-glp1-step5-body-weight-week104-001`) -- a field
+  `workflow.py` never actually populated before this milestone.
+
+The 58-second retrieval duration is itself a genuine, worth-keeping
+observation (not tuned away): both `ke evidence-report` calls include
+Evidence Intelligence enrichment per matched record
+(`enriched_evidence_report`), and this environment has previously shown
+first-call SQLite migration/lock contention (documented in
+`docs/ai_o5_design.md`); this run did not isolate which factor
+dominates. That question -- decomposing the combined retrieval span
+further -- is the same follow-up already named above ("does not
+decompose the two-branch retrieval step's combined timing"), not
+resolved by this observation, only made concrete by it.

@@ -144,6 +144,13 @@ def test_runs_retrieval_step_only_when_no_optional_inputs_supplied(
     assert events[1].tool_name == "ke evidence-report (contradiction-oriented)"
     assert events[1].output_hash is not None
 
+    # AI-O9: both retrieval events carry the same combined-call duration
+    # and each carries its own branch's retrieved evidence-record IDs.
+    assert events[0].duration_ms is not None and events[0].duration_ms >= 0
+    assert events[0].duration_ms == events[1].duration_ms
+    assert events[0].source_ids == ("ev-1",)
+    assert events[1].source_ids == ("ev-1",)
+
 
 def test_runs_all_fixed_steps_in_order_when_optional_inputs_supplied(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, repository: SessionRepository
