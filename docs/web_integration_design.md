@@ -298,7 +298,8 @@ Concretely, in order:
 
 ### AI-O13: Add `knowledge-engine-ai` as a `knowledge-engine-web` dependency
 
-**Status: not started. Depends on AI-O12.**
+**Status: implemented in `knowledge-engine-web` PR
+[#41](https://github.com/jweter/knowledge-engine-web/pull/41).**
 
 **Corrected premise (see the Architecture decision section above for the
 full account):** `knowledge-engine-web` has **no** existing
@@ -331,6 +332,14 @@ size rather than assume it is small.
   (e.g. one Ollama host, one model) — don't invent a second config
   surface for the same value.
 
+**Delivered behavior:** `knowledge-engine-web` imports the immutable
+`knowledge-engine-ai` revision declared in its dependency metadata,
+wires corpus and session settings through its real `Settings` object,
+and proves `run_research_question` callability with a real subprocess
+boundary and SQLite session persistence. Shipping the heavier core
+runtime and a hosted model remains a deployment concern rather than an
+assumption hidden inside this dependency milestone.
+
 **Definition of done:** `knowledge_engine_ai.copilot.run_research_question`
 is importable and callable from a `knowledge_engine_web` test, using
 web's real settings wiring and real corpus data (proving genuine
@@ -342,7 +351,8 @@ AI-O16 is where the deployment-weight question gets solved for real.
 
 ### AI-O14: Route `/ask` through the orchestrator
 
-**Status: not started. Depends on AI-O13.**
+**Status: implemented in `knowledge-engine-web` PR
+[#49](https://github.com/jweter/knowledge-engine-web/pull/49).**
 
 **Deliverable:** `knowledge_engine_web/main.py`'s `ask()` route calls
 `run_research_question` instead of its own direct `answer_retrieval` +
@@ -374,17 +384,30 @@ distinction right in the copy, the same care `templates/relationship_candidates.
 M72 rewrite (see `knowledge-engine-web`'s own recent history) already
 modeled for a structurally similar claim.
 
-**Definition of done:** CLI-level tests (`TestClient`) covering the new
-route behavior; live-verified against the real deployed corpus (a real
-question through a real running instance, not just `pytest`); the old
-direct-`core` path is removed, not kept behind a flag indefinitely
-(temporary flag during review is fine; this project doesn't carry
-permanent dead code paths — see `CLAUDE.md`'s "no feature flags... when
-you can just change the code").
+**Delivered behavior:** `/ask` invokes `run_research_question` only when
+the static capability gate confirms the model, corpus files, `ke`
+executable, and writable session store are available. The page renders
+the durable session ID, workflow health, close-gate and verification
+state, AI-generated narrative, and resolved source citations.
+
+Deterministic web retrieval deliberately remains the primary and
+always-available path. This corrects the original definition-of-done
+language above: the old direct *AI narration* path was retired, but
+direct deterministic retrieval was not removed. If the composed AI
+runtime is incomplete or fails, `/ask` fails closed to retrieval-only
+output instead of making the scientific question unavailable.
+
+The Render alpha remains retrieval-only. AI-O14 did not quietly add the
+core runtime, corpus inputs, persistent storage, or hosted Ollama
+service needed for a public Research Copilot run. Full implementation
+and test details live in `knowledge-engine-web`'s
+`docs/ai_o14_capability_gated_ask.md`.
 
 ### AI-O15: Session persistence in the deployed environment
 
-**Status: not started. Depends on AI-O14.**
+**Status: implemented as a storage policy and deployment gate in
+`knowledge-engine-web` PR
+[#50](https://github.com/jweter/knowledge-engine-web/pull/50).**
 
 **Problem:** `sessions/repository.py` is SQLite-backed. `core`'s own
 working database already has a documented "no persistent host yet"
@@ -393,24 +416,35 @@ caveat (`docs/service_boundary_design.md`, referenced in
 from a committed snapshot, so anything written at runtime (including a
 new session-store SQLite file) does not survive a redeploy today.
 
-**Decision needed, not yet made:** is an ephemeral (reset-on-redeploy)
-session store acceptable for the alpha stage (matches this project's
-existing "alpha over a point-in-time snapshot" framing, and AI-O2's
-resume-session feature just becomes "works within one deploy's
-lifetime"), or does this justify the first real persistent-volume
-decision for this project? Do not default to persistent without an
-explicit decision recorded here — this is exactly the kind of
-infrastructure commitment this project's engineering discipline asks to
-be deliberate about, not silently assumed.
+**Decision:** ordinary local SQLite is acceptable for development and a
+trusted single-machine deployment. A hosted or persistent deployment
+must use `persistent` storage mode and place the session database
+canonically inside an explicitly configured persistent mount. Ephemeral
+public Research Sessions are rejected: showing a durable session ID
+while silently losing its history on redeploy would violate the
+project's traceability promise.
 
-**Definition of done:** the decision is written down in this section
-(replacing this paragraph) with the reasoning, then implemented; a real
-resume-session flow (ask a question, come back, continue the same
-session) is live-verified working within whatever lifetime was decided.
+The capability gate rejects missing or unwritable mounts, relative
+hosted paths, database paths outside the configured root, and symlink
+escapes. It does not create directories, databases, disks, or billing
+resources while checking capability. The Render blueprint declares the
+intended `/var/data` contract but intentionally does not provision a
+persistent disk; until an operator attaches and verifies that disk, the
+alpha remains retrieval-only.
+
+`SessionRepository` can reopen the same SQLite store and recover durable
+session state, and the web integration tests exercise that boundary.
+This is storage continuity, not a user-facing resume feature. The
+current `run_research_question` composition does not yet define how a
+browser continues an existing session, so authorization, terminal-state
+handling, and idempotent continuation require a separate contract before
+such a UI is claimed. Full implementation and operator details live in
+`knowledge-engine-web`'s `docs/ai_o15_deployed_session_persistence.md`.
 
 ### AI-O16: Guardrails for a real, publicly-reachable, LLM-cost-bearing endpoint
 
-**Status: not started. Depends on AI-O14.**
+**Status: next. Depends on the implemented AI-O14 route and AI-O15
+storage boundary.**
 
 `/ask` today already runs local inference on request (existing
 `synthesize=1` path) behind only the alpha's basic-auth gate. Routing it
