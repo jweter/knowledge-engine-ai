@@ -55,6 +55,7 @@ from knowledge_engine_ai.copilot.intent import (
     IdealStateCriterion,
     ResearchISA,
 )
+from knowledge_engine_ai.execution import ExecutionBudget, ExecutionBudgetExceeded
 from knowledge_engine_ai.llm import LocalLLM, LocalLLMError
 from knowledge_engine_ai.models import EvidenceReport
 from knowledge_engine_ai.orchestrator.close_gate import SessionCloseResult, attempt_session_close
@@ -117,6 +118,7 @@ def run_research_question(
     limit: int = 5,
     external_discovery: ExternalDiscoveryCallable | None = None,
     ke_executable: str = "ke",
+    timeout_seconds: float | None = None,
 ) -> ResearchQuestionResult:
     """Create a session, run the fixed workflow, synthesize, verify, close, trace.
 
@@ -130,6 +132,9 @@ def run_research_question(
     each is represented instead.
     """
 
+    execution_budget = (
+        ExecutionBudget.from_timeout(timeout_seconds) if timeout_seconds is not None else None
+    )
     session_id = str(uuid.uuid4())
     created_at = _timestamp()
     session_repository.create_session(
@@ -152,6 +157,7 @@ def run_research_question(
         limit=limit,
         external_discovery=external_discovery,
         ke_executable=ke_executable,
+        execution_budget=execution_budget,
     )
 
     narrative, synthesis_error = _synthesize(
@@ -159,6 +165,7 @@ def run_research_question(
         session_id=session_id,
         evidence_report=workflow_result.evidence_report,
         llm=llm,
+        execution_budget=execution_budget,
     )
 
     verification: VerificationResult | None = None
@@ -201,6 +208,7 @@ def _synthesize(
     session_id: str,
     evidence_report: EvidenceReport | None,
     llm: LocalLLM,
+    execution_budget: ExecutionBudget | None,
 ) -> tuple[str | None, str | None]:
     """Run `synthesize_answer`, recording exactly one durable `ResearchEvent` either way.
 
@@ -215,8 +223,15 @@ def _synthesize(
 
     start = time.monotonic()
     try:
-        narrative = synthesize_answer(evidence_report, llm)
-    except LocalLLMError as exc:
+        timeout_seconds = (
+            execution_budget.remaining_seconds() if execution_budget is not None else None
+        )
+        narrative = synthesize_answer(
+            evidence_report,
+            llm,
+            timeout_seconds=timeout_seconds,
+        )
+    except (ExecutionBudgetExceeded, LocalLLMError) as exc:
         _record_synthesis_event(
             session_repository,
             session_id=session_id,

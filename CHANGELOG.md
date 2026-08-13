@@ -9,6 +9,14 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **AI-O16 execution-budget foundation.** Added an optional shared monotonic
+  deadline to `run_research_question`. Core `ke` subprocesses and Ollama
+  generation now consume the same remaining wall-clock budget, timed-out
+  subprocesses are terminated and reported without leaking arguments or paths,
+  and callers that omit a budget retain existing behavior. This is the AI-side
+  prerequisite for Web's bounded public-endpoint, concurrency, and rate-limit
+  controls; it does not enable public Research Copilot by itself.
+
 - **Cross-repository AI-O13 through AI-O15 status alignment.** Updated the web
   integration design after `knowledge-engine-web` PRs #41, #49, and #50: the AI
   package dependency is wired through real web settings, `/ask` capability-gates

@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from knowledge_engine_ai.execution import ExecutionBudget
 from knowledge_engine_ai.ke_client import (
     KeCommandError,
     enriched_evidence_report,
@@ -170,6 +171,46 @@ def test_evidence_report_never_uses_a_shell(
     evidence_report("q", sources=tmp_path / "s.csv", evidence=tmp_path / "e.jsonl")
 
     assert captured_kwargs.get("shell", False) is False
+
+
+def test_evidence_report_uses_the_shared_execution_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured_kwargs: dict[str, object] = {}
+
+    def fake_run(command: list[str], **kwargs: object) -> _FakeCompletedProcess:
+        captured_kwargs.update(kwargs)
+        return _FakeCompletedProcess(0, json.dumps(_VALID_PAYLOAD))
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    evidence_report(
+        "q",
+        sources=tmp_path / "s.csv",
+        evidence=tmp_path / "e.jsonl",
+        execution_budget=ExecutionBudget.from_timeout(10.0),
+    )
+
+    timeout = captured_kwargs["timeout"]
+    assert isinstance(timeout, float)
+    assert 0 < timeout <= 10.0
+
+
+def test_evidence_report_sanitizes_a_subprocess_timeout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fake_run(command: list[str], **kwargs: object) -> _FakeCompletedProcess:
+        raise subprocess.TimeoutExpired(command, timeout=1.0)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    with pytest.raises(KeCommandError, match="exceeded the configured execution time limit"):
+        evidence_report(
+            "q",
+            sources=tmp_path / "private" / "sources.csv",
+            evidence=tmp_path / "private" / "evidence.jsonl",
+            execution_budget=ExecutionBudget.from_timeout(10.0),
+        )
 
 
 def test_evidence_intelligence_runs_the_expected_command_and_parses_the_result(

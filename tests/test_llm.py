@@ -63,6 +63,15 @@ def test_generate_uses_the_given_host() -> None:
     assert transport.calls[0]["url"] == "http://192.168.1.50:11434/api/chat"
 
 
+def test_generate_uses_a_per_call_timeout_override() -> None:
+    transport = _FakeTransport(_FakeResponse(status_code=200, body=_chat_response_body("Answer.")))
+    llm = OllamaLLM(model="qwen2.5:1.5b", transport=transport, timeout_seconds=120.0)
+
+    llm.generate("question", timeout_seconds=17.5)
+
+    assert transport.calls[0]["timeout_seconds"] == 17.5
+
+
 def test_generate_strips_a_hybrid_reasoning_models_inline_think_block() -> None:
     content = "Some internal reasoning about the question.</think>\n\nThe actual answer [ev-1]."
     transport = _FakeTransport(_FakeResponse(status_code=200, body=_chat_response_body(content)))

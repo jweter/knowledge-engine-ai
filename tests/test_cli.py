@@ -331,7 +331,14 @@ class _FakeLLM:
         self.model = model
         self.host = host
 
-    def generate(self, prompt: str, *, max_tokens: int = 400) -> str:
+    def generate(
+        self,
+        prompt: str,
+        *,
+        max_tokens: int = 400,
+        timeout_seconds: float | None = None,
+    ) -> str:
+        del timeout_seconds
         assert "does semaglutide reduce lean mass" in prompt
         return "Semaglutide reduced lean mass [ev-1]."
 
@@ -439,7 +446,14 @@ def test_ask_synthesize_passes_the_ollama_host_through(
         def __init__(self, *, model: str, host: str) -> None:
             seen_hosts.append(host)
 
-        def generate(self, prompt: str, *, max_tokens: int = 400) -> str:
+        def generate(
+            self,
+            prompt: str,
+            *,
+            max_tokens: int = 400,
+            timeout_seconds: float | None = None,
+        ) -> str:
+            del timeout_seconds
             return "Semaglutide reduced lean mass [ev-1]."
 
     monkeypatch.setattr(

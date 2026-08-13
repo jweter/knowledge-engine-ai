@@ -47,6 +47,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from knowledge_engine_ai.execution import ExecutionBudget
 from knowledge_engine_ai.ke_client import (
     KeCommandError,
     evidence_map_report,
@@ -112,6 +113,7 @@ def run_fixed_evidence_workflow(
     binary_statistical_inputs: Path | None = None,
     external_discovery: ExternalDiscoveryCallable | None = None,
     ke_executable: str = "ke",
+    execution_budget: ExecutionBudget | None = None,
 ) -> WorkflowResult:
     """Run the fixed step sequence against an already-created `session_id`.
 
@@ -145,6 +147,7 @@ def run_fixed_evidence_workflow(
         limit=limit,
         external_discovery=external_discovery,
         ke_executable=ke_executable,
+        execution_budget=execution_budget,
     )
     # Both branches run concurrently inside `run_parallel_retrieval`'s own
     # thread pool, so this is the combined call's wall-clock time, not an
@@ -205,6 +208,7 @@ def run_fixed_evidence_workflow(
                 relationships=relationships,
                 sources=sources,
                 ke_executable=ke_executable,
+                execution_budget=execution_budget,
             )
             steps.append(
                 _record_step(
@@ -242,6 +246,7 @@ def run_fixed_evidence_workflow(
                 evidence=evidence,
                 binary_inputs=binary_statistical_inputs,
                 ke_executable=ke_executable,
+                execution_budget=execution_budget,
             )
             steps.append(
                 _record_step(

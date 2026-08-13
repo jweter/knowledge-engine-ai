@@ -19,11 +19,28 @@ class _FakeLLM:
         self.response = response
         self.prompts: list[str] = []
         self.max_tokens_seen: list[int] = []
+        self.timeouts_seen: list[float | None] = []
 
-    def generate(self, prompt: str, *, max_tokens: int = 400) -> str:
+    def generate(
+        self,
+        prompt: str,
+        *,
+        max_tokens: int = 400,
+        timeout_seconds: float | None = None,
+    ) -> str:
         self.prompts.append(prompt)
         self.max_tokens_seen.append(max_tokens)
+        self.timeouts_seen.append(timeout_seconds)
+
         return self.response
+
+
+def test_synthesize_answer_forwards_the_execution_timeout() -> None:
+    llm = _FakeLLM("Answer [ev-1].")
+
+    synthesize_answer(_report(papers=[_paper_with_evidence()]), llm, timeout_seconds=12.5)
+
+    assert llm.timeouts_seen == [12.5]
 
 
 def _report(*, papers: list[RetrievedPaper]) -> EvidenceReport:

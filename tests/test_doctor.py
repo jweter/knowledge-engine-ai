@@ -15,8 +15,14 @@ class FakeLLM:
         self._response = response
         self._error = error
 
-    def generate(self, prompt: str, *, max_tokens: int = 400) -> str:
-        del prompt, max_tokens
+    def generate(
+        self,
+        prompt: str,
+        *,
+        max_tokens: int = 400,
+        timeout_seconds: float | None = None,
+    ) -> str:
+        del prompt, max_tokens, timeout_seconds
         if self._error is not None:
             raise self._error
         return self._response

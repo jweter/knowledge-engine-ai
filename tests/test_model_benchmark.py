@@ -17,8 +17,14 @@ class _FakeLLM:
     def __init__(self, name: str) -> None:
         self.name = name
 
-    def generate(self, prompt: str, *, max_tokens: int = 400) -> str:
-        del prompt, max_tokens
+    def generate(
+        self,
+        prompt: str,
+        *,
+        max_tokens: int = 400,
+        timeout_seconds: float | None = None,
+    ) -> str:
+        del prompt, max_tokens, timeout_seconds
         return self.name
 
 
