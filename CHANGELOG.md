@@ -9,6 +9,12 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Launch-gate dependency security.** Upgraded Typer to the current release
+  line and removed the obsolete direct Click compatibility pin that held the
+  environment on a vulnerable Click release. CI now audits the resolved Python
+  environment with `pip-audit`, and Dependabot monitors Python and GitHub
+  Actions dependencies weekly.
+
 - **Correction to the AI-O12-O17 architecture decision's reasoning.**
   The original decision text (this file's "Web Integration plan"
   entry below) claimed `knowledge-engine-web` "already imports
