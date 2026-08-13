@@ -107,5 +107,8 @@ jobs:
           cat pytest.log
           exit 1
 
+      - name: Audit Python dependencies
+        run: poetry run pip-audit
+
       - name: Check diff hygiene
         run: git diff --check

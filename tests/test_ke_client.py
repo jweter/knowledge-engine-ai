@@ -70,6 +70,13 @@ class _FakeCompletedProcess:
         self.stderr = stderr
 
 
+@pytest.fixture(autouse=True)
+def _isolate_default_ke_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep command-shape tests independent of a developer's installed core."""
+
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+
+
 def test_evidence_report_runs_the_expected_command_and_parses_the_result(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
