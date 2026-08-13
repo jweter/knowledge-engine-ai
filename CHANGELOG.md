@@ -9,6 +9,16 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Cross-repository AI-O13 through AI-O15 status alignment.** Updated the web
+  integration design after `knowledge-engine-web` PRs #41, #49, and #50: the AI
+  package dependency is wired through real web settings, `/ask` capability-gates
+  the composed Research Copilot while preserving deterministic retrieval, and
+  hosted Research Sessions require a canonically contained persistent mount.
+  The Render alpha remains retrieval-only until an operator provisions and
+  verifies that mount and the remaining hosted-runtime controls. Durable SQLite
+  reopen behavior is recorded separately from a future user-facing resume
+  workflow. No AI runtime behavior changes in this repository.
+
 - **Launch-gate dependency security.** Upgraded Typer to the current release
   line and removed the obsolete direct Click compatibility pin that held the
   environment on a vulnerable Click release. CI now audits the resolved Python
