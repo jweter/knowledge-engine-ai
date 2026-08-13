@@ -18,6 +18,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from knowledge_engine_ai.execution import ExecutionBudget, ExecutionBudgetExceeded
 from knowledge_engine_ai.models import (
     EvidenceIntelligence,
     EvidenceIntelligenceParseError,
@@ -55,6 +56,29 @@ def _resolve_ke_executable(ke_executable: str) -> str:
     return shutil.which(ke_executable) or ke_executable
 
 
+def _run_ke_command(
+    command: list[str],
+    *,
+    operation: str,
+    execution_budget: ExecutionBudget | None,
+) -> subprocess.CompletedProcess[str]:
+    """Run one core command inside the shared wall-clock budget."""
+
+    try:
+        timeout = execution_budget.remaining_seconds() if execution_budget is not None else None
+        return subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout,
+        )
+    except (ExecutionBudgetExceeded, subprocess.TimeoutExpired) as exc:
+        raise KeCommandError(
+            f"`{operation}` exceeded the configured execution time limit."
+        ) from exc
+
+
 def evidence_report(
     question: str,
     *,
@@ -62,6 +86,7 @@ def evidence_report(
     evidence: Path,
     limit: int = 5,
     ke_executable: str = "ke",
+    execution_budget: ExecutionBudget | None = None,
 ) -> EvidenceReport:
     """Run `ke evidence-report <question> --format json` and return the parsed result.
 
@@ -85,7 +110,9 @@ def evidence_report(
         "json",
     ]
     try:
-        result = subprocess.run(command, capture_output=True, text=True, check=False)
+        result = _run_ke_command(
+            command, operation="ke evidence-report", execution_budget=execution_budget
+        )
     except FileNotFoundError as exc:
         raise KeCommandError(
             f"Could not run {ke_executable!r} -- is knowledge-engine-core installed and on PATH?"
@@ -111,6 +138,7 @@ def evidence_intelligence(
     *,
     evidence: Path,
     ke_executable: str = "ke",
+    execution_budget: ExecutionBudget | None = None,
 ) -> EvidenceIntelligence | None:
     """Run `ke evidence-intelligence --format json` and return the parsed result.
 
@@ -133,7 +161,9 @@ def evidence_intelligence(
         "json",
     ]
     try:
-        result = subprocess.run(command, capture_output=True, text=True, check=False)
+        result = _run_ke_command(
+            command, operation="ke evidence-intelligence", execution_budget=execution_budget
+        )
     except FileNotFoundError as exc:
         raise KeCommandError(
             f"Could not run {ke_executable!r} -- is knowledge-engine-core installed and on PATH?"
@@ -165,6 +195,7 @@ def evidence_map_report(
     relationships: Path,
     sources: Path,
     ke_executable: str = "ke",
+    execution_budget: ExecutionBudget | None = None,
 ) -> str:
     """Run `ke evidence-map-report` and return its rendered Markdown report verbatim.
 
@@ -189,7 +220,9 @@ def evidence_map_report(
         str(sources),
     ]
     try:
-        result = subprocess.run(command, capture_output=True, text=True, check=False)
+        result = _run_ke_command(
+            command, operation="ke evidence-map-report", execution_budget=execution_budget
+        )
     except FileNotFoundError as exc:
         raise KeCommandError(
             f"Could not run {ke_executable!r} -- is knowledge-engine-core installed and on PATH?"
@@ -208,6 +241,7 @@ def statistical_verify(
     evidence: Path,
     binary_inputs: Path | None = None,
     ke_executable: str = "ke",
+    execution_budget: ExecutionBudget | None = None,
 ) -> str:
     """Run `ke statistical-verify` and return its rendered Markdown report verbatim.
 
@@ -228,7 +262,9 @@ def statistical_verify(
     if binary_inputs is not None:
         command += ["--binary-inputs", str(binary_inputs)]
     try:
-        result = subprocess.run(command, capture_output=True, text=True, check=False)
+        result = _run_ke_command(
+            command, operation="ke statistical-verify", execution_budget=execution_budget
+        )
     except FileNotFoundError as exc:
         raise KeCommandError(
             f"Could not run {ke_executable!r} -- is knowledge-engine-core installed and on PATH?"
@@ -248,6 +284,7 @@ def enriched_evidence_report(
     evidence: Path,
     limit: int = 5,
     ke_executable: str = "ke",
+    execution_budget: ExecutionBudget | None = None,
 ) -> EvidenceReport:
     """Run `evidence_report`, then attach each matched record's Evidence Intelligence.
 
@@ -259,7 +296,12 @@ def enriched_evidence_report(
     """
 
     report = evidence_report(
-        question, sources=sources, evidence=evidence, limit=limit, ke_executable=ke_executable
+        question,
+        sources=sources,
+        evidence=evidence,
+        limit=limit,
+        ke_executable=ke_executable,
+        execution_budget=execution_budget,
     )
 
     enriched_papers = []
@@ -269,7 +311,10 @@ def enriched_evidence_report(
             intelligence = None
             if record.evidence_record_id:
                 intelligence = evidence_intelligence(
-                    record.evidence_record_id, evidence=evidence, ke_executable=ke_executable
+                    record.evidence_record_id,
+                    evidence=evidence,
+                    ke_executable=ke_executable,
+                    execution_budget=execution_budget,
                 )
             enriched_records.append(dataclasses.replace(record, evidence_intelligence=intelligence))
         enriched_papers.append(dataclasses.replace(paper, evidence_records=enriched_records))

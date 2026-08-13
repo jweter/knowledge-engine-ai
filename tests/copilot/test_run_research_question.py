@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -83,9 +84,17 @@ class _FakeLLM:
         self.response = response
         self.error = error
         self.prompts: list[str] = []
+        self.timeouts: list[float | None] = []
 
-    def generate(self, prompt: str, *, max_tokens: int = 400) -> str:
+    def generate(
+        self,
+        prompt: str,
+        *,
+        max_tokens: int = 400,
+        timeout_seconds: float | None = None,
+    ) -> str:
         self.prompts.append(prompt)
+        self.timeouts.append(timeout_seconds)
         if self.error:
             raise LocalLLMError("Could not reach Ollama.")
         return self.response
@@ -95,7 +104,9 @@ def _repository() -> SessionRepository:
     return SessionRepository(new_connection(":memory:"))
 
 
-def _fake_run(payload: dict[str, object]) -> object:
+def _fake_run(
+    payload: dict[str, object],
+) -> Callable[..., _FakeCompletedProcess]:
     def _run(command: list[str], **kwargs: object) -> _FakeCompletedProcess:
         if command[1] == "evidence-report":
             return _FakeCompletedProcess(0, json.dumps(payload))
@@ -142,6 +153,37 @@ def test_full_run_produces_a_clean_verified_narrative_and_completes(
     assert result.trace.session_id == result.session_id
     assert "synthesis" in [event.workflow_node for event in result.trace.events]
     assert result.trace.all_succeeded
+
+
+def test_full_run_shares_one_execution_budget_across_core_and_ollama(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    subprocess_timeouts: list[float | None] = []
+    fake_run = _fake_run(_payload(evidence_records=[_GROUNDED_RECORD]))
+
+    def capture_timeout(command: list[str], **kwargs: object) -> _FakeCompletedProcess:
+        timeout = kwargs.get("timeout")
+        subprocess_timeouts.append(timeout if isinstance(timeout, float) else None)
+        return fake_run(command, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", capture_timeout)
+    llm = _FakeLLM()
+
+    result = run_research_question(
+        "does semaglutide reduce body weight",
+        session_repository=_repository(),
+        sources=tmp_path / "s.csv",
+        evidence=tmp_path / "e.jsonl",
+        llm=llm,
+        timeout_seconds=10.0,
+    )
+
+    assert result.narrative is not None
+    assert subprocess_timeouts
+    assert all(timeout is not None and 0 < timeout <= 10.0 for timeout in subprocess_timeouts)
+    assert len(llm.timeouts) == 1
+    assert llm.timeouts[0] is not None
+    assert 0 < llm.timeouts[0] <= 10.0
 
 
 def test_no_retrievable_evidence_passes_vacuously_and_completes(

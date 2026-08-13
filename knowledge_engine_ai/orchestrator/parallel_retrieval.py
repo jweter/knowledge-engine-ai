@@ -62,6 +62,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
+from knowledge_engine_ai.execution import ExecutionBudget
 from knowledge_engine_ai.ke_client import KeCommandError, enriched_evidence_report
 from knowledge_engine_ai.models import EvidenceReport
 
@@ -153,6 +154,7 @@ def run_parallel_retrieval(
     limit: int = 5,
     external_discovery: ExternalDiscoveryCallable | None = None,
     ke_executable: str = "ke",
+    execution_budget: ExecutionBudget | None = None,
 ) -> ParallelRetrievalResult:
     """Run primary retrieval and contradiction-oriented retrieval concurrently.
 
@@ -176,6 +178,7 @@ def run_parallel_retrieval(
             evidence=evidence,
             limit=limit,
             ke_executable=ke_executable,
+            execution_budget=execution_budget,
         )
         contradiction_future = executor.submit(
             _run_branch,
@@ -184,6 +187,7 @@ def run_parallel_retrieval(
             evidence=evidence,
             limit=limit,
             ke_executable=ke_executable,
+            execution_budget=execution_budget,
         )
         external_future = None
         if external_discovery is not None:
@@ -222,10 +226,16 @@ def _run_branch(
     evidence: Path,
     limit: int,
     ke_executable: str,
+    execution_budget: ExecutionBudget | None,
 ) -> RetrievalBranchResult:
     try:
         report = enriched_evidence_report(
-            query, sources=sources, evidence=evidence, limit=limit, ke_executable=ke_executable
+            query,
+            sources=sources,
+            evidence=evidence,
+            limit=limit,
+            ke_executable=ke_executable,
+            execution_budget=execution_budget,
         )
         return RetrievalBranchResult(query=query, report=report, error=None)
     except KeCommandError as exc:

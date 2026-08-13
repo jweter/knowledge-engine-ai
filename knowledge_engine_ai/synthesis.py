@@ -45,7 +45,11 @@ def build_synthesis_prompt(report: EvidenceReport) -> str:
 
 
 def synthesize_answer(
-    report: EvidenceReport, llm: LocalLLM, *, max_tokens: int = 400
+    report: EvidenceReport,
+    llm: LocalLLM,
+    *,
+    max_tokens: int = 400,
+    timeout_seconds: float | None = None,
 ) -> str | None:
     """Return a grounded narrative answer, or `None` if there is no evidence to ground on.
 
@@ -58,7 +62,7 @@ def synthesize_answer(
         return None
 
     prompt = build_synthesis_prompt(report)
-    return llm.generate(prompt, max_tokens=max_tokens)
+    return llm.generate(prompt, max_tokens=max_tokens, timeout_seconds=timeout_seconds)
 
 
 def _evidence_blocks(papers: list[RetrievedPaper]) -> list[str]:

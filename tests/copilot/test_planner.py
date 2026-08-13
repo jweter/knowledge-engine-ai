@@ -46,7 +46,14 @@ class _FakeLLM:
         self.prompts: list[str] = []
         self.max_tokens_seen: list[int] = []
 
-    def generate(self, prompt: str, *, max_tokens: int = 400) -> str:
+    def generate(
+        self,
+        prompt: str,
+        *,
+        max_tokens: int = 400,
+        timeout_seconds: float | None = None,
+    ) -> str:
+        del timeout_seconds
         self.prompts.append(prompt)
         self.max_tokens_seen.append(max_tokens)
         return self.response

@@ -34,7 +34,13 @@ class LocalLLMError(RuntimeError):
 
 
 class LocalLLM(Protocol):
-    def generate(self, prompt: str, *, max_tokens: int = 400) -> str:
+    def generate(
+        self,
+        prompt: str,
+        *,
+        max_tokens: int = 400,
+        timeout_seconds: float | None = None,
+    ) -> str:
         """Return the model's completion for `prompt`, run entirely locally."""
         ...
 
@@ -112,7 +118,13 @@ class OllamaLLM:
         self._transport = transport if transport is not None else UrllibOllamaTransport()
         self._timeout_seconds = timeout_seconds
 
-    def generate(self, prompt: str, *, max_tokens: int = 400) -> str:
+    def generate(
+        self,
+        prompt: str,
+        *,
+        max_tokens: int = 400,
+        timeout_seconds: float | None = None,
+    ) -> str:
         payload = json.dumps(
             {
                 "model": self._model,
@@ -123,7 +135,9 @@ class OllamaLLM:
         ).encode("utf-8")
 
         response = self._transport.post(
-            url=f"{self._host}/api/chat", payload=payload, timeout_seconds=self._timeout_seconds
+            url=f"{self._host}/api/chat",
+            payload=payload,
+            timeout_seconds=(self._timeout_seconds if timeout_seconds is None else timeout_seconds),
         )
 
         if response.status_code == 404:

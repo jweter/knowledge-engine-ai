@@ -443,8 +443,9 @@ such a UI is claimed. Full implementation and operator details live in
 
 ### AI-O16: Guardrails for a real, publicly-reachable, LLM-cost-bearing endpoint
 
-**Status: next. Depends on the implemented AI-O14 route and AI-O15
-storage boundary.**
+**Status: in progress. The shared execution-budget prerequisite is implemented
+in this repository; Web admission controls and UX remain. Depends on the
+implemented AI-O14 route and AI-O15 storage boundary.**
 
 `/ask` today already runs local inference on request (existing
 `synthesize=1` path) behind only the alpha's basic-auth gate. Routing it
@@ -454,6 +455,9 @@ verification) instead of one — real latency and real compute cost per
 request, from anyone who has the alpha credentials.
 
 **Deliverable:**
+- One shared wall-clock execution budget propagated through core subprocesses
+  and Ollama generation, rather than a cosmetic web timer that leaves work
+  running unbounded. See `docs/ai_o16_execution_budget.md`.
 - A visible "this may take a while" UX state (the parallel-retrieval +
   synthesis + verification chain is not instant) — don't leave a person
   looking at a blank/hung page.
