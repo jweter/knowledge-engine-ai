@@ -20,7 +20,9 @@ Two checks, both structural or numeric, neither linguistic:
 1. Hallucinated citations / ungrounded numbers -- every
    `[evidence_record_id]` the narrative cites must be a record actually
    present in the report; every numeric token the narrative states must
-   appear in some cited record's `claim_text`/`result_summary`.
+   appear in some cited record's `claim_text`/`result_summary` or in the
+   Evidence Quality/Claim Confidence values the synthesis prompt explicitly
+   supplies and permits the model to mention.
 2. Missed qualifiers -- any record whose `evidence_direction` is
    `qualifies`/`contradicts`, or which carries a non-empty
    `limitations` list, that the narrative never cites at all.
@@ -92,6 +94,15 @@ def verify_synthesis(narrative: str, report: EvidenceReport) -> VerificationResu
         if text
     )
     grounded_numbers = set(_NUMBER_RE.findall(grounded_text))
+    for record in records_by_id.values():
+        intelligence = record.evidence_intelligence
+        if intelligence is None:
+            continue
+        # The synthesis prompt renders both scores on a fixed `/100` scale.
+        grounded_numbers.add("100")
+        grounded_numbers.add(str(intelligence.evidence_quality.score))
+        if intelligence.claim_confidence.score is not None:
+            grounded_numbers.add(str(intelligence.claim_confidence.score))
     # Strip citation brackets first -- "[ev-1]" otherwise contributes a
     # spurious numeric token ("1") that has nothing to do with a stated
     # statistic.

@@ -41,6 +41,7 @@ def test_synthesize_answer_forwards_the_execution_timeout() -> None:
     synthesize_answer(_report(papers=[_paper_with_evidence()]), llm, timeout_seconds=12.5)
 
     assert llm.timeouts_seen == [12.5]
+    assert llm.max_tokens_seen == [600]
 
 
 def _report(*, papers: list[RetrievedPaper]) -> EvidenceReport:
@@ -64,7 +65,10 @@ def _report(*, papers: list[RetrievedPaper]) -> EvidenceReport:
 
 
 def _paper_with_evidence(
-    *, claim_text: str | None = "Semaglutide reduced body weight."
+    *,
+    claim_text: str | None = "Semaglutide reduced body weight.",
+    evidence_direction: str = "supports",
+    limitations: list[str] | None = None,
 ) -> RetrievedPaper:
     intelligence = EvidenceIntelligence(
         schema_version=1,
@@ -114,7 +118,7 @@ def _paper_with_evidence(
                 review_status="reviewed",
                 review_checklist=None,
                 review_notes=None,
-                evidence_direction="supports",
+                evidence_direction=evidence_direction,
                 research_question=None,
                 claim_text=claim_text,
                 population=None,
@@ -122,7 +126,7 @@ def _paper_with_evidence(
                 comparator=None,
                 outcome=None,
                 result_summary="Body weight reduced by 10.2% versus 1.5% with placebo.",
-                limitations=[],
+                limitations=[] if limitations is None else limitations,
                 uncertainty_notes=None,
                 confidence_note=None,
                 source_span=None,
@@ -142,7 +146,25 @@ def test_build_synthesis_prompt_includes_evidence_record_id_and_claim_text() -> 
     assert "Semaglutide reduced body weight." in prompt
     assert "Body weight reduced by 10.2%" in prompt
     assert "Claim Confidence: 89/100" in prompt
+    assert "Evidence direction: supports" in prompt
     assert "cite" in prompt.lower()
+
+
+def test_build_synthesis_prompt_makes_qualifiers_and_limitations_explicit() -> None:
+    report = _report(
+        papers=[
+            _paper_with_evidence(
+                evidence_direction="qualifies",
+                limitations=["Follow-up was limited to two years."],
+            )
+        ]
+    )
+
+    prompt = build_synthesis_prompt(report)
+
+    assert "MUST address every evidence item labeled qualifies or contradicts" in prompt
+    assert "Evidence direction: qualifies" in prompt
+    assert "Limitations: Follow-up was limited to two years." in prompt
 
 
 def test_build_synthesis_prompt_skips_records_without_claim_text() -> None:

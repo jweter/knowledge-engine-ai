@@ -144,6 +144,7 @@ def test_full_run_produces_a_clean_verified_narrative_and_completes(
     assert result.session_report.is_fully_sourced
     assert result.close_result.status is SessionStatus.COMPLETED
     assert result.close_result.validation.complete is True
+    assert result.narrative_releaseable is True
 
     session = repository.get_session(result.session_id)
     assert session is not None
@@ -242,6 +243,38 @@ def test_llm_failure_is_recorded_but_still_completes_the_session(
     assert synthesis_events[0].notes == "Could not reach Ollama."
 
 
+def test_failed_retrieval_workflow_blocks_session_close(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fail_retrieval(command: list[str], **kwargs: object) -> _FakeCompletedProcess:
+        del command, kwargs
+        return _FakeCompletedProcess(1, "", "Core retrieval failed.")
+
+    monkeypatch.setattr(subprocess, "run", fail_retrieval)
+    repository = _repository()
+
+    result = run_research_question(
+        "does semaglutide reduce body weight",
+        session_repository=repository,
+        sources=tmp_path / "s.csv",
+        evidence=tmp_path / "e.jsonl",
+        llm=_FakeLLM(),
+    )
+
+    assert result.narrative is None
+    assert result.close_result.status is SessionStatus.BLOCKED
+    assert "workflow_integrity" in result.close_result.validation.unresolved_required_criteria
+    assert result.narrative_releaseable is False
+
+    criterion_results = repository.latest_criterion_results(result.session_id)
+    workflow_result = next(
+        item for item in criterion_results if item.criterion_id == "workflow_integrity"
+    )
+    assert workflow_result.status.value == "failed"
+    assert "retrieval_and_evidence_intelligence" in workflow_result.evidence
+    assert "contradiction_oriented_retrieval" in workflow_result.evidence
+
+
 def test_hallucinated_citation_blocks_session_close(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -260,6 +293,7 @@ def test_hallucinated_citation_blocks_session_close(
     assert result.verification is not None
     assert result.verification.hallucinated_citations == ("ev-does-not-exist",)
     assert result.close_result.status is SessionStatus.BLOCKED
+    assert result.narrative_releaseable is False
     assert "citation_integrity" in result.close_result.validation.unresolved_required_criteria
 
     session = repository.get_session(result.session_id)
@@ -290,6 +324,7 @@ def test_missed_qualifying_evidence_blocks_session_close(
     assert result.verification is not None
     assert result.verification.missed_qualifiers == ("ev-2",)
     assert result.close_result.status is SessionStatus.BLOCKED
+    assert result.narrative_releaseable is False
     assert "contradiction_review" in result.close_result.validation.unresolved_required_criteria
 
 
@@ -321,6 +356,7 @@ def test_session_id_is_generated_and_events_are_durable(
     assert isa is not None
     assert isa.question == "does semaglutide reduce body weight"
     assert {criterion.criterion_id for criterion in isa.criteria} == {
+        "workflow_integrity",
         "citation_integrity",
         "contradiction_review",
     }

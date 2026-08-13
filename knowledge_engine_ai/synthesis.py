@@ -22,7 +22,10 @@ _SYSTEM_INSTRUCTIONS = (
     "claim that is not present in it. Cite the evidence_record_id in square brackets after every "
     "claim you state, e.g. [ev-example-001]. If the evidence is insufficient, contradictory, or "
     "absent, say so plainly instead of guessing. Do not invent a confidence score of your own; "
-    "if a Claim Confidence number is given, you may mention it, but never compute a new one."
+    "if a Claim Confidence number is given, you may mention it, but never compute a new one. "
+    "You MUST address every evidence item labeled qualifies or contradicts and every listed "
+    "limitation, citing that item's evidence_record_id. Do not present an overall conclusion "
+    "without those qualification boundaries."
 )
 
 
@@ -48,7 +51,7 @@ def synthesize_answer(
     report: EvidenceReport,
     llm: LocalLLM,
     *,
-    max_tokens: int = 400,
+    max_tokens: int = 600,
     timeout_seconds: float | None = None,
 ) -> str | None:
     """Return a grounded narrative answer, or `None` if there is no evidence to ground on.
@@ -72,8 +75,12 @@ def _evidence_blocks(papers: list[RetrievedPaper]) -> list[str]:
             if not record.claim_text or not record.evidence_record_id:
                 continue
             block = f"[{record.evidence_record_id}] {record.claim_text}"
+            if record.evidence_direction:
+                block += f" Evidence direction: {record.evidence_direction}."
             if record.result_summary:
                 block += f" Result: {record.result_summary}"
+            if record.limitations:
+                block += f" Limitations: {'; '.join(record.limitations)}."
             intelligence = record.evidence_intelligence
             if intelligence is not None:
                 confidence_score = intelligence.claim_confidence.score

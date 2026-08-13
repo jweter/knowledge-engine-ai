@@ -21,16 +21,18 @@ to resume or inspect an existing session uses `SessionRepository`
 directly, the same as before this module existed.
 
 A `ResearchISA` (AI-O2's Ideal State Artifact) is attached to every
-session this module creates, with two fixed, deterministic criteria
-that mirror exactly what AI-O6's `verify_synthesis` already checks:
-citation integrity (no hallucinated citations, no ungrounded numbers)
-and contradiction review (no qualifying/contradicting evidence record
-silently omitted from the narrative). When no narrative was produced at
+session this module creates, with three fixed, deterministic criteria:
+workflow integrity (every required deterministic step succeeded), citation
+integrity (no hallucinated citations or ungrounded numbers), and contradiction
+review (no qualifying/contradicting evidence record silently omitted from the
+narrative). When no narrative was produced at
 all -- either because retrieval found no evidence with a stated claim
 to synthesize from, or because the local LLM call itself failed -- both
-criteria are recorded as passed: there is no narrative to have gotten
-either check wrong, the same vacuous-truth reasoning `VerificationResult.is_clean`
-already applies to an unproblematic empty result. This keeps the ISA's
+two narrative criteria are recorded as passed: there is no narrative to have
+gotten either check wrong, the same vacuous-truth reasoning
+`VerificationResult.is_clean` already applies to an unproblematic empty result.
+The independent workflow-integrity criterion still blocks a failed retrieval.
+This keeps the ISA's
 `required` criteria satisfiable without needing a dynamic `required`
 flag decided after the fact, which the write-once ISA contract does not
 allow. A synthesis-step failure (e.g. Ollama unreachable) is still
@@ -73,6 +75,7 @@ from knowledge_engine_ai.sessions.repository import SessionRepository
 from knowledge_engine_ai.synthesis import synthesize_answer
 
 _ISA_SCHEMA_VERSION = 1
+_WORKFLOW_INTEGRITY_CRITERION_ID = "workflow_integrity"
 _CITATION_INTEGRITY_CRITERION_ID = "citation_integrity"
 _CONTRADICTION_REVIEW_CRITERION_ID = "contradiction_review"
 _SYNTHESIS_NODE = "synthesis"
@@ -89,7 +92,7 @@ class ResearchQuestionResult:
     is set only when a narrative was attempted and the local LLM call
     itself failed (e.g. Ollama unreachable, model not pulled); it is
     `None` in the no-evidence case above. `close_result.status` is
-    `COMPLETED` only when both ISA criteria passed; a verification
+    `COMPLETED` only when all three ISA criteria passed; a verification
     failure (or a workflow step failure) still produces a full result --
     it never raises -- with `close_result.status` reporting `BLOCKED`
     and `close_result.validation.unresolved_required_criteria` naming
@@ -106,6 +109,17 @@ class ResearchQuestionResult:
     session_report: SessionReport | None
     close_result: SessionCloseResult
     trace: SessionTrace
+
+    @property
+    def narrative_releaseable(self) -> bool:
+        """Whether the draft narrative passed every deterministic release gate."""
+
+        return (
+            self.narrative is not None
+            and self.verification is not None
+            and self.verification.is_clean
+            and self.close_result.status is SessionStatus.COMPLETED
+        )
 
 
 def run_research_question(
@@ -178,7 +192,7 @@ def run_research_question(
 
     session_repository.attach_research_isa(session_id, _build_isa(session_id, question))
     recorded_at = _timestamp()
-    for result in _isa_criterion_results(verification):
+    for result in _isa_criterion_results(workflow_result, verification):
         session_repository.record_criterion_result(session_id, result, recorded_at=recorded_at)
 
     close_result = attempt_session_close(session_repository, session_id=session_id)
@@ -296,6 +310,11 @@ def _build_isa(session_id: str, question: str) -> ResearchISA:
         ),
         criteria=(
             IdealStateCriterion(
+                criterion_id=_WORKFLOW_INTEGRITY_CRITERION_ID,
+                claim="Every required deterministic workflow step completed successfully.",
+                probe="workflow_result: every configured step has succeeded=true",
+            ),
+            IdealStateCriterion(
                 criterion_id=_CITATION_INTEGRITY_CRITERION_ID,
                 claim="Every citation the narrative makes is grounded in retrieved evidence.",
                 probe="verify_synthesis: hallucinated_citations and ungrounded_numbers are empty",
@@ -310,11 +329,27 @@ def _build_isa(session_id: str, question: str) -> ResearchISA:
 
 
 def _isa_criterion_results(
+    workflow_result: WorkflowResult,
     verification: VerificationResult | None,
-) -> tuple[CriterionResult, CriterionResult]:
+) -> tuple[CriterionResult, CriterionResult, CriterionResult]:
+    failed_workflow_nodes = tuple(
+        step.workflow_node for step in workflow_result.steps if not step.succeeded
+    )
+    workflow_clean = not failed_workflow_nodes
+    workflow_result_record = CriterionResult(
+        _WORKFLOW_INTEGRITY_CRITERION_ID,
+        CriterionStatus.PASSED if workflow_clean else CriterionStatus.FAILED,
+        (
+            "Every required deterministic workflow step succeeded."
+            if workflow_clean
+            else f"failed_workflow_nodes={list(failed_workflow_nodes)}"
+        ),
+    )
+
     if verification is None:
         evidence = "No narrative was produced this run; nothing to verify."
         return (
+            workflow_result_record,
             CriterionResult(_CITATION_INTEGRITY_CRITERION_ID, CriterionStatus.PASSED, evidence),
             CriterionResult(_CONTRADICTION_REVIEW_CRITERION_ID, CriterionStatus.PASSED, evidence),
         )
@@ -337,6 +372,7 @@ def _isa_criterion_results(
     )
 
     return (
+        workflow_result_record,
         CriterionResult(
             _CITATION_INTEGRITY_CRITERION_ID,
             CriterionStatus.PASSED if citation_clean else CriterionStatus.FAILED,

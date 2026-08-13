@@ -9,6 +9,18 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **AI-O17 measured local end-to-end verification.** Ran one real GLP-1
+  question through Web, both Core retrieval branches, local Ollama synthesis,
+  deterministic verification, the Research ISA close gate, durable Research
+  Session storage, and rendered citations. The rehearsal found and fixed three
+  fail-closed contract defects: qualifier metadata was absent from the prompt,
+  blocked drafts remained displayable, and failed deterministic workflows could
+  close vacuously. `ResearchQuestionResult.narrative_releaseable` now provides
+  an explicit consumer boundary, Evidence Intelligence numbers supplied by the
+  prompt are recognized by numeric grounding, and every session has a required
+  workflow-integrity criterion. Hosted Research Copilot remains disabled until
+  its operator prerequisites are actually provisioned.
+
 - **AI-O16 execution-budget foundation.** Added an optional shared monotonic
   deadline to `run_research_question`. Core `ke` subprocesses and Ollama
   generation now consume the same remaining wall-clock budget, timed-out
