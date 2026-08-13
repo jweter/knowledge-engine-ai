@@ -1,11 +1,16 @@
 from __future__ import annotations
 
-from knowledge_engine_ai.models import EvidenceRecord as EvidenceRecordModel
 from knowledge_engine_ai.models import (
+    ClaimConfidence,
+    EvidenceConsensus,
+    EvidenceCoverage,
+    EvidenceIntelligence,
+    EvidenceQuality,
     EvidenceReport,
     EvidenceSummary,
     RetrievedPaper,
 )
+from knowledge_engine_ai.models import EvidenceRecord as EvidenceRecordModel
 from knowledge_engine_ai.orchestrator.verification import verify_synthesis
 
 
@@ -110,6 +115,44 @@ def test_tolerates_a_number_grounded_in_a_different_cited_record_field() -> None
     narrative = "The mean difference was -12.4 kg [ev-1]."
 
     result = verify_synthesis(narrative, report)
+
+    assert result.ungrounded_numbers == ()
+
+
+def test_tolerates_scores_supplied_to_synthesis_as_evidence_intelligence() -> None:
+    intelligence = EvidenceIntelligence(
+        schema_version=1,
+        evidence_record_id="ev-1",
+        claim_id=1,
+        evidence_quality=EvidenceQuality(
+            score=94,
+            study_design_tier="randomized_controlled_trial",
+            manually_reviewed=True,
+            extraction_tier="manual",
+        ),
+        evidence_consensus=EvidenceConsensus(
+            relationship_edge_count=2,
+            supports_count=2,
+            contradicts_count=0,
+            agreement_total=2,
+            score=100,
+            reliability="moderate",
+        ),
+        claim_confidence=ClaimConfidence(score=79, reliability="moderate"),
+        evidence_coverage=EvidenceCoverage(
+            records_in_relationship=7,
+            total_records=155,
+            percentage=5,
+        ),
+        synthesis=[],
+        scope_note="Deterministic values.",
+    )
+    report = _report([_record(evidence_intelligence=intelligence)])
+
+    result = verify_synthesis(
+        "Evidence Quality was 94/100 and Claim Confidence was 79/100 [ev-1].",
+        report,
+    )
 
     assert result.ungrounded_numbers == ()
 

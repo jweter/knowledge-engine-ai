@@ -443,9 +443,10 @@ such a UI is claimed. Full implementation and operator details live in
 
 ### AI-O16: Guardrails for a real, publicly-reachable, LLM-cost-bearing endpoint
 
-**Status: in progress. The shared execution-budget prerequisite is implemented
-in this repository; Web admission controls and UX remain. Depends on the
-implemented AI-O14 route and AI-O15 storage boundary.**
+**Status: complete. The shared execution budget is implemented here, and Web's
+admission controls, rate limits, timeout handling, and honest waiting/failure UX
+are merged. Depends on the implemented AI-O14 route and AI-O15 storage
+boundary.**
 
 `/ask` today already runs local inference on request (existing
 `synthesize=1` path) behind only the alpha's basic-auth gate. Routing it
@@ -475,9 +476,9 @@ honestly rather than hang or silently degrade.
 
 ### AI-O17: Live verification and closing the vision-doc claim
 
-**Status: not started. Depends on AI-O12-O16, and on the hosted-inference
-precondition named above under "A precondition this plan does not
-solve" — read that section before starting this step.**
+**Status: local/dev verification complete on 2026-08-13; public-alpha
+verification remains blocked on the hosted-inference and persistence
+preconditions named above. See `docs/ai_o17_live_verification.md`.**
 
 **Deliverable, local/dev scope (buildable now, no precondition
 blocking):** a real end-to-end run — a real question, through a local

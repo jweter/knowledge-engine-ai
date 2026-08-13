@@ -275,6 +275,7 @@ def research(
             "session_id": result.session_id,
             "question": result.question,
             "narrative": result.narrative,
+            "narrative_releaseable": result.narrative_releaseable,
             "synthesis_error": result.synthesis_error,
             "verification": (
                 None
@@ -311,7 +312,7 @@ def _print_research_result(result: ResearchQuestionResult) -> None:
             console.print(
                 "[yellow]No evidence with a stated claim was retrieved to narrate.[/yellow]"
             )
-    else:
+    elif result.narrative_releaseable:
         console.print("[bold]Synthesized answer[/bold] (local model, Skeptic-verified):")
         console.print(escape(result.narrative))
         console.print()
@@ -335,6 +336,11 @@ def _print_research_result(result: ResearchQuestionResult) -> None:
                 console.print(
                     f"  Missed qualifying evidence: {', '.join(verification.missed_qualifiers)}"
                 )
+    else:
+        console.print(
+            "[yellow]Draft narrative withheld:[/yellow] deterministic verification or the "
+            "Research ISA close gate did not pass. Inspect the durable session for details."
+        )
 
     console.print()
     status = result.close_result.status.value

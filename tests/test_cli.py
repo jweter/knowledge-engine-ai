@@ -722,6 +722,8 @@ def test_research_reports_a_blocked_session_and_unresolved_criteria(
     unwrapped = _unwrapped(result.output)
     assert "blocked" in unwrapped
     assert "citation_integrity" in unwrapped
+    assert "Draft narrative withheld" in unwrapped
+    assert "Semaglutide reduced lean mass [ev-1]." not in unwrapped
 
 
 def test_research_format_json_includes_expected_fields(
@@ -756,6 +758,7 @@ def test_research_format_json_includes_expected_fields(
     payload = json.loads(result.output)
     assert payload["session_id"] == "sess-research-1"
     assert payload["narrative"] == "Semaglutide reduced lean mass [ev-1]."
+    assert payload["narrative_releaseable"] is True
     assert payload["close_status"] == "completed"
     assert payload["close_complete"] is True
     assert payload["verification"]["is_clean"] is True
