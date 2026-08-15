@@ -107,6 +107,22 @@ string-interpolated arguments) and parses its documented JSON contract.
 See `docs/ai_design.md` for the full reasoning and this milestone's
 scope.
 
+## Federated discovery direction
+
+A review of `surendranb/find-research-papers-mcp` identified useful patterns for
+future Discovery Intelligence: common scholarly-provider contracts, OpenAlex,
+Semantic Scholar, and arXiv as additional discovery sources, citation/reference
+expansion, explicit provider degradation, and search-coverage provenance. We are
+adopting those ideas in Knowledge Engine-native form rather than adding the
+external MCP server as a foundational dependency.
+
+Core will own provider transport, normalized candidates, search-run state,
+identity, and provenance. This AI layer will eventually use those deterministic
+facts to compile bounded research plans and Research ISA coverage criteria. It
+must never invent provider coverage, treat citation count as evidence quality,
+or let a provider/plugin define the project's research method. See
+[`docs/roadmap/federated_discovery_orchestration_adoption.md`](docs/roadmap/federated_discovery_orchestration_adoption.md).
+
 ## Roadmap
 
 The repository family now follows one ordered project path: unify the public
@@ -136,11 +152,17 @@ The first three shared tasks are:
   in, one-answer-out -- not multi-turn chat.
 - Golden-question retrieval evaluation and structured multi-record Evidence
   Intelligence -- next, coordinated with the core and web roadmaps.
+- Federated Discovery Intelligence -- after Core's provider-neutral Discovery
+  Broker/search-run contracts are stable, consume explicit provider coverage,
+  compile bounded search/citation-expansion plans, add coverage-aware Research
+  ISA gates, and support repeatable freshness/counter-search workflows. See
+  `docs/roadmap/federated_discovery_orchestration_adoption.md`.
 - Analytical Intelligence -- begins only after the golden evidence map can
   exercise real agreement, disagreement, population differences, and missing
   evidence. Deterministic statistical checks precede broader narration.
 - Discovery Intelligence -- later, after Analytical Intelligence and adequate
-  relationship coverage; not the next milestone.
+  relationship coverage; federated provider orchestration is one foundational
+  capability for that stage, not permission to skip the evidence-quality gates.
 
 ## Repository Family
 
