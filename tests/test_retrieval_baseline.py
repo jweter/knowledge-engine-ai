@@ -6,7 +6,10 @@ import pytest
 
 from knowledge_engine_ai.retrieval_baseline import baseline_payload, default_core_corpora
 from knowledge_engine_ai.retrieval_benchmark import GoldenQuestion, evaluate_retrieval
-from knowledge_engine_ai.retrieval_benchmark_runner import GoldenBenchmarkRun, GoldenBenchmarkSuite
+from knowledge_engine_ai.retrieval_benchmark_runner import (
+    GoldenBenchmarkRun,
+    GoldenBenchmarkSuite,
+)
 
 
 def _write_corpus(root: Path, name: str) -> None:
