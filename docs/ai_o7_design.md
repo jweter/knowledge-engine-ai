@@ -57,6 +57,7 @@ class SourcedClaim:
     paper_citation: str
     paper_source_url: str
 
+
 @dataclass(frozen=True)
 class SessionReport:
     narrative: str
