@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
-import subprocess
+import pathlib
 
 import pytest
 
-from knowledge_engine_ai.ke_client import evidence_report
+from knowledge_engine_ai import ke_client
 
 
 _VALID_PAYLOAD = {
@@ -35,7 +34,7 @@ class _FakeCompletedProcess:
 
 
 def test_evidence_report_runs_from_explicit_core_root(
-    tmp_path: Path,
+    tmp_path: pathlib.Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured_kwargs: dict[str, object] = {}
@@ -45,10 +44,10 @@ def test_evidence_report_runs_from_explicit_core_root(
         captured_kwargs.update(kwargs)
         return _FakeCompletedProcess()
 
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(ke_client.subprocess, "run", fake_run)
     core_root = tmp_path / "knowledge-engine-core"
 
-    evidence_report(
+    ke_client.evidence_report(
         "q",
         sources=tmp_path / "sources.csv",
         evidence=tmp_path / "evidence.jsonl",
