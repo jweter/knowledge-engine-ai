@@ -111,9 +111,7 @@ def test_run_golden_benchmark_calls_core_retrieval_and_scores_result(
         ke_executable: str,
         working_directory: Path | None,
     ) -> EvidenceReport:
-        calls.append(
-            (question_text, sources, evidence, limit, ke_executable, working_directory)
-        )
+        calls.append((question_text, sources, evidence, limit, ke_executable, working_directory))
         return _report(_paper(1, "ev-a", "ev-b"))
 
     monkeypatch.setattr(
