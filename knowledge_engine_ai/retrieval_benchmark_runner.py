@@ -7,30 +7,16 @@ invent replacement confidence scores.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
 
 from knowledge_engine_ai.ke_client import evidence_report
+from knowledge_engine_ai.models import EvidenceReport
 from knowledge_engine_ai.retrieval_benchmark import (
     GoldenQuestion,
     RetrievalBenchmarkResult,
     evaluate_retrieval,
 )
-
-
-class _EvidenceRecordLike(Protocol):
-    evidence_record_id: str | None
-
-
-class _RetrievedPaperLike(Protocol):
-    rank: int
-    evidence_records: Sequence[_EvidenceRecordLike]
-
-
-class _EvidenceReportLike(Protocol):
-    papers: Sequence[_RetrievedPaperLike]
 
 
 @dataclass(frozen=True)
@@ -63,7 +49,7 @@ class GoldenBenchmarkSuite:
         return all(run.result.passes for run in self.runs)
 
 
-def ranked_evidence_ids(report: _EvidenceReportLike) -> tuple[str, ...]:
+def ranked_evidence_ids(report: EvidenceReport) -> tuple[str, ...]:
     """Extract Evidence Record IDs in Core's ranked paper/record order."""
 
     ranked: list[str] = []
