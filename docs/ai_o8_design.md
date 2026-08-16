@@ -80,16 +80,19 @@ class ModelCandidate:
     tag: str
     approx_parameter_count_billions: float
 
+
 @dataclass(frozen=True)
 class BenchmarkOutcome:
     passed: bool
     detail: str
+
 
 @dataclass(frozen=True)
 class BenchmarkTask:
     name: str
     role: ModelRole
     run: Callable[[LocalLLM], BenchmarkOutcome]
+
 
 @dataclass(frozen=True)
 class ModelBenchmarkResult:
