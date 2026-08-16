@@ -88,13 +88,17 @@ def evaluate_retrieval(
         evidence_id for evidence_id in question.required_evidence_ids if evidence_id in ranked_set
     )
     required_missing = tuple(
-        evidence_id for evidence_id in question.required_evidence_ids if evidence_id not in ranked_set
+        evidence_id
+        for evidence_id in question.required_evidence_ids
+        if evidence_id not in ranked_set
     )
     qualifier_found = tuple(
         evidence_id for evidence_id in question.qualifier_evidence_ids if evidence_id in ranked_set
     )
     qualifier_missing = tuple(
-        evidence_id for evidence_id in question.qualifier_evidence_ids if evidence_id not in ranked_set
+        evidence_id
+        for evidence_id in question.qualifier_evidence_ids
+        if evidence_id not in ranked_set
     )
 
     recall = len(required_found) / len(question.required_evidence_ids)
@@ -152,9 +156,7 @@ def default_golden_questions() -> tuple[GoldenQuestion, ...]:
                 "ev-oncology-katsarolis-2026-greek-realworld-os-001",
                 "ev-oncology-weber-2026-nic-vs-pc-realworld-001",
             ),
-            qualifier_evidence_ids=(
-                "ev-oncology-weber-2026-nic-vs-pc-realworld-001",
-            ),
+            qualifier_evidence_ids=("ev-oncology-weber-2026-nic-vs-pc-realworld-001",),
         ),
         GoldenQuestion(
             question_id="mental-health-mdd-ssri-snri",
@@ -169,8 +171,6 @@ def default_golden_questions() -> tuple[GoldenQuestion, ...]:
                 "ev-mh-perez-2025-depre5-second-line-strategies-001",
                 "ev-mh-ju-2025-agomelatine-adjunctive-ssri-snri-rct-001",
             ),
-            qualifier_evidence_ids=(
-                "ev-mh-ju-2025-agomelatine-adjunctive-ssri-snri-rct-001",
-            ),
+            qualifier_evidence_ids=("ev-mh-ju-2025-agomelatine-adjunctive-ssri-snri-rct-001",),
         ),
     )
