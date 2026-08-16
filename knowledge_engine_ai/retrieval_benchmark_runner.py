@@ -66,8 +66,14 @@ def run_golden_benchmark(
     *,
     limit: int = 10,
     ke_executable: str = "ke",
+    core_root: Path | None = None,
 ) -> GoldenBenchmarkSuite:
-    """Run golden questions through ``ke evidence-report`` and score recall."""
+    """Run golden questions through ``ke evidence-report`` and score recall.
+
+    ``core_root`` is the checkout whose local Core database should answer the
+    benchmark. This matters because Core intentionally resolves its database
+    from the CLI process working directory.
+    """
 
     if limit < 1 or limit > 100:
         raise ValueError("Benchmark retrieval limit must be between 1 and 100.")
@@ -87,6 +93,7 @@ def run_golden_benchmark(
             evidence=corpus.evidence,
             limit=limit,
             ke_executable=ke_executable,
+            working_directory=core_root,
         )
         result = evaluate_retrieval(
             question,
