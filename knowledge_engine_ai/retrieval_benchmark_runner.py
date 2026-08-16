@@ -7,6 +7,7 @@ invent replacement confidence scores.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -25,11 +26,11 @@ class _EvidenceRecordLike(Protocol):
 
 class _RetrievedPaperLike(Protocol):
     rank: int
-    evidence_records: list[_EvidenceRecordLike]
+    evidence_records: Sequence[_EvidenceRecordLike]
 
 
 class _EvidenceReportLike(Protocol):
-    papers: list[_RetrievedPaperLike]
+    papers: Sequence[_RetrievedPaperLike]
 
 
 @dataclass(frozen=True)
