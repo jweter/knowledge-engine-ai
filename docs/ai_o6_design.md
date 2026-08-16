@@ -95,8 +95,9 @@ class VerificationResult:
 
     @property
     def is_clean(self) -> bool:
-        return not (self.hallucinated_citations or self.ungrounded_numbers
-                     or self.missed_qualifiers)
+        return not (
+            self.hallucinated_citations or self.ungrounded_numbers or self.missed_qualifiers
+        )
 ```
 
 ## What this does not do
