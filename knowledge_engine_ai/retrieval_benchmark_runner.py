@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol
 
 from knowledge_engine_ai.ke_client import evidence_report
 from knowledge_engine_ai.retrieval_benchmark import (
@@ -16,6 +17,19 @@ from knowledge_engine_ai.retrieval_benchmark import (
     RetrievalBenchmarkResult,
     evaluate_retrieval,
 )
+
+
+class _EvidenceRecordLike(Protocol):
+    evidence_record_id: str | None
+
+
+class _RetrievedPaperLike(Protocol):
+    rank: int
+    evidence_records: list[_EvidenceRecordLike]
+
+
+class _EvidenceReportLike(Protocol):
+    papers: list[_RetrievedPaperLike]
 
 
 @dataclass(frozen=True)
@@ -48,17 +62,11 @@ class GoldenBenchmarkSuite:
         return all(run.result.passes for run in self.runs)
 
 
-def ranked_evidence_ids(report: object) -> tuple[str, ...]:
-    """Extract Evidence Record IDs in Core's ranked paper/record order.
+def ranked_evidence_ids(report: _EvidenceReportLike) -> tuple[str, ...]:
+    """Extract Evidence Record IDs in Core's ranked paper/record order."""
 
-    The report is typed by ``ke_client.evidence_report`` in production. Keeping
-    this helper focused on the stable report attributes makes ordering explicit:
-    paper rank first, then Core's record order within each paper.
-    """
-
-    papers = getattr(report, "papers")
     ranked: list[str] = []
-    for paper in sorted(papers, key=lambda item: item.rank):
+    for paper in sorted(report.papers, key=lambda item: item.rank):
         for record in paper.evidence_records:
             if record.evidence_record_id:
                 ranked.append(record.evidence_record_id)
