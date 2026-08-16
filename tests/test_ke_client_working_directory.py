@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-import pathlib
+from pathlib import Path
 
 import pytest
 
@@ -34,7 +34,7 @@ class _FakeCompletedProcess:
 
 
 def test_evidence_report_runs_from_explicit_core_root(
-    tmp_path: pathlib.Path,
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured_kwargs: dict[str, object] = {}
