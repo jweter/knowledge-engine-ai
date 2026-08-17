@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import subprocess
-import sys
 
 
 CHECKS: tuple[tuple[str, ...], ...] = (
@@ -33,4 +32,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())
