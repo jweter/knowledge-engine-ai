@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from knowledge_engine_ai import ke_client
 
 
