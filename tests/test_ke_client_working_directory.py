@@ -3,8 +3,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import knowledge_engine_ai.ke_client as ke_client
 import pytest
+
+import knowledge_engine_ai.ke_client as ke_client
 
 
 _VALID_PAYLOAD = {
