@@ -4,7 +4,12 @@ from pathlib import Path
 
 import pytest
 
-from knowledge_engine_ai.retrieval_baseline import baseline_payload, default_core_corpora
+from knowledge_engine_ai.retrieval_baseline import (
+    baseline_payload,
+    default_core_corpora,
+    git_commit,
+    run_retrieval_baseline,
+)
 from knowledge_engine_ai.retrieval_benchmark import GoldenQuestion, evaluate_retrieval
 from knowledge_engine_ai.retrieval_benchmark_runner import (
     GoldenBenchmarkRun,
@@ -74,3 +79,83 @@ def test_baseline_payload_rejects_blank_commit_provenance() -> None:
         baseline_payload(suite, core_commit=" ", ai_commit="ai456")
     with pytest.raises(ValueError, match="AI commit"):
         baseline_payload(suite, core_commit="core123", ai_commit="")
+
+
+def test_git_commit_uses_checkout_root_without_shell(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: dict[str, object] = {}
+
+    class Completed:
+        returncode = 0
+        stdout = "abc123\n"
+
+    def fake_run(command: list[str], **kwargs: object) -> Completed:
+        captured["command"] = command
+        captured.update(kwargs)
+        return Completed()
+
+    monkeypatch.setattr("knowledge_engine_ai.retrieval_baseline.subprocess.run", fake_run)
+
+    assert git_commit(tmp_path) == "abc123"
+    assert captured["command"] == ["git", "-C", str(tmp_path), "rev-parse", "HEAD"]
+    assert captured.get("shell", False) is False
+
+
+def test_run_retrieval_baseline_binds_questions_corpora_and_commits(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for name in (
+        "glp1_weight_loss",
+        "oncology_nsclc_checkpoint_inhibitors",
+        "mental_health_mdd_antidepressants",
+    ):
+        _write_corpus(tmp_path, name)
+
+    question = GoldenQuestion(
+        question_id="q1",
+        domain="glp1",
+        question="Does treatment help?",
+        required_evidence_ids=("ev-a",),
+    )
+    result = evaluate_retrieval(question, ("ev-a",), k=7)
+    suite = GoldenBenchmarkSuite(
+        limit=7,
+        runs=(GoldenBenchmarkRun(question=question, result=result),),
+    )
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        "knowledge_engine_ai.retrieval_baseline.default_golden_questions",
+        lambda: (question,),
+    )
+
+    def fake_run(*args: object, **kwargs: object) -> GoldenBenchmarkSuite:
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return suite
+
+    monkeypatch.setattr(
+        "knowledge_engine_ai.retrieval_baseline.run_golden_benchmark",
+        fake_run,
+    )
+    monkeypatch.setattr(
+        "knowledge_engine_ai.retrieval_baseline.git_commit",
+        lambda root: "core123" if root == tmp_path else "ai456",
+    )
+    ai_root = tmp_path / "ai"
+
+    payload = run_retrieval_baseline(
+        core_root=tmp_path,
+        ai_root=ai_root,
+        limit=7,
+        ke_executable="ke-test",
+    )
+
+    assert payload["core_commit"] == "core123"
+    assert payload["ai_commit"] == "ai456"
+    assert payload["retrieval_limit"] == 7
+    kwargs = captured["kwargs"]
+    assert isinstance(kwargs, dict)
+    assert kwargs["core_root"] == tmp_path
+    assert kwargs["ke_executable"] == "ke-test"
