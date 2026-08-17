@@ -20,6 +20,18 @@ ke-ai-baseline run --core-root ../knowledge-engine-core --limit 10
 
 The command resolves both checkout commits with `git rev-parse HEAD`, executes Core from the explicit Core checkout root, and emits portable JSON containing the fixed question definitions and measured retrieval results. Redirect that JSON to a local file when comparing ranking experiments; only commit a snapshot when the recorded commits and reviewed corpus state are intentionally part of the experiment record.
 
+## Compare ranking experiments
+
+Compare a reference snapshot with a candidate snapshot using:
+
+```text
+ke-ai-baseline compare reference.json candidate.json
+```
+
+Comparison is intentionally strict. Both snapshots must use schema version 1, the same retrieval limit, and identical golden-question definitions. The command reports per-question required-record recall and qualifier-recall deltas, counts improvements and regressions, and exits non-zero when either recall metric regresses for any golden question. This makes a ranking experiment auditable without introducing an LLM judge or a replacement confidence score.
+
+Do not compare snapshots after silently changing the golden questions or retrieval limit. Those are different benchmark definitions and require a new reference measurement.
+
 ## Hosted measurement workflow
 
 The `Golden Retrieval Baseline` GitHub Actions workflow provides the same measurement path without depending on a developer workstation. It is intentionally manual (`workflow_dispatch`) because reconstructing the reviewed Core database and installing the full Core runtime are substantially heavier than ordinary AI quality checks.
