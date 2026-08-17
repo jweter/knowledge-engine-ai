@@ -93,6 +93,24 @@ def git_commit(checkout_root: Path) -> str:
     return commit
 
 
+def git_clean_commit(checkout_root: Path) -> str:
+    """Resolve a commit only when tracked files match that commit exactly."""
+
+    completed = subprocess.run(
+        ["git", "-C", str(checkout_root), "status", "--porcelain", "--untracked-files=no"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise ValueError("Could not inspect checkout state for retrieval baseline provenance.")
+    if completed.stdout.strip():
+        raise ValueError(
+            "Retrieval baseline provenance requires tracked files to match the recorded commit."
+        )
+    return git_commit(checkout_root)
+
+
 def run_retrieval_baseline(
     *,
     core_root: Path,
@@ -102,6 +120,8 @@ def run_retrieval_baseline(
 ) -> dict[str, Any]:
     """Run the reviewed three-domain benchmark and return its reproducible snapshot."""
 
+    core_commit = git_clean_commit(core_root)
+    ai_commit = git_clean_commit(ai_root)
     suite = run_golden_benchmark(
         default_golden_questions(),
         default_core_corpora(core_root),
@@ -111,6 +131,6 @@ def run_retrieval_baseline(
     )
     return baseline_payload(
         suite,
-        core_commit=git_commit(core_root),
-        ai_commit=git_commit(ai_root),
+        core_commit=core_commit,
+        ai_commit=ai_commit,
     )
