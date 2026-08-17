@@ -1,7 +1,5 @@
 """Run the same local quality gates enforced by the AI repository CI."""
 
-from __future__ import annotations
-
 import subprocess
 
 
