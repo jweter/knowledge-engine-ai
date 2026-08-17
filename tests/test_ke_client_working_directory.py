@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import json
+from importlib import import_module
 from pathlib import Path
+from typing import Any
 
 import pytest
-
-import knowledge_engine_ai.ke_client as ke_client
 
 
 _VALID_PAYLOAD = {
@@ -37,6 +37,7 @@ def test_evidence_report_runs_from_explicit_core_root(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    ke_client: Any = import_module("knowledge_engine_ai.ke_client")
     captured_kwargs: dict[str, object] = {}
 
     def fake_run(command: list[str], **kwargs: object) -> _FakeCompletedProcess:
