@@ -61,8 +61,9 @@ def _run_ke_command(
     *,
     operation: str,
     execution_budget: ExecutionBudget | None,
+    working_directory: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    """Run one core command inside the shared wall-clock budget."""
+    """Run one Core command inside the shared wall-clock budget."""
 
     try:
         timeout = execution_budget.remaining_seconds() if execution_budget is not None else None
@@ -72,6 +73,7 @@ def _run_ke_command(
             text=True,
             check=False,
             timeout=timeout,
+            cwd=working_directory,
         )
     except (ExecutionBudgetExceeded, subprocess.TimeoutExpired) as exc:
         raise KeCommandError(
@@ -87,13 +89,14 @@ def evidence_report(
     limit: int = 5,
     ke_executable: str = "ke",
     execution_budget: ExecutionBudget | None = None,
+    working_directory: Path | None = None,
 ) -> EvidenceReport:
     """Run `ke evidence-report <question> --format json` and return the parsed result.
 
-    Raises `KeCommandError` if `ke` exits non-zero (e.g. no relevant
-    papers found in the indexed corpus, or `ke` is not installed) or
-    produces output that does not parse as the documented JSON contract
-    -- never returns a partial or guessed result.
+    ``working_directory`` selects the Core project root whose local database
+    the CLI should use. Leaving it unset preserves the normal caller working
+    directory. Raises `KeCommandError` on command or contract failure and
+    never returns a partial or guessed result.
     """
 
     command = [
@@ -111,7 +114,10 @@ def evidence_report(
     ]
     try:
         result = _run_ke_command(
-            command, operation="ke evidence-report", execution_budget=execution_budget
+            command,
+            operation="ke evidence-report",
+            execution_budget=execution_budget,
+            working_directory=working_directory,
         )
     except FileNotFoundError as exc:
         raise KeCommandError(

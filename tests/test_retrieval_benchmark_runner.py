@@ -100,7 +100,7 @@ def test_run_golden_benchmark_calls_core_retrieval_and_scores_result(
         required_evidence_ids=("ev-a", "ev-b"),
         qualifier_evidence_ids=("ev-b",),
     )
-    calls: list[tuple[str, Path, Path, int, str]] = []
+    calls: list[tuple[str, Path, Path, int, str, Path | None]] = []
 
     def fake_evidence_report(
         question_text: str,
@@ -109,20 +109,23 @@ def test_run_golden_benchmark_calls_core_retrieval_and_scores_result(
         evidence: Path,
         limit: int,
         ke_executable: str,
+        working_directory: Path | None,
     ) -> EvidenceReport:
-        calls.append((question_text, sources, evidence, limit, ke_executable))
+        calls.append((question_text, sources, evidence, limit, ke_executable, working_directory))
         return _report(_paper(1, "ev-a", "ev-b"))
 
     monkeypatch.setattr(
         "knowledge_engine_ai.retrieval_benchmark_runner.evidence_report",
         fake_evidence_report,
     )
+    core_root = Path("core-checkout")
 
     suite = run_golden_benchmark(
         (question,),
         {"test": BenchmarkCorpus(Path("sources.csv"), Path("evidence.jsonl"))},
         limit=5,
         ke_executable="ke-test",
+        core_root=core_root,
     )
 
     assert calls == [
@@ -132,6 +135,7 @@ def test_run_golden_benchmark_calls_core_retrieval_and_scores_result(
             Path("evidence.jsonl"),
             5,
             "ke-test",
+            core_root,
         )
     ]
     assert suite.limit == 5
@@ -158,8 +162,9 @@ def test_run_golden_benchmark_fails_conservatively_when_qualifier_is_missing(
         evidence: Path,
         limit: int,
         ke_executable: str,
+        working_directory: Path | None,
     ) -> EvidenceReport:
-        del question_text, sources, evidence, limit, ke_executable
+        del question_text, sources, evidence, limit, ke_executable, working_directory
         return _report(_paper(1, "ev-a"))
 
     monkeypatch.setattr(
