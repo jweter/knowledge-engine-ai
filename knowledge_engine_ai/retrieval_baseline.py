@@ -7,13 +7,16 @@ results with enough provenance to compare future ranking changes safely.
 
 from __future__ import annotations
 
+import subprocess
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
+from knowledge_engine_ai.retrieval_benchmark import default_golden_questions
 from knowledge_engine_ai.retrieval_benchmark_runner import (
     BenchmarkCorpus,
     GoldenBenchmarkSuite,
+    run_golden_benchmark,
 )
 
 _CORE_CORPUS_DIRS = {
@@ -73,3 +76,41 @@ def baseline_payload(
             for run in suite.runs
         ],
     }
+
+
+def git_commit(checkout_root: Path) -> str:
+    """Resolve one checkout's exact commit without invoking a shell."""
+
+    completed = subprocess.run(
+        ["git", "-C", str(checkout_root), "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    commit = completed.stdout.strip()
+    if completed.returncode != 0 or not commit:
+        raise ValueError("Could not resolve checkout commit for retrieval baseline provenance.")
+    return commit
+
+
+def run_retrieval_baseline(
+    *,
+    core_root: Path,
+    ai_root: Path,
+    limit: int = 10,
+    ke_executable: str = "ke",
+) -> dict[str, Any]:
+    """Run the reviewed three-domain benchmark and return its reproducible snapshot."""
+
+    suite = run_golden_benchmark(
+        default_golden_questions(),
+        default_core_corpora(core_root),
+        limit=limit,
+        ke_executable=ke_executable,
+        core_root=core_root,
+    )
+    return baseline_payload(
+        suite,
+        core_commit=git_commit(core_root),
+        ai_commit=git_commit(ai_root),
+    )
