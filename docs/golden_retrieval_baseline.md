@@ -10,7 +10,7 @@ Each corpus must provide `sources.csv` and `evidence_records.jsonl`. These remai
 
 The baseline runner must not call synthesis, use an LLM as a relevance judge, mutate Core evidence, or invent a replacement confidence score. The purpose of this milestone is measurement: establish the actual required-record and qualifier recall of the current retrieval path before changing ranking behavior.
 
-A baseline is reproducible only when it records the Core checkout commit, AI checkout commit, retrieval limit, golden-question definitions, and per-question retrieved Evidence Record IDs. Do not commit machine-specific absolute paths, credentials, local model state, or raw provider payloads.
+A baseline is reproducible only when it records the Core checkout commit, AI checkout commit, retrieval limit, golden-question definitions, and per-question retrieved Evidence Record IDs. The runner therefore requires all tracked files in both the Core and AI checkouts to match their recorded commits before measurement begins. Staged or unstaged tracked changes are a hard provenance failure; untracked local output files are ignored so redirected snapshots do not invalidate their own run. Do not commit machine-specific absolute paths, credentials, local model state, or raw provider payloads.
 
 Run the reviewed three-domain baseline from the AI environment with:
 
@@ -18,7 +18,7 @@ Run the reviewed three-domain baseline from the AI environment with:
 ke-ai-baseline run --core-root ../knowledge-engine-core --limit 10
 ```
 
-The command resolves both checkout commits with `git rev-parse HEAD`, executes Core from the explicit Core checkout root, and emits portable JSON containing the fixed question definitions and measured retrieval results. Redirect that JSON to a local file when comparing ranking experiments; only commit a snapshot when the recorded commits and reviewed corpus state are intentionally part of the experiment record.
+The command verifies clean tracked state in both checkouts, resolves both checkout commits with `git rev-parse HEAD`, executes Core from the explicit Core checkout root, and emits portable JSON containing the fixed question definitions and measured retrieval results. Redirect that JSON to a local file when comparing ranking experiments; only commit a snapshot when the recorded commits and reviewed corpus state are intentionally part of the experiment record.
 
 ## Compare ranking experiments
 
