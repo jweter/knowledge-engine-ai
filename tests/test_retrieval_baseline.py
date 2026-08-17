@@ -121,9 +121,7 @@ def test_git_clean_commit_rejects_tracked_changes_before_resolving_commit(
     with pytest.raises(ValueError, match="tracked files"):
         git_clean_commit(tmp_path)
 
-    assert calls == [
-        ["git", "-C", str(tmp_path), "status", "--porcelain", "--untracked-files=no"]
-    ]
+    assert calls == [["git", "-C", str(tmp_path), "status", "--porcelain", "--untracked-files=no"]]
 
 
 def test_git_clean_commit_allows_clean_tracked_state_and_ignores_untracked_files(
