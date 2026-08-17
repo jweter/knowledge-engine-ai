@@ -12,4 +12,12 @@ The baseline runner must not call synthesis, use an LLM as a relevance judge, mu
 
 A baseline is reproducible only when it records the Core checkout commit, AI checkout commit, retrieval limit, golden-question definitions, and per-question retrieved Evidence Record IDs. Do not commit machine-specific absolute paths, credentials, local model state, or raw provider payloads.
 
+Run the reviewed three-domain baseline from the AI environment with:
+
+```text
+ke-ai-baseline run --core-root ../knowledge-engine-core --limit 10
+```
+
+The command resolves both checkout commits with `git rev-parse HEAD`, executes Core from the explicit Core checkout root, and emits portable JSON containing the fixed question definitions and measured retrieval results. Redirect that JSON to a local file when comparing ranking experiments; only commit a snapshot when the recorded commits and reviewed corpus state are intentionally part of the experiment record.
+
 The next ranking change should be justified by a measured miss in this baseline and should be re-evaluated against all three domains to detect regressions.
