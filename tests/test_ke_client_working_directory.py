@@ -1,10 +1,13 @@
+# ruff: noqa: I001
+
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
-from knowledge_engine_ai.ke_client import evidence_report
 import pytest
+
+from knowledge_engine_ai.ke_client import evidence_report
 
 
 _VALID_PAYLOAD = {
