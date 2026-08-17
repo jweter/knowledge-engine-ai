@@ -7,6 +7,7 @@ import pytest
 from knowledge_engine_ai.retrieval_baseline import (
     baseline_payload,
     default_core_corpora,
+    git_clean_commit,
     git_commit,
     run_retrieval_baseline,
 )
@@ -102,6 +103,54 @@ def test_git_commit_uses_checkout_root_without_shell(
     assert captured.get("shell", False) is False
 
 
+def test_git_clean_commit_rejects_tracked_changes_before_resolving_commit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[list[str]] = []
+
+    class Completed:
+        returncode = 0
+        stdout = " M data/corpora/glp1_weight_loss/evidence_records.jsonl\n"
+
+    def fake_run(command: list[str], **kwargs: object) -> Completed:
+        calls.append(command)
+        return Completed()
+
+    monkeypatch.setattr("knowledge_engine_ai.retrieval_baseline.subprocess.run", fake_run)
+
+    with pytest.raises(ValueError, match="tracked files"):
+        git_clean_commit(tmp_path)
+
+    assert calls == [
+        ["git", "-C", str(tmp_path), "status", "--porcelain", "--untracked-files=no"]
+    ]
+
+
+def test_git_clean_commit_allows_clean_tracked_state_and_ignores_untracked_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[list[str]] = []
+
+    class Completed:
+        def __init__(self, stdout: str) -> None:
+            self.returncode = 0
+            self.stdout = stdout
+
+    def fake_run(command: list[str], **kwargs: object) -> Completed:
+        calls.append(command)
+        if "status" in command:
+            return Completed("")
+        return Completed("abc123\n")
+
+    monkeypatch.setattr("knowledge_engine_ai.retrieval_baseline.subprocess.run", fake_run)
+
+    assert git_clean_commit(tmp_path) == "abc123"
+    assert calls == [
+        ["git", "-C", str(tmp_path), "status", "--porcelain", "--untracked-files=no"],
+        ["git", "-C", str(tmp_path), "rev-parse", "HEAD"],
+    ]
+
+
 def test_run_retrieval_baseline_binds_questions_corpora_and_commits(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -140,7 +189,7 @@ def test_run_retrieval_baseline_binds_questions_corpora_and_commits(
         fake_run,
     )
     monkeypatch.setattr(
-        "knowledge_engine_ai.retrieval_baseline.git_commit",
+        "knowledge_engine_ai.retrieval_baseline.git_clean_commit",
         lambda root: "core123" if root == tmp_path else "ai456",
     )
     ai_root = tmp_path / "ai"
