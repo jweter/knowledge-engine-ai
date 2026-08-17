@@ -102,6 +102,7 @@ class EventTrace:
     notes: str | None
     source_ids: tuple[str, ...]
 
+
 @dataclass(frozen=True)
 class SessionTrace:
     session_id: str
