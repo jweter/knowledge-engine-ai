@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import subprocess
 import sys
-from collections.abc import Sequence
 
 
 CHECKS: tuple[tuple[str, ...], ...] = (
@@ -17,7 +16,7 @@ CHECKS: tuple[tuple[str, ...], ...] = (
 )
 
 
-def _run(command: Sequence[str]) -> int:
+def _run(command: tuple[str, ...]) -> int:
     print(f"+ {' '.join(command)}", flush=True)
     completed = subprocess.run(command, check=False)
     return completed.returncode
