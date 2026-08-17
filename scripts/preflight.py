@@ -2,7 +2,6 @@
 
 import subprocess
 
-
 CHECKS: tuple[tuple[str, ...], ...] = (
     ("ruff", "format", "--check", "--diff", "."),
     ("ruff", "check", "."),
