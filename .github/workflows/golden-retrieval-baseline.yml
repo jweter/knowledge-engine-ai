@@ -1,0 +1,127 @@
+name: Golden Retrieval Baseline
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: Retrieval depth used for every golden question
+        required: true
+        default: "10"
+
+permissions:
+  contents: read
+
+jobs:
+  baseline:
+    name: Measure three-domain retrieval baseline
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out AI repository
+        uses: actions/checkout@v7
+        with:
+          path: knowledge-engine-ai
+
+      - name: Check out Core repository
+        uses: actions/checkout@v7
+        with:
+          repository: jweter/knowledge-engine-core
+          path: knowledge-engine-core
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Poetry
+        run: python -m pip install poetry
+
+      - name: Install AI dependencies
+        run: poetry -C knowledge-engine-ai install
+
+      - name: Install Core runtime dependencies
+        run: poetry -C knowledge-engine-core install --only main
+
+      - name: Reconstruct and verify Core database
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          root = Path("knowledge-engine-core/data")
+          parts_root = root / "db_parts"
+          manifest = json.loads((parts_root / "manifest.json").read_text(encoding="utf-8"))
+          output = root / manifest["source_filename"]
+
+          total_hash = hashlib.sha256()
+          total_size = 0
+          with output.open("wb") as destination:
+              for part in manifest["parts"]:
+                  part_path = parts_root / part["filename"]
+                  data = part_path.read_bytes()
+                  if len(data) != part["byte_count"]:
+                      raise SystemExit(f"Size mismatch for {part_path}")
+                  digest = hashlib.sha256(data).hexdigest()
+                  if digest != part["sha256"]:
+                      raise SystemExit(f"SHA-256 mismatch for {part_path}")
+                  destination.write(data)
+                  total_hash.update(data)
+                  total_size += len(data)
+
+          if total_size != manifest["total_byte_count"]:
+              raise SystemExit("Reconstructed database size does not match manifest")
+          if total_hash.hexdigest() != manifest["total_sha256"]:
+              raise SystemExit("Reconstructed database SHA-256 does not match manifest")
+          PY
+
+      - name: Run reviewed three-domain baseline
+        run: |
+          CORE_ENV="$(poetry -C knowledge-engine-core env info --path)"
+          poetry -C knowledge-engine-ai run ke-ai-baseline run \
+            --core-root "$GITHUB_WORKSPACE/knowledge-engine-core" \
+            --ai-root "$GITHUB_WORKSPACE/knowledge-engine-ai" \
+            --ke-executable "$CORE_ENV/bin/ke" \
+            --limit "${{ inputs.limit }}" \
+            > retrieval-baseline.json
+
+      - name: Summarize measured recall
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          payload = json.loads(Path("retrieval-baseline.json").read_text(encoding="utf-8"))
+          lines = [
+              "## Golden retrieval baseline",
+              "",
+              f"- Core commit: `{payload['core_commit']}`",
+              f"- AI commit: `{payload['ai_commit']}`",
+              f"- Retrieval limit: `{payload['retrieval_limit']}`",
+              f"- All golden questions pass: `{payload['passes']}`",
+              "",
+              "| Question | Domain | Required recall | Qualifier recall | Pass |",
+              "|---|---|---:|---:|---|",
+          ]
+          for run in payload["runs"]:
+              result = run["result"]
+              lines.append(
+                  "| {question_id} | {domain} | {recall:.3f} | {qualifier:.3f} | {passes} |".format(
+                      question_id=run["question_id"],
+                      domain=run["domain"],
+                      recall=result["recall_at_k"],
+                      qualifier=result["qualifier_recall_at_k"],
+                      passes=result["passes"],
+                  )
+              )
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+              summary.write("\n".join(lines) + "\n")
+          PY
+
+      - name: Upload reproducible baseline snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-retrieval-baseline
+          path: retrieval-baseline.json
+          if-no-files-found: error
