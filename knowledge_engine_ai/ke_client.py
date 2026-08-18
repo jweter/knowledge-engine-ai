@@ -346,17 +346,40 @@ class FederatedProviderStatus:
 
 
 @dataclasses.dataclass(frozen=True)
-class FederatedCandidateSummary:
-    """One deduplicated federated discovery candidate, display fields only.
+class FederatedProviderAssertion:
+    """One provider-native metadata assertion from Core's disagreement report."""
 
-    Deliberately narrower than core's full `FederatedCandidate` contract
-    (no per-observation abstract/authors/venue) -- this is the first,
-    minimal slice `knowledge-engine-web` needs to render a provider
-    coverage view (`docs/federated_discovery_transparency_roadmap.md`'s
-    WEB-FRD-1), not a full mirror of core's discovery contract. Widen this
-    if a consumer needs more.
+    provider: str
+    provider_id: str
+    value: str | int | bool
+
+
+@dataclasses.dataclass(frozen=True)
+class FederatedProviderDisagreement:
+    """Observed conflicting provider values for one metadata field."""
+
+    field: str
+    assertions: tuple[FederatedProviderAssertion, ...]
+
+
+@dataclasses.dataclass(frozen=True)
+class FederatedCandidateDisagreements:
+    """Core-recorded metadata disagreements for one canonical candidate."""
+
+    canonical_id: str
+    disagreements: tuple[FederatedProviderDisagreement, ...]
+
+
+@dataclasses.dataclass(frozen=True)
+class FederatedCandidateSummary:
+    """One Core-deduplicated federated discovery candidate for downstream display.
+
+    Provider names are provenance only. ``canonical_id`` is Core-owned work
+    identity; AI does not re-deduplicate candidates or select an authoritative
+    provider observation.
     """
 
+    canonical_id: str
     title: str
     doi: str | None
     publication_year: int | None
@@ -372,13 +395,15 @@ class FederatedDiscoveryResult:
     completeness: str
     provider_statuses: tuple[FederatedProviderStatus, ...]
     candidates: tuple[FederatedCandidateSummary, ...]
+    provider_disagreements: tuple[FederatedCandidateDisagreements, ...]
 
 
 def parse_federated_discovery_result(payload: dict[str, Any]) -> FederatedDiscoveryResult:
-    """Parse `ke federated-discover --output`'s JSON into `FederatedDiscoveryResult`.
+    """Parse Core's public federated snapshot without guessing omitted facts.
 
-    Raises `FederatedDiscoveryParseError` on a missing required field --
-    never guesses a default for data `core` did not actually provide.
+    Provider disagreement is preserved as descriptive metadata-quality state.
+    It is not interpreted as scientific contradiction, evidence strength, or a
+    signal that one provider value is authoritative.
     """
 
     try:
@@ -387,6 +412,7 @@ def parse_federated_discovery_result(payload: dict[str, Any]) -> FederatedDiscov
         completeness = payload["completeness"]
         raw_statuses = payload["provider_statuses"]
         raw_candidates = payload["candidates"]
+        raw_disagreements = payload["provider_disagreements"]["candidates"]
     except (KeyError, TypeError) as exc:
         raise FederatedDiscoveryParseError(
             f"`ke federated-discover --output` payload is missing a required field: {exc}"
@@ -405,6 +431,7 @@ def parse_federated_discovery_result(payload: dict[str, Any]) -> FederatedDiscov
         )
         candidates = tuple(
             FederatedCandidateSummary(
+                canonical_id=candidate["canonical_id"],
                 title=candidate["title"],
                 doi=candidate.get("doi"),
                 publication_year=candidate.get("publication_year"),
@@ -413,6 +440,26 @@ def parse_federated_discovery_result(payload: dict[str, Any]) -> FederatedDiscov
                 ),
             )
             for candidate in raw_candidates
+        )
+        provider_disagreements = tuple(
+            FederatedCandidateDisagreements(
+                canonical_id=candidate["canonical_id"],
+                disagreements=tuple(
+                    FederatedProviderDisagreement(
+                        field=disagreement["field"],
+                        assertions=tuple(
+                            FederatedProviderAssertion(
+                                provider=assertion["provider"],
+                                provider_id=assertion["provider_id"],
+                                value=assertion["value"],
+                            )
+                            for assertion in disagreement["assertions"]
+                        ),
+                    )
+                    for disagreement in candidate["disagreements"]
+                ),
+            )
+            for candidate in raw_disagreements
         )
     except (KeyError, TypeError) as exc:
         raise FederatedDiscoveryParseError(
@@ -425,6 +472,7 @@ def parse_federated_discovery_result(payload: dict[str, Any]) -> FederatedDiscov
         completeness=completeness,
         provider_statuses=provider_statuses,
         candidates=candidates,
+        provider_disagreements=provider_disagreements,
     )
 
 
