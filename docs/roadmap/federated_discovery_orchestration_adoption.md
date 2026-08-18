@@ -11,6 +11,20 @@ provider choices.
 The matching Core plan is
 `knowledge-engine-core/docs/roadmap/federated_research_discovery_adoption.md`.
 
+**2026-08-18: `ke_client.federated_discover()` gained its first in-repository
+caller, `ke-ai discover`.** The client wrapper existed, was unit-tested, and
+was live-verified against the real `ke` binary, but had no caller inside this
+repository -- only `knowledge-engine-web`'s `/discover` route used it. The new
+CLI command is a direct, bounded way to run one federated discovery search and
+inspect Core's recorded coverage/disagreement facts from this repository
+without a full Research Copilot session. It is deliberately a standalone
+command, not a step inside `run_research_question`'s own planning -- deciding
+*when* a research task needs broader provider coverage is AI-FRD-3's
+(Discovery-plan compiler) job below, which remains not started pending its own
+capability-registry/execution-budget design. This closes the immediate
+"built but unreachable" gap without prematurely committing to that larger,
+not-yet-authorized design.
+
 ## AI-layer role
 
 Core owns provider transport, search-run provenance, canonical identity,

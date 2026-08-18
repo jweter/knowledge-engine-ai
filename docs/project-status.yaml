@@ -1,6 +1,6 @@
 schema_version: 1
 project: knowledge-engine-ai
-updated_at: "2026-08-18T21:58:00Z"
+updated_at: "2026-08-18T23:55:00Z"
 status_source: "Verified repository state plus docs/roadmap/future_ai_orchestration_plan.md; this file is a continuity cache and never overrides higher-authority evidence."
 
 product:
@@ -13,7 +13,7 @@ current_milestone:
   roadmap_file: "docs/roadmap/federated_discovery_orchestration_adoption.md"
   state: "active, early"
   objective: "Let Research Copilot plan bounded federated-discovery requests to Core rather than calling provider APIs directly, without ever treating provider count as evidence quality."
-  known_gap: "ke_client.federated_discover() (Core's ke federated-discover wrapper) exists, is unit-tested, and was live-verified against the real ke binary -- but has zero callers in this repository: not run_research_question, not a ke-ai CLI command. This is the same 'built but unreachable' gap this project family has repeatedly found elsewhere."
+  known_gap: "closed -- ke-ai discover (this session, unmerged -- see PR) is now the first in-repository caller of ke_client.federated_discover(). Deliberately a standalone CLI command, not wired into run_research_question's own planning; that remains AI-FRD-3's (Discovery-plan compiler) not-yet-started job."
 
 automation_contract:
   schedule_role: "repository participant in an hourly portfolio-development loop (owner-managed; not created by this session)"
@@ -43,7 +43,7 @@ verified_repository_state:
 
 next_continuation:
   priority: "P5-highest-value-authorized-roadmap"
-  action: "Wire ke_client.federated_discover() into a real caller -- either a bounded step inside run_research_question's planning, or a standalone ke-ai CLI command mirroring the composed-pipeline pattern AI-O12 established -- so knowledge-engine-web has something concrete to call beyond the raw ke_client wrapper."
+  action: "Review/merge the open `ke-ai discover` PR once fresh CI is green. After that, AI-FRD-3 (Discovery-plan compiler) is the next not-started item: let Research Copilot produce a typed, bounded discovery plan validated against a capability registry, rather than a person invoking `ke-ai discover` directly -- see docs/roadmap/federated_discovery_orchestration_adoption.md's AI-FRD-3 exit criteria before starting."
   selection_rule: "Before beginning roadmap work, query live PR state. Handle failed, green, blocked, conflicted, or pending existing work according to docs/agent-development-policy.md and knowledge-engine-core's shared policy document."
 
 human_decision_required: null

@@ -123,6 +123,15 @@ must never invent provider coverage, treat citation count as evidence quality,
 or let a provider/plugin define the project's research method. See
 [`docs/roadmap/federated_discovery_orchestration_adoption.md`](docs/roadmap/federated_discovery_orchestration_adoption.md).
 
+`ke-ai discover "<query>" --ledger-root <dir>` runs one federated discovery
+search through Core's `ke federated-discover` and prints its recorded
+per-provider coverage and (when Core's snapshot includes it)
+provider-metadata-disagreement summary -- a direct, bounded way to exercise
+`ke_client.federated_discover()` from this repository, standalone from a full
+Research Copilot session. It is not yet part of `run_research_question`'s own
+planning; deciding when a research task needs broader provider coverage is
+AI-FRD-3's (Discovery-plan compiler) job.
+
 ## Roadmap
 
 The repository family now follows one ordered project path: unify the public
