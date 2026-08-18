@@ -1,0 +1,56 @@
+schema_version: 1
+project: knowledge-engine-ai
+updated_at: "2026-08-18T21:58:00Z"
+status_source: "Verified repository state plus docs/roadmap/future_ai_orchestration_plan.md; this file is a continuity cache and never overrides higher-authority evidence."
+
+product:
+  primary_surface: "Python library: the judgment/orchestration layer over knowledge-engine-core's evidence graph"
+  role_in_family: "owns the one supported subprocess boundary (ke_client.py) for invoking Core's `ke` CLI; consumed by knowledge-engine-web as a dependency"
+  research_copilot_status: "AI-O12-O17 web integration wiring complete (run_research_question composed, wired into Web's /ask, guardrails, live-verified); AI-O10 Discovery Intelligence and AI-O11 Hypothesis/Experiment Assistance not started (both explicitly gated on analytical/graph prerequisites)"
+
+current_milestone:
+  name: "Federated discovery orchestration adoption (AI-layer guidance)"
+  roadmap_file: "docs/roadmap/federated_discovery_orchestration_adoption.md"
+  state: "active, early"
+  objective: "Let Research Copilot plan bounded federated-discovery requests to Core rather than calling provider APIs directly, without ever treating provider count as evidence quality."
+  known_gap: "ke_client.federated_discover() (Core's ke federated-discover wrapper) exists, is unit-tested, and was live-verified against the real ke binary -- but has zero callers in this repository: not run_research_question, not a ke-ai CLI command. This is the same 'built but unreachable' gap this project family has repeatedly found elsewhere."
+
+automation_contract:
+  schedule_role: "repository participant in an hourly portfolio-development loop (owner-managed; not created by this session)"
+  new_roadmap_pr_budget_per_run: 1
+  query_live_github_state_every_run: true
+  newly_opened_pr_requires_fresh_ci_before_merge: true
+  draft_prs: "never"
+  merge_method: "squash"
+  required_pr_workflows:
+    - name: "Quality"
+      file: ".github/workflows/quality.yml"
+      job: "checks"
+      note: "ruff format --check, ruff check, mypy, pytest"
+  non_required_workflows:
+    - name: "Golden Retrieval Baseline"
+      file: ".github/workflows/golden-retrieval-baseline.yml"
+      note: "workflow_dispatch only -- never runs automatically on a PR, not a required check"
+  advisory_review_unavailable_is_not_failure: true
+
+verified_repository_state:
+  checked_at: "2026-08-18T21:58:00Z"
+  note: "Live PR/check/issue state is intentionally not cached as authoritative counts here. Scheduled runs must query GitHub directly before acting."
+  open_prs: 0
+  ci_workflows:
+    - ".github/workflows/quality.yml"
+    - ".github/workflows/golden-retrieval-baseline.yml"
+
+next_continuation:
+  priority: "P5-highest-value-authorized-roadmap"
+  action: "Wire ke_client.federated_discover() into a real caller -- either a bounded step inside run_research_question's planning, or a standalone ke-ai CLI command mirroring the composed-pipeline pattern AI-O12 established -- so knowledge-engine-web has something concrete to call beyond the raw ke_client wrapper."
+  selection_rule: "Before beginning roadmap work, query live PR state. Handle failed, green, blocked, conflicted, or pending existing work according to docs/agent-development-policy.md and knowledge-engine-core's shared policy document."
+
+human_decision_required: null
+
+maintenance_contract:
+  verify_every_scheduled_run: true
+  update_when_project_reality_changes: true
+  update_in_same_pr_as_relevant_change: true
+  stale_status_is_a_defect: true
+  timestamp_age_alone_requires_noop_pr: false
