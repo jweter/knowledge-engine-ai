@@ -395,7 +395,7 @@ class FederatedDiscoveryResult:
     completeness: str
     provider_statuses: tuple[FederatedProviderStatus, ...]
     candidates: tuple[FederatedCandidateSummary, ...]
-    provider_disagreements: tuple[FederatedCandidateDisagreements, ...]
+    provider_disagreements: tuple[FederatedCandidateDisagreements, ...] | None
 
 
 def parse_federated_discovery_result(payload: dict[str, Any]) -> FederatedDiscoveryResult:
@@ -403,7 +403,9 @@ def parse_federated_discovery_result(payload: dict[str, Any]) -> FederatedDiscov
 
     Provider disagreement is preserved as descriptive metadata-quality state.
     It is not interpreted as scientific contradiction, evidence strength, or a
-    signal that one provider value is authoritative.
+    signal that one provider value is authoritative. Older snapshots that do
+    not contain the disagreement report remain explicitly ``None`` rather than
+    being misrepresented as an empty report.
     """
 
     try:
@@ -412,11 +414,12 @@ def parse_federated_discovery_result(payload: dict[str, Any]) -> FederatedDiscov
         completeness = payload["completeness"]
         raw_statuses = payload["provider_statuses"]
         raw_candidates = payload["candidates"]
-        raw_disagreements = payload["provider_disagreements"]["candidates"]
     except (KeyError, TypeError) as exc:
         raise FederatedDiscoveryParseError(
             f"`ke federated-discover --output` payload is missing a required field: {exc}"
         ) from exc
+
+    raw_disagreement_report = payload.get("provider_disagreements")
 
     try:
         provider_statuses = tuple(
@@ -441,26 +444,28 @@ def parse_federated_discovery_result(payload: dict[str, Any]) -> FederatedDiscov
             )
             for candidate in raw_candidates
         )
-        provider_disagreements = tuple(
-            FederatedCandidateDisagreements(
-                canonical_id=candidate["canonical_id"],
-                disagreements=tuple(
-                    FederatedProviderDisagreement(
-                        field=disagreement["field"],
-                        assertions=tuple(
-                            FederatedProviderAssertion(
-                                provider=assertion["provider"],
-                                provider_id=assertion["provider_id"],
-                                value=assertion["value"],
-                            )
-                            for assertion in disagreement["assertions"]
-                        ),
-                    )
-                    for disagreement in candidate["disagreements"]
-                ),
+        provider_disagreements = None
+        if raw_disagreement_report is not None:
+            provider_disagreements = tuple(
+                FederatedCandidateDisagreements(
+                    canonical_id=candidate["canonical_id"],
+                    disagreements=tuple(
+                        FederatedProviderDisagreement(
+                            field=disagreement["field"],
+                            assertions=tuple(
+                                FederatedProviderAssertion(
+                                    provider=assertion["provider"],
+                                    provider_id=assertion["provider_id"],
+                                    value=assertion["value"],
+                                )
+                                for assertion in disagreement["assertions"]
+                            ),
+                        )
+                        for disagreement in candidate["disagreements"]
+                    ),
+                )
+                for candidate in raw_disagreement_report["candidates"]
             )
-            for candidate in raw_disagreements
-        )
     except (KeyError, TypeError) as exc:
         raise FederatedDiscoveryParseError(
             f"`ke federated-discover --output` payload is malformed: {exc}"
