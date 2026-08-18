@@ -30,7 +30,12 @@ from knowledge_engine_ai.copilot.run_research_question import (
     ResearchQuestionResult,
     run_research_question,
 )
-from knowledge_engine_ai.ke_client import KeCommandError, enriched_evidence_report
+from knowledge_engine_ai.ke_client import (
+    FederatedDiscoveryResult,
+    KeCommandError,
+    enriched_evidence_report,
+    federated_discover,
+)
 from knowledge_engine_ai.llm import DEFAULT_OLLAMA_HOST, LocalLLMError, OllamaLLM
 from knowledge_engine_ai.models import EvidenceReport
 from knowledge_engine_ai.orchestrator.observability import render_session_trace
@@ -100,6 +105,44 @@ SessionDbOption = Annotated[
             "SQLite database path for durable Research Copilot sessions. Falls back to "
             "KE_AI_SESSION_DB_PATH, then './research_sessions.db' in the current directory."
         ),
+    ),
+]
+
+
+DiscoveryQueryArgument = Annotated[
+    str, typer.Argument(help="Provider-neutral free-text discovery query.")
+]
+LedgerRootOption = Annotated[
+    Path,
+    typer.Option(
+        "--ledger-root",
+        help="Directory Core's federated search-run ledger persists JSON run records to.",
+    ),
+]
+DiscoveryProvidersOption = Annotated[
+    str | None,
+    typer.Option(
+        "--providers",
+        help=(
+            "Comma-separated provider subset (e.g. 'pubmed,openalex'). "
+            "Defaults to every provider Core has configured."
+        ),
+    ),
+]
+OpenAlexApiKeyOption = Annotated[
+    str | None,
+    typer.Option(
+        "--openalex-api-key",
+        envvar="KE_AI_OPENALEX_API_KEY",
+        help="Optional OpenAlex API key, forwarded to `ke federated-discover`.",
+    ),
+]
+SemanticScholarApiKeyOption = Annotated[
+    str | None,
+    typer.Option(
+        "--semantic-scholar-api-key",
+        envvar="KE_AI_SEMANTIC_SCHOLAR_API_KEY",
+        help="Optional Semantic Scholar API key, forwarded to `ke federated-discover`.",
     ),
 ]
 
@@ -352,3 +395,113 @@ def _print_research_result(result: ResearchQuestionResult) -> None:
 
     console.print()
     console.print(escape(render_session_trace(result.trace)))
+
+
+@app.command()
+def discover(
+    query: DiscoveryQueryArgument,
+    ledger_root: LedgerRootOption,
+    limit: LimitOption = 20,
+    providers: DiscoveryProvidersOption = None,
+    openalex_api_key: OpenAlexApiKeyOption = None,
+    semantic_scholar_api_key: SemanticScholarApiKeyOption = None,
+    output_format: FormatOption = "text",
+) -> None:
+    """Run one federated discovery search via Core's `ke federated-discover`.
+
+    This repository's `ke_client.federated_discover()` (the one supported
+    subprocess boundary for invoking Core, per `docs/agent-development-policy.md`)
+    was implemented, unit-tested, and live-verified against the real `ke`
+    binary, but had no caller inside this repository -- only
+    `knowledge-engine-web`'s `/discover` route used it. This command is that
+    caller: a direct, bounded way to run and inspect one federated discovery
+    search from `knowledge-engine-ai` itself, without a full Research Copilot
+    session. It is deliberately *not* wired into `run_research_question`'s
+    own planning -- that is AI-FRD-3's (Discovery-plan compiler) job once
+    Research Copilot can decide *when* broader provider coverage is needed,
+    a judgment this command does not make. See
+    `docs/roadmap/federated_discovery_orchestration_adoption.md`.
+
+    Every provider's status printed is Core's own recorded outcome -- never
+    inferred from result count -- and provider-metadata disagreement (when
+    Core's snapshot includes it) is shown as a metadata-quality fact, never
+    reinterpreted as scientific contradiction or evidence strength.
+    """
+
+    if output_format not in ("text", "json"):
+        raise typer.BadParameter("--format must be 'text' or 'json'.")
+
+    provider_names = _parse_discovery_providers(providers)
+
+    try:
+        result = federated_discover(
+            query,
+            ledger_root=ledger_root,
+            limit=limit,
+            providers=provider_names,
+            openalex_api_key=openalex_api_key,
+            semantic_scholar_api_key=semantic_scholar_api_key,
+        )
+    except KeCommandError as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(1) from exc
+
+    if output_format == "json":
+        sys.stdout.write(json.dumps(dataclasses.asdict(result), indent=2, sort_keys=True) + "\n")
+        return
+
+    _print_discovery_result(result)
+
+
+def _parse_discovery_providers(providers: str | None) -> tuple[str, ...] | None:
+    if providers is None:
+        return None
+    names = tuple(name.strip() for name in providers.split(",") if name.strip())
+    if not names:
+        raise typer.BadParameter("--providers must name at least one provider when given.")
+    return names
+
+
+def _print_discovery_result(result: FederatedDiscoveryResult) -> None:
+    console.print(f"[bold]Search run:[/bold] {result.search_run_id}")
+    completeness_color = {
+        "complete": "green",
+        "partial": "yellow",
+        "failed": "red",
+    }.get(result.completeness, "white")
+    console.print(
+        f"[bold]Coverage:[/bold] "
+        f"[{completeness_color}]{result.completeness}[/{completeness_color}] "
+        f"({len(result.candidates)} deduplicated candidate(s))"
+    )
+    for status in result.provider_statuses:
+        reason = f" ({status.reason})" if status.reason else ""
+        console.print(f"  {status.provider}: {status.outcome}{reason}")
+    console.print()
+
+    if result.provider_disagreements is None:
+        console.print("[dim]This search run predates provider-disagreement reporting.[/dim]")
+    else:
+        disagreement_count = sum(
+            len(candidate.disagreements) > 0 for candidate in result.provider_disagreements
+        )
+        console.print(
+            f"[bold]Provider metadata disagreements:[/bold] {disagreement_count} candidate(s) "
+            "-- metadata-quality facts, not scientific contradiction."
+        )
+    console.print()
+
+    if not result.candidates:
+        console.print("[yellow]No candidates found by any searched provider.[/yellow]")
+        return
+
+    for candidate in result.candidates:
+        year = f" ({candidate.publication_year})" if candidate.publication_year else ""
+        doi = f" -- DOI {candidate.doi}" if candidate.doi else ""
+        console.print(f"[bold]{escape(candidate.title)}[/bold]{year}{doi}")
+        console.print(f"  observed by: {', '.join(candidate.providers)}")
+
+    console.print()
+    console.print(
+        "[bold]Discovery only -- these are not Evidence Records and were not acquired.[/bold]"
+    )

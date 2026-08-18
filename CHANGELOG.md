@@ -9,6 +9,20 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`ke-ai discover` CLI command.** The first caller of `ke_client.federated_discover()`
+  inside this repository (previously called only from `knowledge-engine-web`'s
+  `/discover` route) -- the "built but unreachable" gap
+  `docs/project-status.yaml`'s `next_continuation` and this file's own prior
+  entry named explicitly. Prints Core's recorded per-provider outcome
+  (never inferred from result count) and, when Core's snapshot includes it,
+  a per-run provider-metadata-disagreement summary, explicitly labeled a
+  metadata-quality fact and never reinterpreted as scientific contradiction.
+  Supports `--format json` for a programmatic caller, matching `ask`/`research`'s
+  existing convention. Deliberately not wired into `run_research_question`'s
+  own planning -- deciding *when* broader provider coverage is needed is
+  AI-FRD-3's (Discovery-plan compiler) job, not this command's. See
+  `docs/roadmap/federated_discovery_orchestration_adoption.md`.
+
 - **Federated discovery client wiring.** Added `ke_client.federated_discover()`,
   the AI-side boundary function for Core's `ke federated-discover` command
   (Core FRD-1/FRD-2/FRD-3: PubMed, Crossref, OpenAlex, and Semantic Scholar
