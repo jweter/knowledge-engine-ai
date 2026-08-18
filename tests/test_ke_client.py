@@ -9,11 +9,14 @@ import pytest
 
 from knowledge_engine_ai.execution import ExecutionBudget
 from knowledge_engine_ai.ke_client import (
+    FederatedDiscoveryParseError,
     KeCommandError,
     enriched_evidence_report,
     evidence_intelligence,
     evidence_map_report,
     evidence_report,
+    federated_discover,
+    parse_federated_discovery_result,
     statistical_verify,
 )
 
@@ -511,3 +514,158 @@ def test_statistical_verify_raises_a_clear_error_when_ke_is_not_installed(
 
     with pytest.raises(KeCommandError, match="is knowledge-engine-core installed"):
         statistical_verify(tmp_path / "stats.jsonl", evidence=tmp_path / "e.jsonl")
+
+
+_VALID_FEDERATED_DISCOVERY_PAYLOAD = {
+    "search_run_id": "11111111-1111-1111-1111-111111111111",
+    "query": {"text": "semaglutide weight loss", "year_from": None, "year_to": None},
+    "completeness": "partial",
+    "failed_providers": ["crossref"],
+    "provider_statuses": [
+        {
+            "provider": "pubmed",
+            "outcome": "success",
+            "attempted": True,
+            "result_count": 1,
+            "latency_ms": None,
+            "reason": None,
+        },
+        {
+            "provider": "crossref",
+            "outcome": "failed",
+            "attempted": True,
+            "result_count": 0,
+            "latency_ms": None,
+            "reason": "unsupported_query",
+        },
+    ],
+    "candidates": [
+        {
+            "canonical_id": "doi:10.1000/example",
+            "title": "A semaglutide trial",
+            "doi": "10.1000/example",
+            "publication_year": 2026,
+            "observations": [{"provider": "pubmed"}],
+        }
+    ],
+}
+
+
+def test_parse_federated_discovery_result_parses_a_valid_payload() -> None:
+    result = parse_federated_discovery_result(_VALID_FEDERATED_DISCOVERY_PAYLOAD)
+
+    assert result.search_run_id == "11111111-1111-1111-1111-111111111111"
+    assert result.query_text == "semaglutide weight loss"
+    assert result.completeness == "partial"
+    assert result.provider_statuses[0].provider == "pubmed"
+    assert result.provider_statuses[1].reason == "unsupported_query"
+    assert result.candidates[0].title == "A semaglutide trial"
+    assert result.candidates[0].providers == ("pubmed",)
+
+
+def test_parse_federated_discovery_result_raises_on_a_missing_field() -> None:
+    payload = {k: v for k, v in _VALID_FEDERATED_DISCOVERY_PAYLOAD.items() if k != "completeness"}
+
+    with pytest.raises(FederatedDiscoveryParseError, match="missing a required field"):
+        parse_federated_discovery_result(payload)
+
+
+def test_federated_discover_runs_the_expected_command_and_parses_the_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run(command: list[str], **kwargs: object) -> _FakeCompletedProcess:
+        captured["command"] = command
+        output_index = command.index("--output") + 1
+        Path(command[output_index]).write_text(
+            json.dumps(_VALID_FEDERATED_DISCOVERY_PAYLOAD), encoding="utf-8"
+        )
+        return _FakeCompletedProcess(0, "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    ledger_root = tmp_path / "ledger"
+
+    result = federated_discover(
+        "semaglutide weight loss",
+        ledger_root=ledger_root,
+        limit=5,
+        providers=("pubmed", "crossref"),
+        openalex_api_key="key-1",
+        semantic_scholar_api_key="key-2",
+    )
+
+    assert result.search_run_id == "11111111-1111-1111-1111-111111111111"
+    command = captured["command"]
+    assert isinstance(command, list)
+    assert command[:6] == [
+        "ke",
+        "federated-discover",
+        "--query",
+        "semaglutide weight loss",
+        "--ledger-root",
+        str(ledger_root),
+    ]
+    assert "--limit" in command and command[command.index("--limit") + 1] == "5"
+    assert (
+        "--providers" in command and command[command.index("--providers") + 1] == "pubmed,crossref"
+    )
+    assert "--openalex-api-key" in command
+    assert "--semantic-scholar-api-key" in command
+    assert "--output" in command
+
+
+def test_federated_discover_raises_on_a_nonzero_exit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fake_run(command: list[str], **kwargs: object) -> _FakeCompletedProcess:
+        return _FakeCompletedProcess(1, "", "boom")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    with pytest.raises(KeCommandError, match="exited 1"):
+        federated_discover("q", ledger_root=tmp_path / "ledger")
+
+
+def test_federated_discover_raises_when_the_output_file_is_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fake_run(command: list[str], **kwargs: object) -> _FakeCompletedProcess:
+        return _FakeCompletedProcess(0, "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    with pytest.raises(KeCommandError, match="did not write a readable JSON output file"):
+        federated_discover("q", ledger_root=tmp_path / "ledger")
+
+
+def test_federated_discover_raises_a_clear_error_when_ke_is_not_installed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fake_run(command: list[str], **kwargs: object) -> _FakeCompletedProcess:
+        raise FileNotFoundError("ke")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    with pytest.raises(KeCommandError, match="is knowledge-engine-core installed"):
+        federated_discover("q", ledger_root=tmp_path / "ledger")
+
+
+def test_federated_discover_never_uses_a_shell(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured_kwargs: dict[str, object] = {}
+
+    def fake_run(command: list[str], **kwargs: object) -> _FakeCompletedProcess:
+        captured_kwargs.update(kwargs)
+        output_index = command.index("--output") + 1
+        Path(command[output_index]).write_text(
+            json.dumps(_VALID_FEDERATED_DISCOVERY_PAYLOAD), encoding="utf-8"
+        )
+        return _FakeCompletedProcess(0, "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    federated_discover("q", ledger_root=tmp_path / "ledger")
+
+    assert captured_kwargs.get("shell", False) is False

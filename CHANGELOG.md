@@ -9,6 +9,23 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Federated discovery client wiring.** Added `ke_client.federated_discover()`,
+  the AI-side boundary function for Core's `ke federated-discover` command
+  (Core FRD-1/FRD-2/FRD-3: PubMed, Crossref, OpenAlex, and Semantic Scholar
+  providers behind one recorded, deduplicated search run). It follows the
+  same subprocess-safety pattern as `evidence_report()`/`evidence_map_report()`
+  (no shell, structured output via `--output`, sanitized errors as
+  `KeCommandError`), returning a narrower `FederatedDiscoveryResult` --
+  `search_run_id`, `completeness`, per-provider `FederatedProviderStatus`, and
+  `FederatedCandidateSummary` -- than Core's full ledger contract, sized to
+  `knowledge-engine-web`'s first display need per
+  `docs/federated_discovery_transparency_roadmap.md` (WEB-FRD-1) in that repo.
+  Live-verified against the real `ke` binary and a real PubMed/Crossref search
+  (a genuine `unsupported_query` Crossref outcome surfaced correctly as a
+  degraded, not failed, run) before this was committed. This function has no
+  caller yet in this repository; wiring it into `run_research_question` or a
+  new CLI path is separate follow-up work.
+
 - **AI-O17 measured local end-to-end verification.** Ran one real GLP-1
   question through Web, both Core retrieval branches, local Ollama synthesis,
   deterministic verification, the Research ISA close gate, durable Research
