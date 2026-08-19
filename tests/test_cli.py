@@ -8,6 +8,7 @@ from typer.testing import CliRunner
 
 import knowledge_engine_ai.cli as cli
 from knowledge_engine_ai.cli import app
+from knowledge_engine_ai.copilot.discovery_policy import FederatedDiscoveryPolicy
 from knowledge_engine_ai.copilot.intent import ISAValidationResult
 from knowledge_engine_ai.copilot.run_research_question import ResearchQuestionResult
 from knowledge_engine_ai.ke_client import KeCommandError
@@ -611,6 +612,7 @@ def _research_result(
         session_id="sess-research-1",
         question="does semaglutide reduce lean mass",
         workflow=workflow,
+        discovery=None,
         narrative=narrative,
         synthesis_error=synthesis_error,
         verification=verification,
@@ -794,3 +796,149 @@ def test_research_no_narrative_prints_explanation_not_a_crash(
 
     assert result.exit_code == 0, result.output
     assert "No evidence with a stated claim was retrieved to narrate" in _unwrapped(result.output)
+
+
+# --- `research --broaden-search-on-gap` (AI-FRD-3/AI-FRD-4 wiring) -----------
+
+
+def test_research_broaden_search_on_gap_requires_discovery_ledger_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sources = tmp_path / "sources.csv"
+    evidence = tmp_path / "evidence.jsonl"
+    sources.write_text("")
+    evidence.write_text("")
+    monkeypatch.setattr(cli, "OllamaLLM", _FakeLLM)
+    monkeypatch.setattr(cli, "run_research_question", lambda *args, **kwargs: _research_result())
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "research",
+            "does semaglutide reduce lean mass",
+            "--sources",
+            str(sources),
+            "--evidence",
+            str(evidence),
+            "--llm-model",
+            "qwen2.5:1.5b",
+            "--session-db",
+            str(tmp_path / "sessions.db"),
+            "--broaden-search-on-gap",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "requires --discovery-ledger-root" in result.output
+
+
+def test_research_broaden_search_on_gap_passes_a_policy_through(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sources = tmp_path / "sources.csv"
+    evidence = tmp_path / "evidence.jsonl"
+    sources.write_text("")
+    evidence.write_text("")
+    monkeypatch.setattr(cli, "OllamaLLM", _FakeLLM)
+
+    captured: dict[str, object] = {}
+
+    def fake_run_research_question(*args: object, **kwargs: object) -> ResearchQuestionResult:
+        captured.update(kwargs)
+        return _research_result()
+
+    monkeypatch.setattr(cli, "run_research_question", fake_run_research_question)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "research",
+            "does semaglutide reduce lean mass",
+            "--sources",
+            str(sources),
+            "--evidence",
+            str(evidence),
+            "--llm-model",
+            "qwen2.5:1.5b",
+            "--session-db",
+            str(tmp_path / "sessions.db"),
+            "--broaden-search-on-gap",
+            "--discovery-ledger-root",
+            str(tmp_path / "ledger"),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    policy = captured["discovery_policy"]
+    assert isinstance(policy, FederatedDiscoveryPolicy)
+    assert policy.ledger_root == tmp_path / "ledger"
+
+
+def test_research_without_broaden_search_on_gap_passes_no_policy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sources = tmp_path / "sources.csv"
+    evidence = tmp_path / "evidence.jsonl"
+    sources.write_text("")
+    evidence.write_text("")
+    monkeypatch.setattr(cli, "OllamaLLM", _FakeLLM)
+
+    captured: dict[str, object] = {}
+
+    def fake_run_research_question(*args: object, **kwargs: object) -> ResearchQuestionResult:
+        captured.update(kwargs)
+        return _research_result()
+
+    monkeypatch.setattr(cli, "run_research_question", fake_run_research_question)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "research",
+            "does semaglutide reduce lean mass",
+            "--sources",
+            str(sources),
+            "--evidence",
+            str(evidence),
+            "--llm-model",
+            "qwen2.5:1.5b",
+            "--session-db",
+            str(tmp_path / "sessions.db"),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["discovery_policy"] is None
+
+
+def test_research_format_json_includes_null_discovery_by_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sources = tmp_path / "sources.csv"
+    evidence = tmp_path / "evidence.jsonl"
+    sources.write_text("")
+    evidence.write_text("")
+    monkeypatch.setattr(cli, "OllamaLLM", _FakeLLM)
+    monkeypatch.setattr(cli, "run_research_question", lambda *args, **kwargs: _research_result())
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "research",
+            "does semaglutide reduce lean mass",
+            "--sources",
+            str(sources),
+            "--evidence",
+            str(evidence),
+            "--llm-model",
+            "qwen2.5:1.5b",
+            "--session-db",
+            str(tmp_path / "sessions.db"),
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["discovery"] is None

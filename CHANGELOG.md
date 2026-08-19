@@ -9,6 +9,36 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **AI-FRD-3/AI-FRD-4 wired into `run_research_question`'s own planning
+  (`copilot/discovery_policy.py`), closing this milestone's long-standing
+  "known gap."** Jeremy's explicit product-owner decision: "continue with
+  the FRD and widen the search." A new opt-in `FederatedDiscoveryPolicy`
+  (`run_research_question`'s new `discovery_policy` parameter, default
+  `None`, reproducing prior behavior exactly) defines two deterministic
+  trigger rules, never an LLM judgment call: federated discovery
+  (AI-FRD-3's `discovery_plan.py` compiler) fires when primary corpus
+  retrieval succeeded but deduplicated evidence-record coverage falls
+  below a configurable threshold (conservative default `3`); citation
+  snowball (AI-FRD-4) fires under the same signal, seeded deterministically
+  from the corpus's own already-relevant papers' DOIs (conservative default
+  cap of 3 seeds). Every other numeric bound (provider limit, snowball
+  depth/candidates, per-call execution-second ceilings tighter than
+  `discovery_plan.py`'s own person-invoked 600s ceiling) is a documented,
+  overridable `FederatedDiscoveryPolicy` field -- see the introducing PR's
+  description for the full reasoning trail on each default. Every
+  discovery/snowball attempt is recorded as its own durable `ResearchEvent`
+  (Core's own `search_run_id`/`snowball_run_id`, completeness, candidate
+  count), surfaced on the new `ResearchQuestionResult.discovery` field and
+  the session trace, but candidates are never written to `source_ids`,
+  never fed to `synthesize_answer`, and never treated as `EvidenceRecord`s
+  -- provider/candidate count is never treated as evidence quality, and the
+  narrative still cites only grounded, corpus-sourced evidence. New CLI
+  surface: `research --broaden-search-on-gap --discovery-ledger-root
+  <dir>` (also opt-in, off by default), plus a `discovery` field on
+  `research --format json`'s payload. See
+  `docs/roadmap/federated_discovery_orchestration_adoption.md`'s matching
+  entry for the full trigger/budget/provenance policy.
+
 - **`ke-ai citation-snowball` -- the first CLI caller of
   `ke_client.citation_snowball()` (AI-FRD-4).**
   `docs/roadmap/federated_discovery_orchestration_adoption.md`'s AI-FRD-4

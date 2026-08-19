@@ -26,6 +26,11 @@ import typer
 from rich.console import Console
 from rich.markup import escape
 
+from knowledge_engine_ai.copilot.discovery_policy import (
+    DiscoveryAugmentationResult,
+    DiscoveryPolicyError,
+    FederatedDiscoveryPolicy,
+)
 from knowledge_engine_ai.copilot.run_research_question import (
     ResearchQuestionResult,
     run_research_question,
@@ -97,6 +102,31 @@ OllamaHostOption = Annotated[
     typer.Option(
         "--ollama-host",
         help=f"Ollama server URL. Falls back to KE_AI_OLLAMA_HOST, then {DEFAULT_OLLAMA_HOST}.",
+    ),
+]
+BroadenSearchOnGapOption = Annotated[
+    bool,
+    typer.Option(
+        "--broaden-search-on-gap",
+        help=(
+            "Opt in to AI-FRD-3/AI-FRD-4: when corpus retrieval finds thin evidence "
+            "coverage, autonomously run one bounded federated-discovery search and "
+            "one bounded citation-snowball expansion via Core, recorded as durable "
+            "session events. Requires --discovery-ledger-root. Off by default -- see "
+            "docs/roadmap/federated_discovery_orchestration_adoption.md. Discovered "
+            "candidates are never treated as Evidence Records or cited in the "
+            "narrative; provider count is never treated as evidence quality."
+        ),
+    ),
+]
+DiscoveryLedgerRootOption = Annotated[
+    Path | None,
+    typer.Option(
+        "--discovery-ledger-root",
+        help=(
+            "Directory Core's federated-discovery/citation-snowball run ledgers "
+            "persist to. Required when --broaden-search-on-gap is set."
+        ),
     ),
 ]
 SessionDbOption = Annotated[
@@ -335,6 +365,10 @@ def research(
     session_db: SessionDbOption = None,
     limit: LimitOption = 5,
     output_format: FormatOption = "text",
+    broaden_search_on_gap: BroadenSearchOnGapOption = False,
+    discovery_ledger_root: DiscoveryLedgerRootOption = None,
+    openalex_api_key: OpenAlexApiKeyOption = None,
+    semantic_scholar_api_key: SemanticScholarApiKeyOption = None,
 ) -> None:
     """Run the composed AI-O12 orchestrator pipeline for one research question.
 
@@ -349,6 +383,11 @@ def research(
     just printed and discarded. This is this repo's own first caller of
     that composed pipeline, exercising it before `knowledge-engine-web`
     ever does (AI-O14).
+
+    `--broaden-search-on-gap` (AI-FRD-3/AI-FRD-4, off by default) opts this
+    run into the coverage-gap discovery policy: see
+    `knowledge_engine_ai/copilot/discovery_policy.py`'s docstring for the
+    full trigger/budget/provenance policy this flag activates.
     """
 
     if output_format not in ("text", "json"):
@@ -364,6 +403,23 @@ def research(
     db_path = session_db or Path(os.environ.get("KE_AI_SESSION_DB_PATH", "research_sessions.db"))
     session_repository = SessionRepository(new_connection(str(db_path)))
 
+    discovery_policy: FederatedDiscoveryPolicy | None = None
+    if broaden_search_on_gap:
+        if discovery_ledger_root is None:
+            console.print(
+                "[red]Error:[/red] --broaden-search-on-gap requires --discovery-ledger-root."
+            )
+            raise typer.Exit(1)
+        try:
+            discovery_policy = FederatedDiscoveryPolicy(
+                ledger_root=discovery_ledger_root,
+                openalex_api_key=openalex_api_key,
+                semantic_scholar_api_key=semantic_scholar_api_key,
+            )
+        except DiscoveryPolicyError as exc:
+            console.print(f"[red]Error:[/red] {exc}")
+            raise typer.Exit(1) from exc
+
     try:
         result = run_research_question(
             question,
@@ -372,6 +428,7 @@ def research(
             evidence=evidence,
             llm=llm,
             limit=limit,
+            discovery_policy=discovery_policy,
         )
     except KeCommandError as exc:
         console.print(f"[red]Error:[/red] {exc}")
@@ -399,12 +456,44 @@ def research(
             "unresolved_required_criteria": list(
                 result.close_result.validation.unresolved_required_criteria
             ),
+            "discovery": _discovery_payload(result.discovery),
             "trace": render_session_trace(result.trace),
         }
         sys.stdout.write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
         return
 
     _print_research_result(result)
+
+
+def _discovery_payload(discovery: DiscoveryAugmentationResult | None) -> dict[str, object] | None:
+    """Render `DiscoveryAugmentationResult` for `research --format json`.
+
+    Only summary facts (run IDs, completeness, candidate *counts*) are
+    surfaced here, deliberately not the candidate list itself -- `ke-ai
+    discover`/`ke-ai citation-snowball` already exist for inspecting
+    candidates directly, and `research`'s own JSON payload should not
+    grow into a second, divergent shape for the same discovery data.
+    """
+
+    if discovery is None:
+        return None
+    federated = discovery.federated_discovery
+    snowball = discovery.citation_snowball
+    return {
+        "triggered": discovery.triggered,
+        "trigger_reason": discovery.trigger_reason,
+        "evidence_record_coverage": discovery.evidence_record_coverage,
+        "federated_discovery_search_run_id": federated.search_run_id if federated else None,
+        "federated_discovery_completeness": federated.completeness if federated else None,
+        "federated_discovery_candidate_count": len(federated.candidates) if federated else None,
+        "federated_discovery_error": discovery.federated_discovery_error,
+        "citation_snowball_seed_dois": list(discovery.citation_snowball_seed_dois),
+        "citation_snowball_run_id": snowball.snowball_run_id if snowball else None,
+        "citation_snowball_completeness": snowball.completeness if snowball else None,
+        "citation_snowball_candidate_count": len(snowball.candidates) if snowball else None,
+        "citation_snowball_error": discovery.citation_snowball_error,
+        "citation_snowball_skipped_reason": discovery.citation_snowball_skipped_reason,
+    }
 
 
 def _print_research_result(result: ResearchQuestionResult) -> None:
@@ -457,8 +546,50 @@ def _print_research_result(result: ResearchQuestionResult) -> None:
         unresolved = ", ".join(result.close_result.validation.unresolved_required_criteria)
         console.print(f"  Unresolved required criteria: {unresolved}")
 
+    if result.discovery is not None:
+        console.print()
+        _print_discovery_augmentation(result.discovery)
+
     console.print()
     console.print(escape(render_session_trace(result.trace)))
+
+
+def _print_discovery_augmentation(discovery: DiscoveryAugmentationResult) -> None:
+    console.print(f"[bold]Coverage-gap discovery policy:[/bold] {escape(discovery.trigger_reason)}")
+    if not discovery.triggered:
+        return
+
+    federated = discovery.federated_discovery
+    if federated is not None:
+        console.print(
+            f"  Federated discovery: search_run_id={federated.search_run_id} "
+            f"completeness={federated.completeness} "
+            f"{len(federated.candidates)} candidate(s) -- discovery leads only, not evidence."
+        )
+    elif discovery.federated_discovery_error is not None:
+        console.print(
+            f"  [yellow]Federated discovery failed:[/yellow] "
+            f"{escape(discovery.federated_discovery_error)}"
+        )
+
+    snowball = discovery.citation_snowball
+    if snowball is not None:
+        console.print(
+            f"  Citation snowball: snowball_run_id={snowball.snowball_run_id} "
+            f"completeness={snowball.completeness} "
+            f"{len(snowball.candidates)} candidate(s) from "
+            f"{len(discovery.citation_snowball_seed_dois)} seed(s) -- discovery leads only, "
+            "not evidence."
+        )
+    elif discovery.citation_snowball_error is not None:
+        console.print(
+            f"  [yellow]Citation snowball failed:[/yellow] "
+            f"{escape(discovery.citation_snowball_error)}"
+        )
+    elif discovery.citation_snowball_skipped_reason is not None:
+        console.print(
+            f"  Citation snowball skipped: {escape(discovery.citation_snowball_skipped_reason)}"
+        )
 
 
 @app.command()

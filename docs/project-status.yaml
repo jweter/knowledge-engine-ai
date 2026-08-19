@@ -1,6 +1,6 @@
 schema_version: 1
 project: knowledge-engine-ai
-updated_at: "2026-08-19T12:00:00Z"
+updated_at: "2026-08-19T18:00:00Z"
 status_source: "Verified repository state plus docs/roadmap/future_ai_orchestration_plan.md; this file is a continuity cache and never overrides higher-authority evidence."
 
 product:
@@ -11,9 +11,9 @@ product:
 current_milestone:
   name: "Federated discovery orchestration adoption (AI-layer guidance)"
   roadmap_file: "docs/roadmap/federated_discovery_orchestration_adoption.md"
-  state: "active, early"
+  state: "active, wiring done -- next continuation is live-traffic tuning of the conservative defaults"
   objective: "Let Research Copilot plan bounded federated-discovery requests to Core rather than calling provider APIs directly, without ever treating provider count as evidence quality."
-  known_gap: "ke-ai discover and ke-ai citation-snowball are both standalone CLI commands, deliberately not wired into run_research_question's own planning. AI-FRD-3 (Discovery-plan compiler) has its foundation now (discovery_plan.py): a validated DiscoveryPlan and a bounded execute_discovery_plan() that runs it through the same ke_client boundary and returns Core's own search_run_id. Nothing calls this compiler yet except tests -- wiring it into run_research_question's own planning, and the policy for deciding when to invoke it, remains open. AI-FRD-4 (citation-snowball planner) now has its own ke_client wrapper (citation_snowball()) and CLI caller (ke-ai citation-snowball, this session), the same shape federated_discover()/ke-ai discover reached -- no seed-selection policy or run_research_question wiring yet for either FRD-3 or FRD-4."
+  known_gap: "CLOSED this session. AI-FRD-3 (Discovery-plan compiler) and AI-FRD-4 (citation-snowball planner) are now both wired into run_research_question's own planning via a new opt-in knowledge_engine_ai/copilot/discovery_policy.py (FederatedDiscoveryPolicy, evaluate_and_run_discovery_augmentation()). Trigger policy: a deterministic coverage-gap rule (deduplicated evidence-record coverage below a configurable threshold, default 3) fires federated discovery; the same signal fires citation-snowball, seeded from the primary retrieval branch's own ranked papers' DOIs (default cap 3 seeds). Both are opt-in -- discovery_policy defaults to None on run_research_question, reproducing prior behavior exactly, per docs/agent-development-policy.md section 2's cost-consciousness rule. Provenance preserved end to end via durable ResearchEvents and the new ResearchQuestionResult.discovery field; candidates are never written to source_ids, never fed to synthesis, never treated as EvidenceRecords. New CLI surface: research --broaden-search-on-gap --discovery-ledger-root <dir>. Every numeric default (coverage threshold, provider/seed limits, execution-second ceilings) is a conservative, documented, overridable FederatedDiscoveryPolicy field -- Jeremy's product-owner decision authorized building and wiring the capability ('continue with the FRD and widen the search'), not any specific number, so each default is called out in the introducing PR's description as overridable."
 
 automation_contract:
   schedule_role: "repository participant in an hourly portfolio-development loop (owner-managed; not created by this session)"
@@ -43,10 +43,10 @@ verified_repository_state:
 
 next_continuation:
   priority: "P5-highest-value-authorized-roadmap"
-  action: "This session opened a PR adding `ke-ai citation-snowball`, the first in-repository CLI caller of ke_client.citation_snowball() (AI-FRD-4), mirroring how ke-ai discover closed the same built-but-unreachable gap for federated_discover (AI-FRD-3). Purely additive; no existing command, field, or consumer behavior changed. Both AI-FRD-3 and AI-FRD-4 now stand at the same point: a working, tested, directly-callable CLI command, but no policy inside run_research_question deciding when to invoke either one, and no seed-selection policy for citation-snowball specifically. That policy decision is the next continuation for both sub-milestones and is a genuine product/research-design judgment call, not a mechanical wiring gap -- likely needs the project owner's input on when broader provider coverage or citation expansion is actually warranted during a Research Session. WEB-FRD-2 (search-run timestamp) is fully closed as of knowledge-engine-web PR #67 -- confirmed by reading Web's own repository state, not assumed from a prior cache."
+  action: "This session opened a PR wiring AI-FRD-3/AI-FRD-4 into run_research_question's own planning (knowledge_engine_ai/copilot/discovery_policy.py), per Jeremy's explicit decision to 'continue with the FRD and widen the search.' Both discovery capabilities are now opt-in-reachable end to end (Python API and ke-ai research --broaden-search-on-gap CLI flag), gated by a deterministic coverage-gap trigger and conservative, documented, overridable numeric defaults. Next continuation once this PR merges and gets real traffic: (1) tune the conservative default thresholds/budgets against real Research Session usage rather than this PR's own judgment call; (2) AI-FRD-2 (Coverage-aware Research ISA) is the natural following milestone -- it can now consume DiscoveryAugmentationResult's coverage/trigger facts as a deterministic close-gate criterion input, which did not exist before this PR; (3) knowledge-engine-web has no visibility into this session's discovery/snowball activity yet -- a future Web PR could surface ResearchQuestionResult.discovery on /ask's response, the same two-repo pattern already used for other AI-layer fields."
   selection_rule: "Before beginning roadmap work, query live PR state. Handle failed, green, blocked, conflicted, or pending existing work according to docs/agent-development-policy.md and knowledge-engine-core's shared policy document."
 
-human_decision_required: null
+human_decision_required: "This PR's exact numeric defaults (coverage threshold 3, provider/seed limits, execution-second ceilings) were a conservative, clearly-labeled choice made without a specific number from Jeremy -- see the PR description. Tune against real usage once this ships; not a blocker to merge."
 
 maintenance_contract:
   verify_every_scheduled_run: true
