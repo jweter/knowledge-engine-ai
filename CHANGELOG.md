@@ -9,6 +9,32 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`FederatedDiscoveryResult.search_run_created_at` -- parses Core's
+  `coverage.created_at` (closes half of `knowledge-engine-web`'s WEB-FRD-2
+  gap).** `knowledge-engine-web`'s
+  `docs/federated_discovery_transparency_roadmap.md` (WEB-FRD-2) recorded
+  that `/discover`'s "Run timestamp" row could not be rendered because this
+  repository's `parse_federated_discovery_result()` never parsed the
+  `coverage` block at all, even though `knowledge-engine-core`'s
+  `docs/core_interface_contract.md` already documents `coverage.created_at`
+  as part of `ke federated-discover --output`'s public shape (built by
+  `federated_result_snapshot.build_public_federated_result_payload`, which
+  always attaches Core's own `SearchCoverageReport.to_dict()`). Adds
+  `FederatedDiscoveryResult.search_run_created_at: str | None`, parsed from
+  `payload["coverage"]["created_at"]`. A payload that predates, or omits,
+  the `coverage` block parses this to explicit `None` rather than raising --
+  the same "absent is not negative" contract already used for
+  `provider_disagreements` and per-provider observation flags. Purely
+  additive: every existing field is unchanged, so `knowledge-engine-web`'s
+  current pinned revision keeps working without modification. `ke-ai
+  discover`'s text output now also prints a "Search run started" line when
+  the field is present. Closing WEB-FRD-2 fully still needs a
+  `knowledge-engine-web` PR to bump its pinned `knowledge-engine-ai` revision
+  and render the new field -- out of this run's own scope (Web changes were
+  not made here), the same two-step pattern this project already used for
+  WEB-FRD-3 and WEB-FRD-4 (an AI PR merges first, then a follow-up Web PR
+  consumes it).
+
 - **`ke_client.citation_snowball()` -- the first client wrapper for Core's
   FRD-7 `ke citation-snowball` command (AI-FRD-4's named prerequisite).**
   `docs/roadmap/federated_discovery_orchestration_adoption.md`'s AI-FRD-4

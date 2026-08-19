@@ -57,6 +57,7 @@ def _result(
             ),
         ),
         provider_disagreements=provider_disagreements,
+        search_run_created_at="2026-08-15T11:22:00+00:00",
     )
 
 

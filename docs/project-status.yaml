@@ -1,6 +1,6 @@
 schema_version: 1
 project: knowledge-engine-ai
-updated_at: "2026-08-19T09:15:00Z"
+updated_at: "2026-08-19T10:30:00Z"
 status_source: "Verified repository state plus docs/roadmap/future_ai_orchestration_plan.md; this file is a continuity cache and never overrides higher-authority evidence."
 
 product:
@@ -43,7 +43,7 @@ verified_repository_state:
 
 next_continuation:
   priority: "P5-highest-value-authorized-roadmap"
-  action: "This session opened a PR adding ke_client.citation_snowball(), the first client wrapper for Core's FRD-7 `ke citation-snowball` command -- AI-FRD-4's previously-named, entirely-missing prerequisite. Mirrors federated_discover()'s shape (typed CitationSnowballResult, --output temp-file parsing, FederatedProviderObservationFlags reuse for candidate retraction/preprint flags). Deliberately just the subprocess/parse boundary: no CLI command calls it yet (unlike federated_discover, which ke-ai discover already exposes) and no seed-selection policy exists. Once this PR merges, AI-FRD-4's own next continuation is either (a) add a standalone `ke-ai citation-snowball` CLI command, mirroring how AI-FRD-3's ke-ai discover closed the same built-but-unreachable gap for federated_discover, or (b) decide the policy for when a Research Session should run a snowball and from which seeds. Separately, AI-FRD-3's own remaining work is still open: decide the policy for when a Research Session should compile and execute a DiscoveryPlan (vs. searching only the local corpus), and call execute_discovery_plan() from run_research_question's own planning path. WEB-FRD-4's AI-repo blocker (FederatedCandidateSummary.observation_flags, PR #49) is merged to main; knowledge-engine-web's own next continuation there is a Web-side route/UI change, out of scope for this repository."
+  action: "This session opened a PR adding FederatedDiscoveryResult.search_run_created_at, parsing Core's already-documented `coverage.created_at` field (docs/core_interface_contract.md) that this repository's parser previously ignored -- half of knowledge-engine-web's WEB-FRD-2 gap (the other half, rendering it in discover.html and bumping Web's pinned AI revision, is Web's own follow-up once this PR merges to main, the same two-step pattern already used for WEB-FRD-3/WEB-FRD-4). Purely additive; no existing field or consumer behavior changed. Separately unresolved: AI-FRD-4's own next continuation is either (a) add a standalone `ke-ai citation-snowball` CLI command, mirroring how AI-FRD-3's ke-ai discover closed the same built-but-unreachable gap for federated_discover, or (b) decide the policy for when a Research Session should run a snowball and from which seeds. AI-FRD-3's own remaining work is also still open: decide the policy for when a Research Session should compile and execute a DiscoveryPlan (vs. searching only the local corpus), and call execute_discovery_plan() from run_research_question's own planning path."
   selection_rule: "Before beginning roadmap work, query live PR state. Handle failed, green, blocked, conflicted, or pending existing work according to docs/agent-development-policy.md and knowledge-engine-core's shared policy document."
 
 human_decision_required: null
