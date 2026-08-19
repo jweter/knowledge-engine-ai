@@ -9,14 +9,17 @@ import pytest
 
 from knowledge_engine_ai.execution import ExecutionBudget
 from knowledge_engine_ai.ke_client import (
+    CitationSnowballParseError,
     FederatedDiscoveryParseError,
     FederatedProviderObservationFlags,
     KeCommandError,
+    citation_snowball,
     enriched_evidence_report,
     evidence_intelligence,
     evidence_map_report,
     evidence_report,
     federated_discover,
+    parse_citation_snowball_result,
     parse_federated_discovery_result,
     statistical_verify,
 )
@@ -727,5 +730,206 @@ def test_federated_discover_never_uses_a_shell(
     monkeypatch.setattr(subprocess, "run", fake_run)
 
     federated_discover("q", ledger_root=tmp_path / "ledger")
+
+
+_VALID_CITATION_SNOWBALL_PAYLOAD = {
+    "snowball_run_id": "22222222-2222-2222-2222-222222222222",
+    "provider": "semantic_scholar",
+    "plan": {
+        "seed_identifiers": ["doi:10.1000/seed"],
+        "directions": ["references", "citations"],
+        "max_depth": 1,
+        "limit_per_traversal": 25,
+        "max_candidates": 100,
+    },
+    "completeness": "complete",
+    "truncated": False,
+    "candidates": [
+        {
+            "canonical_id": "doi:10.1000/found",
+            "title": "A downstream trial",
+            "doi": "10.1000/found",
+            "publication_year": 2025,
+            "observations": [{"provider": "semantic_scholar"}],
+        }
+    ],
+    "edges": [
+        {
+            "provider": "semantic_scholar",
+            "seed_identifier": "doi:10.1000/seed",
+            "related_provider_id": "doi:10.1000/found",
+            "direction": "citations",
+            "retrieved_at": "2026-08-19T00:00:00Z",
+        }
+    ],
+}
+
+
+def test_parse_citation_snowball_result_parses_a_valid_payload() -> None:
+    result = parse_citation_snowball_result(_VALID_CITATION_SNOWBALL_PAYLOAD)
+
+    assert result.snowball_run_id == "22222222-2222-2222-2222-222222222222"
+    assert result.provider == "semantic_scholar"
+    assert result.seed_identifiers == ("doi:10.1000/seed",)
+    assert result.directions == ("references", "citations")
+    assert result.max_depth == 1
+    assert result.completeness == "complete"
+    assert result.truncated is False
+    assert result.candidates[0].title == "A downstream trial"
+    assert result.candidates[0].providers == ("semantic_scholar",)
+    assert result.edges[0].related_provider_id == "doi:10.1000/found"
+    assert result.edges[0].direction == "citations"
+
+
+def test_parse_citation_snowball_result_preserves_per_provider_retraction_flags() -> None:
+    payload = {
+        **_VALID_CITATION_SNOWBALL_PAYLOAD,
+        "candidates": [
+            {
+                "canonical_id": "doi:10.1000/found",
+                "title": "A downstream trial",
+                "doi": "10.1000/found",
+                "publication_year": 2025,
+                "observations": [
+                    {"provider": "semantic_scholar", "retracted": True, "preprint": False},
+                ],
+            }
+        ],
+    }
+
+    result = parse_citation_snowball_result(payload)
+
+    flags = result.candidates[0].observation_flags
+    assert flags == (
+        FederatedProviderObservationFlags(
+            provider="semantic_scholar", retracted=True, preprint=False, preprint_version=None
+        ),
+    )
+
+
+def test_parse_citation_snowball_result_defaults_observation_flags_to_none_when_absent() -> None:
+    result = parse_citation_snowball_result(_VALID_CITATION_SNOWBALL_PAYLOAD)
+
+    flags = result.candidates[0].observation_flags
+    assert flags == (
+        FederatedProviderObservationFlags(
+            provider="semantic_scholar", retracted=None, preprint=None, preprint_version=None
+        ),
+    )
+
+
+def test_parse_citation_snowball_result_raises_on_a_missing_field() -> None:
+    payload = {k: v for k, v in _VALID_CITATION_SNOWBALL_PAYLOAD.items() if k != "completeness"}
+
+    with pytest.raises(CitationSnowballParseError, match="missing a required field"):
+        parse_citation_snowball_result(payload)
+
+
+def test_citation_snowball_runs_the_expected_command_and_parses_the_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run(command: list[str], **kwargs: object) -> _FakeCompletedProcess:
+        captured["command"] = command
+        output_index = command.index("--output") + 1
+        Path(command[output_index]).write_text(
+            json.dumps(_VALID_CITATION_SNOWBALL_PAYLOAD), encoding="utf-8"
+        )
+        return _FakeCompletedProcess(0, "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    ledger_root = tmp_path / "ledger"
+
+    result = citation_snowball(
+        ("doi:10.1000/seed",),
+        ledger_root=ledger_root,
+        provider="openalex",
+        directions=("citations",),
+        max_depth=2,
+        limit_per_traversal=10,
+        max_candidates=50,
+        openalex_api_key="key-1",
+        semantic_scholar_api_key="key-2",
+    )
+
+    assert result.snowball_run_id == "22222222-2222-2222-2222-222222222222"
+    command = captured["command"]
+    assert isinstance(command, list)
+    assert command[:6] == [
+        "ke",
+        "citation-snowball",
+        "--seeds",
+        "doi:10.1000/seed",
+        "--ledger-root",
+        str(ledger_root),
+    ]
+    assert "--provider" in command and command[command.index("--provider") + 1] == "openalex"
+    assert "--directions" in command and command[command.index("--directions") + 1] == "citations"
+    assert "--max-depth" in command and command[command.index("--max-depth") + 1] == "2"
+    assert (
+        "--limit-per-traversal" in command
+        and command[command.index("--limit-per-traversal") + 1] == "10"
+    )
+    assert "--max-candidates" in command and command[command.index("--max-candidates") + 1] == "50"
+    assert "--openalex-api-key" in command
+    assert "--semantic-scholar-api-key" in command
+    assert "--output" in command
+
+
+def test_citation_snowball_raises_on_a_nonzero_exit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fake_run(command: list[str], **kwargs: object) -> _FakeCompletedProcess:
+        return _FakeCompletedProcess(1, "", "boom")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    with pytest.raises(KeCommandError, match="exited 1"):
+        citation_snowball(("doi:10.1000/seed",), ledger_root=tmp_path / "ledger")
+
+
+def test_citation_snowball_raises_when_the_output_file_is_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fake_run(command: list[str], **kwargs: object) -> _FakeCompletedProcess:
+        return _FakeCompletedProcess(0, "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    with pytest.raises(KeCommandError, match="did not write a readable JSON output file"):
+        citation_snowball(("doi:10.1000/seed",), ledger_root=tmp_path / "ledger")
+
+
+def test_citation_snowball_raises_a_clear_error_when_ke_is_not_installed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fake_run(command: list[str], **kwargs: object) -> _FakeCompletedProcess:
+        raise FileNotFoundError("ke")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    with pytest.raises(KeCommandError, match="is knowledge-engine-core installed"):
+        citation_snowball(("doi:10.1000/seed",), ledger_root=tmp_path / "ledger")
+
+
+def test_citation_snowball_never_uses_a_shell(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured_kwargs: dict[str, object] = {}
+
+    def fake_run(command: list[str], **kwargs: object) -> _FakeCompletedProcess:
+        captured_kwargs.update(kwargs)
+        output_index = command.index("--output") + 1
+        Path(command[output_index]).write_text(
+            json.dumps(_VALID_CITATION_SNOWBALL_PAYLOAD), encoding="utf-8"
+        )
+        return _FakeCompletedProcess(0, "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    citation_snowball(("doi:10.1000/seed",), ledger_root=tmp_path / "ledger")
+
+    assert "shell" not in captured_kwargs or captured_kwargs["shell"] is False
 
     assert captured_kwargs.get("shell", False) is False

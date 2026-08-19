@@ -11,6 +11,11 @@ provider choices.
 The matching Core plan is
 `knowledge-engine-core/docs/roadmap/federated_research_discovery_adoption.md`.
 
+**2026-08-19: `ke_client.citation_snowball()` added, AI-FRD-4's first client
+wrapper for Core's FRD-7 `ke citation-snowball` command.** See AI-FRD-4's
+section below for the exit-criteria status; a no-caller, no-seed-selection
+gap remains this milestone's own next continuation.
+
 **2026-08-19: `FederatedCandidateSummary` now surfaces per-provider
 `retracted`/`preprint` observations, unblocking `knowledge-engine-web`'s
 WEB-FRD-4.** `knowledge-engine-web`'s
@@ -315,11 +320,32 @@ Exit criteria:
 
 Add a bounded strategy for reference/citation expansion from selected seed works.
 
+**Status: `ke_client` wrapper added; no planner or caller yet.**
+`ke_client.citation_snowball()` is the first in-repository way to invoke
+Core's FRD-7 `ke citation-snowball` command -- it passes seeds, provider,
+directions, depth, and per-traversal/candidate bounds straight through to
+Core and returns a typed, parsed `CitationSnowballResult` (mirroring
+`federated_discover()`'s own shape). What is *not* yet built: no CLI
+command calls it (unlike `federated_discover`, which `ke-ai discover`
+already exposes), no seed-selection strategy exists, and nothing decides
+*when* a Research Session should run a citation snowball or wires this into
+`run_research_question`'s own planning. That remains this milestone's own
+next continuation.
+
 Exit criteria:
 
-- seed selection and depth are visible;
-- results enter normal Core provenance flow;
-- planner cannot bypass deduplication, acquisition, or evidence validation.
+- seed selection and depth are visible; **partial** -- depth is an explicit,
+  bounded `citation_snowball()` argument; seed *selection* (which works a
+  Research Session should snowball from) is not yet decided by any caller
+- results enter normal Core provenance flow; **met** -- every run persists
+  to Core's own citation-snowball ledger before `citation_snowball()`
+  returns, replayable via Core's `ke citation-snowball-report`
+- planner cannot bypass deduplication, acquisition, or evidence validation;
+  **met by construction** -- `citation_snowball()` only reads Core's
+  discovery/traversal output, the same read-only boundary
+  `federated_discover()` uses, and does not touch acquisition
+- not yet done: a CLI or `run_research_question` caller, and a seed-selection
+  policy
 
 ### AI-FRD-5 -- Research freshness / rerun reasoning
 

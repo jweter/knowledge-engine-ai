@@ -9,6 +9,31 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`ke_client.citation_snowball()` -- the first client wrapper for Core's
+  FRD-7 `ke citation-snowball` command (AI-FRD-4's named prerequisite).**
+  `docs/roadmap/federated_discovery_orchestration_adoption.md`'s AI-FRD-4
+  ("Citation-snowball planner") had no `ke_client` wrapper for Core's
+  `ke citation-snowball` command at all -- it was built and reachable from
+  Core's own CLI (`knowledge-engine-core` PR #391) but unreachable from this
+  repository, the same "built but unreachable" gap this project has
+  repeatedly found and fixed for other Core capabilities (most recently
+  `federated_discover`'s own `ke-ai discover` command). `citation_snowball()`
+  mirrors `federated_discover()`'s shape exactly: seeds, provider,
+  directions, depth, and per-traversal/candidate bounds pass straight
+  through as explicit CLI arguments; structured output is written to a
+  private `--output` temp file (Core's `citation-snowball` has no
+  `--format json`) and parsed into a typed `CitationSnowballResult`
+  (`snowball_run_id`, `provider`, plan fields, `completeness`, `truncated`,
+  `candidates`, `edges`). Candidate observations reuse the existing
+  `FederatedProviderObservationFlags` parsing discipline -- a provider
+  observation that omits `retracted`/`preprint`/`preprint_version` parses to
+  explicit `None`, never a guessed `False`. Deliberately scoped to just the
+  subprocess/parse boundary: nothing here decides *when* a Research Session
+  should run a citation snowball, selects seeds, or wires this into
+  `run_research_question`'s own planning -- that policy remains AI-FRD-4's
+  own next continuation, the same way AI-FRD-3's compiler exists today
+  without being called from planning yet.
+
 - **Per-provider `retracted`/`preprint` observations surfaced through
   `FederatedCandidateSummary` (unblocks `knowledge-engine-web` WEB-FRD-4).**
   `knowledge-engine-web`'s `docs/federated_discovery_transparency_roadmap.md`
