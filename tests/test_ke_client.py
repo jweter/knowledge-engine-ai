@@ -10,6 +10,7 @@ import pytest
 from knowledge_engine_ai.execution import ExecutionBudget
 from knowledge_engine_ai.ke_client import (
     FederatedDiscoveryParseError,
+    FederatedProviderObservationFlags,
     KeCommandError,
     enriched_evidence_report,
     evidence_intelligence,
@@ -561,6 +562,65 @@ def test_parse_federated_discovery_result_parses_a_valid_payload() -> None:
     assert result.provider_statuses[1].reason == "unsupported_query"
     assert result.candidates[0].title == "A semaglutide trial"
     assert result.candidates[0].providers == ("pubmed",)
+
+
+def test_parse_federated_discovery_result_defaults_observation_flags_to_none_when_absent() -> None:
+    """An older Core run (or a provider that never reports these fields) must not crash.
+
+    `_VALID_FEDERATED_DISCOVERY_PAYLOAD`'s one observation is exactly this
+    shape -- `{"provider": "pubmed"}` with no `retracted`/`preprint` keys at
+    all. Each field parses to explicit `None`, distinct from the provider
+    having asserted `False`.
+    """
+
+    result = parse_federated_discovery_result(_VALID_FEDERATED_DISCOVERY_PAYLOAD)
+
+    flags = result.candidates[0].observation_flags
+    assert flags == (
+        FederatedProviderObservationFlags(
+            provider="pubmed", retracted=None, preprint=None, preprint_version=None
+        ),
+    )
+
+
+def test_parse_federated_discovery_result_preserves_per_provider_retraction_flags() -> None:
+    payload = {
+        **_VALID_FEDERATED_DISCOVERY_PAYLOAD,
+        "candidates": [
+            {
+                "canonical_id": "doi:10.1000/example",
+                "title": "A semaglutide trial",
+                "doi": "10.1000/example",
+                "publication_year": 2026,
+                "observations": [
+                    {"provider": "pubmed", "retracted": True, "preprint": False},
+                    {
+                        "provider": "arxiv",
+                        "retracted": False,
+                        "preprint": True,
+                        "preprint_version": 2,
+                    },
+                    {"provider": "crossref"},
+                ],
+            }
+        ],
+    }
+
+    result = parse_federated_discovery_result(payload)
+
+    flags = {flag.provider: flag for flag in result.candidates[0].observation_flags}
+    assert flags["pubmed"] == FederatedProviderObservationFlags(
+        provider="pubmed", retracted=True, preprint=False, preprint_version=None
+    )
+    assert flags["arxiv"] == FederatedProviderObservationFlags(
+        provider="arxiv", retracted=False, preprint=True, preprint_version=2
+    )
+    # A provider that never reports the flags degrades to None, not a guessed False.
+    assert flags["crossref"] == FederatedProviderObservationFlags(
+        provider="crossref", retracted=None, preprint=None, preprint_version=None
+    )
+    # The pre-existing, provider-name-only summary field is unaffected.
+    assert result.candidates[0].providers == ("arxiv", "crossref", "pubmed")
 
 
 def test_parse_federated_discovery_result_raises_on_a_missing_field() -> None:

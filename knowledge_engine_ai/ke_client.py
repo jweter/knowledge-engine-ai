@@ -371,6 +371,23 @@ class FederatedCandidateDisagreements:
 
 
 @dataclasses.dataclass(frozen=True)
+class FederatedProviderObservationFlags:
+    """One provider's retraction/preprint observation for one candidate.
+
+    These are provider-native assertions, preserved per-provider like
+    ``FederatedProviderAssertion`` above -- AI does not merge, vote on, or
+    pick an authoritative value across providers. ``None`` means the
+    provider did not report the flag, which is distinct from the provider
+    reporting ``False``.
+    """
+
+    provider: str
+    retracted: bool | None
+    preprint: bool | None
+    preprint_version: int | None
+
+
+@dataclasses.dataclass(frozen=True)
 class FederatedCandidateSummary:
     """One Core-deduplicated federated discovery candidate for downstream display.
 
@@ -384,6 +401,7 @@ class FederatedCandidateSummary:
     doi: str | None
     publication_year: int | None
     providers: tuple[str, ...]
+    observation_flags: tuple[FederatedProviderObservationFlags, ...] = ()
 
 
 @dataclasses.dataclass(frozen=True)
@@ -406,6 +424,15 @@ def parse_federated_discovery_result(payload: dict[str, Any]) -> FederatedDiscov
     signal that one provider value is authoritative. Older snapshots that do
     not contain the disagreement report remain explicitly ``None`` rather than
     being misrepresented as an empty report.
+
+    Each candidate's per-provider ``retracted``/``preprint``/``preprint_version``
+    observations (Core's ``ProviderObservation`` fields) are preserved as
+    ``FederatedCandidateSummary.observation_flags``, one entry per provider
+    observation, unmerged and unvoted-on across providers. A provider
+    observation that omits these fields -- an older Core run, or a provider
+    that does not report them -- parses to explicit ``None`` per field rather
+    than a guessed ``False``, matching the same "absent is not negative"
+    contract as provider disagreement above.
     """
 
     try:
@@ -440,6 +467,15 @@ def parse_federated_discovery_result(payload: dict[str, Any]) -> FederatedDiscov
                 publication_year=candidate.get("publication_year"),
                 providers=tuple(
                     sorted({observation["provider"] for observation in candidate["observations"]})
+                ),
+                observation_flags=tuple(
+                    FederatedProviderObservationFlags(
+                        provider=observation["provider"],
+                        retracted=observation.get("retracted"),
+                        preprint=observation.get("preprint"),
+                        preprint_version=observation.get("preprint_version"),
+                    )
+                    for observation in candidate["observations"]
                 ),
             )
             for candidate in raw_candidates

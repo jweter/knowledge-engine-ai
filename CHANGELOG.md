@@ -9,6 +9,39 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Per-provider `retracted`/`preprint` observations surfaced through
+  `FederatedCandidateSummary` (unblocks `knowledge-engine-web` WEB-FRD-4).**
+  `knowledge-engine-web`'s `docs/federated_discovery_transparency_roadmap.md`
+  (WEB-FRD-2/WEB-FRD-4, PR #64) recorded that `/discover` could not surface
+  per-provider `retracted`/`preprint` observations to visitors, because this
+  repository's `FederatedCandidateSummary` -- the only typed value Web's
+  route receives from `knowledge-engine-ai` -- discarded everything from
+  Core's `ProviderObservation` except the provider name. Core's
+  `ke federated-discover --output` JSON already carries `retracted`,
+  `preprint`, and `preprint_version` per provider observation (confirmed by
+  reading `knowledge-engine-core/knowledge_engine/federated_discovery.py`'s
+  `ProviderObservation` and live-verifying real `ke federated-discover`
+  output: arXiv observations report `preprint=true` with a real
+  `preprint_version`, OpenAlex observations report `retracted` from
+  `is_retracted`).
+  Adds `FederatedProviderObservationFlags` (provider, `retracted`,
+  `preprint`, `preprint_version`) and a new
+  `FederatedCandidateSummary.observation_flags` field -- one entry per
+  provider observation, unmerged and unvoted-on across providers, matching
+  the existing `FederatedProviderAssertion`/disagreement-report pattern. A
+  provider observation that omits these fields (an older Core run, or a
+  provider -- PubMed, Crossref, Semantic Scholar today -- that does not yet
+  report them) parses to explicit `None` per field, never a guessed `False`,
+  and never raises. Purely additive: no existing field, CLI flag, or JSON key
+  changed; `providers` (the pre-existing provider-name-only field) is
+  untouched, so existing consumers (Web, `ke-ai discover --format json`)
+  remain byte-for-byte compatible. `ke-ai discover`'s text output now also
+  prints a `retracted`/`preprint vN` line per provider observation when
+  present. This closes the AI-repo side of WEB-FRD-4; a future
+  `knowledge-engine-web` PR still has to add the route/UI change that reads
+  `observation_flags`, which this run does not implement (per this run's
+  own scope -- Web is out of bounds here).
+
 - **`discovery_plan.py` -- Discovery-plan compiler (AI-FRD-3, opening slice).**
   Adds `DiscoveryPlan` (a typed, validated, bounded request against Core's
   discovery capability), `compile_discovery_plan()`, and

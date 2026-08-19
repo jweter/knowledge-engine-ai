@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import json
 
 import pytest
@@ -13,6 +14,7 @@ from knowledge_engine_ai.ke_client import (
     FederatedDiscoveryResult,
     FederatedProviderAssertion,
     FederatedProviderDisagreement,
+    FederatedProviderObservationFlags,
     FederatedProviderStatus,
     KeCommandError,
 )
@@ -88,6 +90,51 @@ def test_discover_prints_coverage_and_candidates(monkeypatch: pytest.MonkeyPatch
     assert "A Trial of Semaglutide for Body Weight Reduction" in body
     assert "observed by: pubmed" in body
     assert "not Evidence Records and were not acquired" in body
+
+
+def test_discover_shows_retracted_and_preprint_flags_per_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate = FederatedCandidateSummary(
+        canonical_id="pubmed:12345",
+        title="A Trial of Semaglutide for Body Weight Reduction",
+        doi="10.1000/example",
+        publication_year=2026,
+        providers=("arxiv", "pubmed"),
+        observation_flags=(
+            FederatedProviderObservationFlags(
+                provider="pubmed", retracted=True, preprint=False, preprint_version=None
+            ),
+            FederatedProviderObservationFlags(
+                provider="arxiv", retracted=False, preprint=True, preprint_version=2
+            ),
+        ),
+    )
+    result_with_flags = dataclasses.replace(_result(), candidates=(candidate,))
+    monkeypatch.setattr(cli, "federated_discover", lambda query, **kwargs: result_with_flags)
+
+    result = CliRunner().invoke(
+        app, ["discover", "semaglutide weight loss", "--ledger-root", "/tmp/ledger"]
+    )
+
+    assert result.exit_code == 0, result.output
+    body = _unwrapped(result.output)
+    assert "pubmed: retracted" in body
+    assert "arxiv: preprint v2" in body
+
+
+def test_discover_omits_flag_line_when_no_provider_reports_retraction_or_preprint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli, "federated_discover", lambda query, **kwargs: _result())
+
+    result = CliRunner().invoke(
+        app, ["discover", "semaglutide weight loss", "--ledger-root", "/tmp/ledger"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "retracted" not in result.output
+    assert "preprint" not in result.output
 
 
 def test_discover_forwards_providers_and_api_keys(monkeypatch: pytest.MonkeyPatch) -> None:
