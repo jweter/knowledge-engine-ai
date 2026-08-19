@@ -20,6 +20,18 @@ so it is the natural owner of session creation too. A caller that wants
 to resume or inspect an existing session uses `SessionRepository`
 directly, the same as before this module existed.
 
+AI-FRD-3/AI-FRD-4 wiring (`copilot/discovery_policy.py`): when a caller
+supplies `discovery_policy`, this module evaluates a deterministic
+coverage-gap trigger right after the fixed retrieval workflow runs and,
+if it fires, compiles/executes a bounded `DiscoveryPlan` (AI-FRD-3) and a
+bounded citation-snowball expansion (AI-FRD-4) seeded from the corpus's
+own already-relevant papers. `discovery_policy` defaults to `None`,
+which reproduces this function's pre-AI-FRD-3/4-wiring behavior exactly
+-- no new subprocess call, no new cost -- matching
+`docs/agent-development-policy.md` section 2's cost-consciousness rule
+for optional-capability opt-in. See `discovery_policy.py`'s own
+docstring for the full trigger/budget/provenance policy.
+
 A `ResearchISA` (AI-O2's Ideal State Artifact) is attached to every
 session this module creates, with three fixed, deterministic criteria:
 workflow integrity (every required deterministic step succeeded), citation
@@ -51,6 +63,11 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from knowledge_engine_ai.copilot.discovery_policy import (
+    DiscoveryAugmentationResult,
+    FederatedDiscoveryPolicy,
+    evaluate_and_run_discovery_augmentation,
+)
 from knowledge_engine_ai.copilot.intent import (
     CriterionResult,
     CriterionStatus,
@@ -97,12 +114,18 @@ class ResearchQuestionResult:
     it never raises -- with `close_result.status` reporting `BLOCKED`
     and `close_result.validation.unresolved_required_criteria` naming
     exactly what did not pass, matching this project's "record failure,
-    don't stop" discipline.
+    don't stop" discipline. `discovery` is `None` whenever the caller did
+    not supply a `discovery_policy` (the default, reproducing this
+    module's pre-AI-FRD-3/4-wiring behavior exactly); otherwise it always
+    carries a `DiscoveryAugmentationResult` recording the coverage-gap
+    trigger decision that was made, even when the trigger did not fire --
+    never silently absent once a policy is in effect.
     """
 
     session_id: str
     question: str
     workflow: WorkflowResult
+    discovery: DiscoveryAugmentationResult | None
     narrative: str | None
     synthesis_error: str | None
     verification: VerificationResult | None
@@ -131,6 +154,7 @@ def run_research_question(
     llm: LocalLLM,
     limit: int = 5,
     external_discovery: ExternalDiscoveryCallable | None = None,
+    discovery_policy: FederatedDiscoveryPolicy | None = None,
     ke_executable: str = "ke",
     timeout_seconds: float | None = None,
 ) -> ResearchQuestionResult:
@@ -138,12 +162,15 @@ def run_research_question(
 
     Concretely, in order: `session_repository.create_session`,
     `run_fixed_evidence_workflow` (retrieval + Evidence Intelligence,
-    both branches), `synthesize_answer` over the primary branch's
-    report, `verify_synthesis` (the Skeptic check), `build_session_report`,
-    `attempt_session_close` (the ISA close gate), `build_session_trace`.
-    Never raises for an ordinary "no evidence" or "verification found a
-    problem" outcome -- see `ResearchQuestionResult`'s docstring for how
-    each is represented instead.
+    both branches), the AI-FRD-3/AI-FRD-4 coverage-gap discovery policy
+    (only when `discovery_policy` is supplied -- see `discovery_policy.py`),
+    `synthesize_answer` over the primary branch's report, `verify_synthesis`
+    (the Skeptic check), `build_session_report`, `attempt_session_close`
+    (the ISA close gate), `build_session_trace`. Never raises for an
+    ordinary "no evidence" or "verification found a problem" outcome --
+    see `ResearchQuestionResult`'s docstring for how each is represented
+    instead. The discovery policy step never raises either -- see
+    `evaluate_and_run_discovery_augmentation`'s own docstring.
     """
 
     execution_budget = (
@@ -173,6 +200,16 @@ def run_research_question(
         ke_executable=ke_executable,
         execution_budget=execution_budget,
     )
+
+    discovery_augmentation: DiscoveryAugmentationResult | None = None
+    if discovery_policy is not None:
+        discovery_augmentation = evaluate_and_run_discovery_augmentation(
+            session_repository=session_repository,
+            session_id=session_id,
+            workflow_result=workflow_result,
+            policy=discovery_policy,
+            execution_budget=execution_budget,
+        )
 
     narrative, synthesis_error = _synthesize(
         session_repository=session_repository,
@@ -207,6 +244,7 @@ def run_research_question(
         session_id=session_id,
         question=question,
         workflow=workflow_result,
+        discovery=discovery_augmentation,
         narrative=narrative,
         synthesis_error=synthesis_error,
         verification=verification,

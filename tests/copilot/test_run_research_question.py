@@ -7,7 +7,10 @@ from pathlib import Path
 
 import pytest
 
+import knowledge_engine_ai.copilot.discovery_policy as discovery_policy
+from knowledge_engine_ai.copilot.discovery_policy import FederatedDiscoveryPolicy
 from knowledge_engine_ai.copilot.run_research_question import run_research_question
+from knowledge_engine_ai.ke_client import CitationSnowballResult, FederatedDiscoveryResult
 from knowledge_engine_ai.llm import LocalLLMError
 from knowledge_engine_ai.sessions.models import SessionStatus
 from knowledge_engine_ai.sessions.repository import SessionRepository, new_connection
@@ -360,3 +363,141 @@ def test_session_id_is_generated_and_events_are_durable(
         "citation_integrity",
         "contradiction_review",
     }
+    assert result.discovery is None  # no discovery_policy supplied -- unchanged default path
+
+
+# --- AI-FRD-3/AI-FRD-4 wiring (discovery_policy) ------------------------------
+
+
+def _federated_discovery_stub(*args: object, **kwargs: object) -> FederatedDiscoveryResult:
+    del args, kwargs
+    return FederatedDiscoveryResult(
+        search_run_id="run-xyz",
+        query_text="does semaglutide reduce body weight",
+        completeness="complete",
+        provider_statuses=(),
+        candidates=(),
+        provider_disagreements=None,
+        search_run_created_at=None,
+    )
+
+
+def _citation_snowball_stub(*args: object, **kwargs: object) -> CitationSnowballResult:
+    del args, kwargs
+    return CitationSnowballResult(
+        snowball_run_id="snowball-abc",
+        provider="semantic_scholar",
+        seed_identifiers=("10.1/x",),
+        directions=("references", "citations"),
+        max_depth=1,
+        limit_per_traversal=25,
+        max_candidates=50,
+        completeness="complete",
+        truncated=False,
+        candidates=(),
+        edges=(),
+    )
+
+
+def test_discovery_policy_not_evaluated_when_no_policy_supplied(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def _fail(*args: object, **kwargs: object) -> None:
+        raise AssertionError("Should not attempt any discovery/snowball call.")
+
+    monkeypatch.setattr(discovery_policy, "execute_discovery_plan", _fail)
+    monkeypatch.setattr(discovery_policy, "citation_snowball", _fail)
+    monkeypatch.setattr(subprocess, "run", _fake_run(_payload(papers=False)))
+    repository = _repository()
+
+    result = run_research_question(
+        "a question with no matching evidence",
+        session_repository=repository,
+        sources=tmp_path / "s.csv",
+        evidence=tmp_path / "e.jsonl",
+        llm=_FakeLLM(),
+    )
+
+    assert result.discovery is None
+    workflow_nodes = [event.workflow_node for event in repository.list_events(result.session_id)]
+    assert "federated_discovery" not in workflow_nodes
+    assert "citation_snowball" not in workflow_nodes
+
+
+def test_discovery_policy_triggers_on_thin_coverage_and_is_recorded_before_synthesis(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(discovery_policy, "execute_discovery_plan", _federated_discovery_stub)
+    monkeypatch.setattr(discovery_policy, "citation_snowball", _citation_snowball_stub)
+    monkeypatch.setattr(subprocess, "run", _fake_run(_payload(evidence_records=[_GROUNDED_RECORD])))
+    repository = _repository()
+    llm = _FakeLLM()
+    policy = FederatedDiscoveryPolicy(
+        ledger_root=tmp_path / "ledger", min_evidence_record_coverage=5
+    )
+
+    result = run_research_question(
+        "does semaglutide reduce body weight",
+        session_repository=repository,
+        sources=tmp_path / "s.csv",
+        evidence=tmp_path / "e.jsonl",
+        llm=llm,
+        discovery_policy=policy,
+    )
+
+    assert result.discovery is not None
+    assert result.discovery.triggered is True
+    assert result.discovery.federated_discovery is not None
+    assert result.discovery.federated_discovery.search_run_id == "run-xyz"
+    assert result.discovery.citation_snowball is not None
+    assert result.discovery.citation_snowball.snowball_run_id == "snowball-abc"
+
+    # The narrative still only cites the grounded corpus evidence record --
+    # discovery/snowball candidates are never fed into synthesis.
+    assert result.narrative == "Semaglutide reduced body weight [ev-1]."
+    assert "[ev-1]" in llm.prompts[0]
+    assert "run-xyz" not in llm.prompts[0]
+    assert "snowball-abc" not in llm.prompts[0]
+
+    workflow_nodes = [event.workflow_node for event in repository.list_events(result.session_id)]
+    assert workflow_nodes.index("federated_discovery") < workflow_nodes.index("synthesis")
+    assert workflow_nodes.index("citation_snowball") < workflow_nodes.index("synthesis")
+
+    # Discovery events never contribute to "what evidence supported the output."
+    discovery_events = [
+        event
+        for event in repository.list_events(result.session_id)
+        if event.workflow_node in ("federated_discovery", "citation_snowball")
+    ]
+    for event in discovery_events:
+        assert event.source_ids == ()
+    assert result.trace.evidence_record_ids == ("ev-1",)
+
+
+def test_discovery_policy_does_not_trigger_when_coverage_already_sufficient(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def _fail(*args: object, **kwargs: object) -> None:
+        raise AssertionError("Should not attempt any discovery/snowball call.")
+
+    monkeypatch.setattr(discovery_policy, "execute_discovery_plan", _fail)
+    monkeypatch.setattr(discovery_policy, "citation_snowball", _fail)
+    monkeypatch.setattr(subprocess, "run", _fake_run(_payload(evidence_records=[_GROUNDED_RECORD])))
+    repository = _repository()
+    policy = FederatedDiscoveryPolicy(
+        ledger_root=tmp_path / "ledger", min_evidence_record_coverage=1
+    )
+
+    result = run_research_question(
+        "does semaglutide reduce body weight",
+        session_repository=repository,
+        sources=tmp_path / "s.csv",
+        evidence=tmp_path / "e.jsonl",
+        llm=_FakeLLM(),
+        discovery_policy=policy,
+    )
+
+    assert result.discovery is not None
+    assert result.discovery.triggered is False
+    assert result.narrative == "Semaglutide reduced body weight [ev-1]."
+    assert result.close_result.status is SessionStatus.COMPLETED

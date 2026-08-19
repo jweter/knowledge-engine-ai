@@ -11,6 +11,61 @@ provider choices.
 The matching Core plan is
 `knowledge-engine-core/docs/roadmap/federated_research_discovery_adoption.md`.
 
+**2026-08-19: AI-FRD-3/AI-FRD-4 wired into `run_research_question`'s own
+planning via a new `copilot/discovery_policy.py`, closing this milestone's
+long-standing "known gap."** Jeremy's explicit product-owner decision,
+recorded in this change's PR: "continue with the FRD and widen the
+search." Every previous entry below stopped short of this wiring precisely
+because *when* to invoke it was flagged as needing that judgment call; this
+entry is that call being exercised.
+
+`FederatedDiscoveryPolicy` (opt-in; `run_research_question`'s new
+`discovery_policy` parameter defaults to `None`, reproducing prior
+behavior exactly) defines two deterministic trigger rules -- never an LLM
+judgment call, matching AI-O3/AI-O5's existing "no model dynamically
+deciding execution" discipline:
+
+- **Federated discovery** fires when primary corpus retrieval succeeded but
+  the fixed workflow's own deduplicated evidence-record coverage (primary
+  union contradiction-oriented branch, AI-O5's existing signal) falls below
+  a configurable threshold -- conservative default `3` -- "insufficient
+  initial evidence coverage," this roadmap's own example trigger. It does
+  not fire when primary retrieval itself failed (a Core problem broader
+  provider coverage cannot fix).
+- **Citation-snowball** fires under the same signal, seeded deterministically
+  from the DOIs of the corpus's own already-relevant retrieved papers
+  (rank order, capped at a conservative default of `3` seeds) -- "seed
+  known landmark work" from this doc's own citation-graph section, grounded
+  in the corpus rather than an unvetted discovery candidate. No DOI-bearing
+  seed available means the step is skipped and the reason recorded, never a
+  failure.
+
+Every conservative numeric default (coverage threshold, provider limits,
+snowball depth/seed count, per-call execution-second ceilings tighter than
+`discovery_plan.py`'s own person-invoked 600s ceiling since this path runs
+autonomously) is `FederatedDiscoveryPolicy`'s own field with a documented
+default -- Jeremy's "widen the search" decision authorized building and
+wiring the capability, not any one specific number; every default is
+overridable and called out in the introducing PR's description as such.
+
+Provenance is preserved end to end without ever treating provider/candidate
+*count* as evidence quality: every discovery/snowball attempt records its
+own durable `ResearchEvent` (Core's own `search_run_id`/`snowball_run_id`,
+`completeness`, candidate count) visible on the session trace and on the
+new `ResearchQuestionResult.discovery` field, but candidates are never
+written to `source_ids` (that field means "evidence supported the output"),
+never fed to `synthesize_answer`, and never treated as an `EvidenceRecord`
+-- exactly the same "discovery leads, not evidence, not acquired" framing
+`ke-ai discover`/`ke-ai citation-snowball`'s own text output already
+prints. The narrative still cites only grounded, corpus-sourced evidence.
+`research --broaden-search-on-gap` is this capability's first CLI surface,
+also opt-in, mirroring the Python API's default-off posture.
+
+See `CHANGELOG.md`'s matching entry and `knowledge_engine_ai/copilot/discovery_policy.py`'s
+own module docstring for the full trigger/budget/provenance policy detail.
+AI-FRD-3 and AI-FRD-4's exit-criteria sections below are updated to reflect
+this.
+
 **2026-08-19: `FederatedDiscoveryResult.search_run_created_at` added, parsing
 Core's `coverage.created_at` (half of `knowledge-engine-web`'s WEB-FRD-2
 gap).** `knowledge-engine-core`'s `docs/core_interface_contract.md` already
@@ -306,21 +361,22 @@ Exit criteria:
 Allow Research Copilot to produce a typed, bounded plan using Core discovery
 capabilities.
 
-**Status: compiler/executor foundation implemented; not yet wired into
-Research Copilot's own planning.** `discovery_plan.py`'s `DiscoveryPlan` /
-`compile_discovery_plan()` / `execute_discovery_plan()` give this milestone
-its typed plan and bounded execution primitive: `DiscoveryPlan` validates
-provider names against `KNOWN_DISCOVERY_PROVIDERS` (mirrors Core's own
-`_federated_discovery_registry` set), a limit/year/execution-budget bound
-that fails closed in `__post_init__` before any subprocess call ever runs,
-and `execute_discovery_plan()` runs the plan through the same
-`ke_client.federated_discover()` boundary every other caller uses,
-returning Core's own `search_run_id` (replayable through Core's ledger, not
-a second local record of what ran). What is *not* yet built: nothing calls
-this compiler except tests -- `run_research_question` still only searches
-the local corpus, and no policy exists yet for deciding when a Research
-Session should compile and execute a discovery plan instead. That remains
-this milestone's own next continuation.
+**Status: compiler/executor foundation implemented and now wired into
+Research Copilot's own planning (2026-08-19).** `discovery_plan.py`'s
+`DiscoveryPlan` / `compile_discovery_plan()` / `execute_discovery_plan()`
+give this milestone its typed plan and bounded execution primitive:
+`DiscoveryPlan` validates provider names against `KNOWN_DISCOVERY_PROVIDERS`
+(mirrors Core's own `_federated_discovery_registry` set), a
+limit/year/execution-budget bound that fails closed in `__post_init__`
+before any subprocess call ever runs, and `execute_discovery_plan()` runs
+the plan through the same `ke_client.federated_discover()` boundary every
+other caller uses, returning Core's own `search_run_id` (replayable through
+Core's ledger, not a second local record of what ran).
+`copilot/discovery_policy.py`'s `evaluate_and_run_discovery_augmentation()`
+is now that caller: `run_research_question`'s new opt-in `discovery_policy`
+parameter evaluates the deterministic coverage-gap trigger described above
+and, when it fires, calls `compile_discovery_plan()`/`execute_discovery_plan()`
+with `FederatedDiscoveryPolicy`'s own conservative, documented bounds.
 
 Exit criteria:
 
@@ -334,36 +390,39 @@ Exit criteria:
   `DiscoveryPlanError` at plan construction, before any `ke` subprocess call
 - plan execution remains replayable through Core run IDs. **met** --
   `execute_discovery_plan()` returns Core's own `search_run_id`
-- not yet done: wiring a compiled plan into `run_research_question`'s own
-  planning, and the policy for deciding *when* to compile/execute one --
-  `ke-ai discover`'s docstring flagged this as this milestone's job and it
-  remains open
+- wiring a compiled plan into `run_research_question`'s own planning, and
+  the policy for deciding *when* to compile/execute one; **met** --
+  `copilot/discovery_policy.py`'s coverage-gap trigger, opt-in via
+  `discovery_policy`
 
 ### AI-FRD-4 -- Citation-snowball planner
 
 Add a bounded strategy for reference/citation expansion from selected seed works.
 
-**Status: `ke_client` wrapper and standalone CLI command reachable; no
-Research Session seed-selection policy yet.** `ke_client.citation_snowball()`
-is the in-repository way to invoke Core's FRD-7 `ke citation-snowball`
-command -- it passes seeds, provider, directions, depth, and
-per-traversal/candidate bounds straight through to Core and returns a
-typed, parsed `CitationSnowballResult` (mirroring `federated_discover()`'s
-own shape). `ke-ai citation-snowball` (2026-08-19) is now that command's
-first in-repository caller, the same "built but unreachable" gap
-`ke-ai discover` closed for `federated_discover()` -- a direct, bounded way
-to run and inspect one citation-snowball expansion without a full Research
-Copilot session. What is *not* yet built: no seed-selection strategy
-exists, and nothing decides *when* a Research Session should run a
-citation snowball or wires this into `run_research_question`'s own
-planning. That remains this milestone's own next continuation.
+**Status: `ke_client` wrapper, standalone CLI command, and a
+`run_research_question` seed-selection policy all now reachable
+(2026-08-19).** `ke_client.citation_snowball()` is the in-repository way to
+invoke Core's FRD-7 `ke citation-snowball` command -- it passes seeds,
+provider, directions, depth, and per-traversal/candidate bounds straight
+through to Core and returns a typed, parsed `CitationSnowballResult`
+(mirroring `federated_discover()`'s own shape). `ke-ai citation-snowball`
+(2026-08-19) is that command's first in-repository caller, the same "built
+but unreachable" gap `ke-ai discover` closed for `federated_discover()` --
+a direct, bounded way to run and inspect one citation-snowball expansion
+without a full Research Copilot session.
+`copilot/discovery_policy.py._seed_dois()` is this milestone's
+seed-selection policy: the DOIs of the primary retrieval branch's own
+ranked papers, in rank order, deduplicated, capped at a conservative
+default of 3 -- "seed known landmark work" grounded in the corpus already
+trusted, rather than an unvetted discovery candidate. `run_research_question`'s
+opt-in `discovery_policy` parameter is the `run_research_question` caller
+this exit criteria section previously named as missing.
 
 Exit criteria:
 
-- seed selection and depth are visible; **partial** -- depth is an explicit,
-  bounded `citation_snowball()`/`ke-ai citation-snowball` argument; seed
-  *selection* (which works a Research Session should snowball from) is not
-  yet decided by any caller
+- seed selection and depth are visible; **met** -- `_seed_dois()`'s policy
+  is documented and unit-tested; `citation_snowball_max_depth` is an
+  explicit, bounded `FederatedDiscoveryPolicy` field
 - results enter normal Core provenance flow; **met** -- every run persists
   to Core's own citation-snowball ledger before `citation_snowball()`
   returns, replayable via Core's `ke citation-snowball-report`
@@ -371,7 +430,8 @@ Exit criteria:
   **met by construction** -- `citation_snowball()` only reads Core's
   discovery/traversal output, the same read-only boundary
   `federated_discover()` uses, and does not touch acquisition
-- not yet done: a `run_research_question` caller and a seed-selection policy
+- a `run_research_question` caller and a seed-selection policy; **met** --
+  `copilot/discovery_policy.py`, opt-in via `discovery_policy`
 
 ### AI-FRD-5 -- Research freshness / rerun reasoning
 
