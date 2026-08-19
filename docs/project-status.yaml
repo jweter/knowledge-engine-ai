@@ -1,6 +1,6 @@
 schema_version: 1
 project: knowledge-engine-ai
-updated_at: "2026-08-19T00:15:00Z"
+updated_at: "2026-08-19T00:45:00Z"
 status_source: "Verified repository state plus docs/roadmap/future_ai_orchestration_plan.md; this file is a continuity cache and never overrides higher-authority evidence."
 
 product:
@@ -34,7 +34,7 @@ automation_contract:
   advisory_review_unavailable_is_not_failure: true
 
 verified_repository_state:
-  checked_at: "2026-08-18T21:58:00Z"
+  checked_at: "2026-08-19T00:45:00Z"
   note: "Live PR/check/issue state is intentionally not cached as authoritative counts here. Scheduled runs must query GitHub directly before acting."
   open_prs: 0
   ci_workflows:
@@ -43,7 +43,7 @@ verified_repository_state:
 
 next_continuation:
   priority: "P5-highest-value-authorized-roadmap"
-  action: "Review/merge the open discovery_plan.py PR once fresh CI is green -- this gives AI-FRD-3 its typed-plan/bounded-execution foundation. After that, the remaining AI-FRD-3 work is wiring: decide the policy for when a Research Session should compile and execute a DiscoveryPlan (vs. searching only the local corpus), and call execute_discovery_plan() from run_research_question's own planning path. AI-FRD-4 (citation-snowball planner) has no ke_client wrapper for `ke citation-snowball` yet at all and is not started."
+  action: "This session opened a PR adding FederatedProviderObservationFlags / FederatedCandidateSummary.observation_flags, surfacing Core's per-provider retracted/preprint/preprint_version observations that were previously parsed and discarded -- this was the concrete, named blocker for knowledge-engine-web's WEB-FRD-4 (docs/federated_discovery_transparency_roadmap.md, WEB-FRD-2/WEB-FRD-4, Web PR #64). Once that PR merges, knowledge-engine-web's WEB-FRD-4 is unblocked and its own next continuation is to read observation_flags in the /discover route and surface it to visitors -- that Web-side change is out of scope for this repository. Separately, AI-FRD-3's remaining work is still open: decide the policy for when a Research Session should compile and execute a DiscoveryPlan (vs. searching only the local corpus), and call execute_discovery_plan() from run_research_question's own planning path. AI-FRD-4 (citation-snowball planner) has no ke_client wrapper for `ke citation-snowball` yet at all and is not started."
   selection_rule: "Before beginning roadmap work, query live PR state. Handle failed, green, blocked, conflicted, or pending existing work according to docs/agent-development-policy.md and knowledge-engine-core's shared policy document."
 
 human_decision_required: null

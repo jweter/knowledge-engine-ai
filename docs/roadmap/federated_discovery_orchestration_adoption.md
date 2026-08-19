@@ -11,6 +11,29 @@ provider choices.
 The matching Core plan is
 `knowledge-engine-core/docs/roadmap/federated_research_discovery_adoption.md`.
 
+**2026-08-19: `FederatedCandidateSummary` now surfaces per-provider
+`retracted`/`preprint` observations, unblocking `knowledge-engine-web`'s
+WEB-FRD-4.** `knowledge-engine-web`'s
+`docs/federated_discovery_transparency_roadmap.md` (WEB-FRD-2/WEB-FRD-4,
+merged in Web's PR #64) recorded a concrete cross-repo gap: `/discover`
+could not show visitors per-provider `retracted`/`preprint` observations
+because this repository's typed `FederatedCandidateSummary` -- the only
+value Web's route receives from this repo -- discarded everything from
+Core's `ProviderObservation` except the provider name, even though Core's
+`ke federated-discover --output` JSON already includes `retracted`,
+`preprint`, and `preprint_version` per provider observation. This repository
+now parses those fields into a new `FederatedCandidateSummary.observation_flags`
+field (`FederatedProviderObservationFlags`, one entry per provider
+observation, additive and unmerged across providers). Purely additive --
+`providers` and every other existing field/JSON key are unchanged, so Web's
+current `/discover` integration remains compatible without modification. A
+future `knowledge-engine-web` PR still needs to update its own route/UI to
+read `observation_flags` and close WEB-FRD-4 on Web's side; this repository
+change was this run's full, authorized scope (Web/Core changes were
+explicitly out of bounds for this run). See `CHANGELOG.md`'s matching entry
+for live-verification detail (arXiv observations reporting real
+`preprint`/`preprint_version`, OpenAlex reporting real `retracted`).
+
 **2026-08-18: `ke_client.federated_discover()` gained its first in-repository
 caller, `ke-ai discover`.** The client wrapper existed, was unit-tested, and
 was live-verified against the real `ke` binary, but had no caller inside this

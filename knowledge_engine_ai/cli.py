@@ -500,6 +500,15 @@ def _print_discovery_result(result: FederatedDiscoveryResult) -> None:
         doi = f" -- DOI {candidate.doi}" if candidate.doi else ""
         console.print(f"[bold]{escape(candidate.title)}[/bold]{year}{doi}")
         console.print(f"  observed by: {', '.join(candidate.providers)}")
+        for flag in candidate.observation_flags:
+            notes = []
+            if flag.retracted:
+                notes.append("retracted")
+            if flag.preprint:
+                version = f" v{flag.preprint_version}" if flag.preprint_version else ""
+                notes.append(f"preprint{version}")
+            if notes:
+                console.print(f"    [yellow]{flag.provider}: {', '.join(notes)}[/yellow]")
 
     console.print()
     console.print(
