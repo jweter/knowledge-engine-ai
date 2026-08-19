@@ -464,6 +464,8 @@ def _parse_discovery_providers(providers: str | None) -> tuple[str, ...] | None:
 
 def _print_discovery_result(result: FederatedDiscoveryResult) -> None:
     console.print(f"[bold]Search run:[/bold] {result.search_run_id}")
+    if result.search_run_created_at is not None:
+        console.print(f"[bold]Search run started:[/bold] {result.search_run_created_at}")
     completeness_color = {
         "complete": "green",
         "partial": "yellow",

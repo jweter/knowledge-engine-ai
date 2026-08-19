@@ -414,6 +414,7 @@ class FederatedDiscoveryResult:
     provider_statuses: tuple[FederatedProviderStatus, ...]
     candidates: tuple[FederatedCandidateSummary, ...]
     provider_disagreements: tuple[FederatedCandidateDisagreements, ...] | None
+    search_run_created_at: str | None
 
 
 def parse_federated_discovery_result(payload: dict[str, Any]) -> FederatedDiscoveryResult:
@@ -433,6 +434,15 @@ def parse_federated_discovery_result(payload: dict[str, Any]) -> FederatedDiscov
     that does not report them -- parses to explicit ``None`` per field rather
     than a guessed ``False``, matching the same "absent is not negative"
     contract as provider disagreement above.
+
+    Core's ``coverage.created_at`` (the search run's own recorded timestamp,
+    documented in ``knowledge-engine-core``'s ``docs/core_interface_contract.md``
+    as part of the public ``coverage`` block) is preserved as
+    ``search_run_created_at``. An older payload that predates -- or a
+    malformed payload that omits -- the ``coverage`` block parses this to
+    ``None`` rather than raising, the same graceful-absence contract used for
+    ``provider_disagreements`` above; this field is provenance, not a
+    required part of the discovery result shape.
     """
 
     try:
@@ -447,6 +457,10 @@ def parse_federated_discovery_result(payload: dict[str, Any]) -> FederatedDiscov
         ) from exc
 
     raw_disagreement_report = payload.get("provider_disagreements")
+    raw_coverage = payload.get("coverage")
+    search_run_created_at = (
+        raw_coverage.get("created_at") if isinstance(raw_coverage, dict) else None
+    )
 
     try:
         provider_statuses = tuple(
@@ -514,6 +528,7 @@ def parse_federated_discovery_result(payload: dict[str, Any]) -> FederatedDiscov
         provider_statuses=provider_statuses,
         candidates=candidates,
         provider_disagreements=provider_disagreements,
+        search_run_created_at=search_run_created_at,
     )
 
 

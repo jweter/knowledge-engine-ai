@@ -127,6 +127,7 @@ def test_execute_discovery_plan_forwards_fields_and_builds_an_explicit_budget(
             provider_statuses=(),
             candidates=(),
             provider_disagreements=None,
+            search_run_created_at=None,
         )
 
     monkeypatch.setattr(discovery_plan, "federated_discover", fake_federated_discover)

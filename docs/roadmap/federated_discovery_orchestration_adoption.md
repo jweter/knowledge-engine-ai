@@ -11,6 +11,21 @@ provider choices.
 The matching Core plan is
 `knowledge-engine-core/docs/roadmap/federated_research_discovery_adoption.md`.
 
+**2026-08-19: `FederatedDiscoveryResult.search_run_created_at` added, parsing
+Core's `coverage.created_at` (half of `knowledge-engine-web`'s WEB-FRD-2
+gap).** `knowledge-engine-core`'s `docs/core_interface_contract.md` already
+documents `coverage.created_at` as part of `ke federated-discover --output`'s
+public shape; this repository's parser simply never read it.
+`parse_federated_discovery_result()` now carries it through as
+`FederatedDiscoveryResult.search_run_created_at: str | None`, `None` when a
+payload predates or omits the `coverage` block, never a guessed value.
+Purely additive -- `knowledge-engine-web`'s current pinned revision is
+unaffected. See `CHANGELOG.md`'s matching entry. A future
+`knowledge-engine-web` PR still needs to bump its pinned `knowledge-engine-ai`
+revision and render the field in `discover.html`'s "Run timestamp" row to
+close WEB-FRD-2 fully -- out of this repository's own scope, the same
+two-step pattern already used for WEB-FRD-3/WEB-FRD-4.
+
 **2026-08-19: `ke_client.citation_snowball()` added, AI-FRD-4's first client
 wrapper for Core's FRD-7 `ke citation-snowball` command.** See AI-FRD-4's
 section below for the exit-criteria status; a no-caller, no-seed-selection

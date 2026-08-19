@@ -626,6 +626,53 @@ def test_parse_federated_discovery_result_preserves_per_provider_retraction_flag
     assert result.candidates[0].providers == ("arxiv", "crossref", "pubmed")
 
 
+def test_parse_federated_discovery_result_parses_search_run_created_at_from_coverage() -> None:
+    """Core's public `coverage` block carries the search run's own timestamp.
+
+    `docs/core_interface_contract.md` documents `coverage.created_at` as part
+    of `ke federated-discover --output`'s public shape (see
+    `federated_result_snapshot.build_public_federated_result_payload`, which
+    always attaches a `coverage` block from Core's `SearchCoverageReport`).
+    """
+
+    payload = {
+        **_VALID_FEDERATED_DISCOVERY_PAYLOAD,
+        "coverage": {
+            "search_run_id": "11111111-1111-1111-1111-111111111111",
+            "created_at": "2026-08-15T11:22:00+00:00",
+            "query_text": "semaglutide weight loss",
+            "year_from": None,
+            "year_to": None,
+            "limit_per_provider": 20,
+            "completeness": "partial",
+            "candidate_count": 1,
+            "providers_requested": ["pubmed", "crossref"],
+            "providers_attempted": ["pubmed", "crossref"],
+            "providers_completed": ["pubmed"],
+            "providers_failed": ["crossref"],
+        },
+    }
+
+    result = parse_federated_discovery_result(payload)
+
+    assert result.search_run_created_at == "2026-08-15T11:22:00+00:00"
+
+
+def test_parse_federated_discovery_result_defaults_search_run_created_at_to_none_when_absent() -> (
+    None
+):
+    """An older payload that predates the `coverage` block must not crash.
+
+    `_VALID_FEDERATED_DISCOVERY_PAYLOAD` has no `coverage` key at all --
+    matching the same "absent is not negative" contract already established
+    for `provider_disagreements` and per-provider observation flags.
+    """
+
+    result = parse_federated_discovery_result(_VALID_FEDERATED_DISCOVERY_PAYLOAD)
+
+    assert result.search_run_created_at is None
+
+
 def test_parse_federated_discovery_result_raises_on_a_missing_field() -> None:
     payload = {k: v for k, v in _VALID_FEDERATED_DISCOVERY_PAYLOAD.items() if k != "completeness"}
 
