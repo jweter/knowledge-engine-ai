@@ -1,6 +1,6 @@
 schema_version: 1
 project: knowledge-engine-ai
-updated_at: "2026-08-19T10:30:00Z"
+updated_at: "2026-08-19T12:00:00Z"
 status_source: "Verified repository state plus docs/roadmap/future_ai_orchestration_plan.md; this file is a continuity cache and never overrides higher-authority evidence."
 
 product:
@@ -13,7 +13,7 @@ current_milestone:
   roadmap_file: "docs/roadmap/federated_discovery_orchestration_adoption.md"
   state: "active, early"
   objective: "Let Research Copilot plan bounded federated-discovery requests to Core rather than calling provider APIs directly, without ever treating provider count as evidence quality."
-  known_gap: "ke-ai discover is the first in-repository caller of ke_client.federated_discover(); deliberately a standalone CLI command, not wired into run_research_question's own planning. AI-FRD-3 (Discovery-plan compiler) has its foundation now (discovery_plan.py): a validated DiscoveryPlan and a bounded execute_discovery_plan() that runs it through the same ke_client boundary and returns Core's own search_run_id. Nothing calls this compiler yet except tests -- wiring it into run_research_question's own planning, and the policy for deciding when to invoke it, remains open. AI-FRD-4 (citation-snowball planner) now has its own ke_client wrapper (citation_snowball(), this session -- see PR) mirroring federated_discover()'s shape, but no CLI caller and no seed-selection policy yet -- the same shape AI-FRD-3 was in before ke-ai discover was added."
+  known_gap: "ke-ai discover and ke-ai citation-snowball are both standalone CLI commands, deliberately not wired into run_research_question's own planning. AI-FRD-3 (Discovery-plan compiler) has its foundation now (discovery_plan.py): a validated DiscoveryPlan and a bounded execute_discovery_plan() that runs it through the same ke_client boundary and returns Core's own search_run_id. Nothing calls this compiler yet except tests -- wiring it into run_research_question's own planning, and the policy for deciding when to invoke it, remains open. AI-FRD-4 (citation-snowball planner) now has its own ke_client wrapper (citation_snowball()) and CLI caller (ke-ai citation-snowball, this session), the same shape federated_discover()/ke-ai discover reached -- no seed-selection policy or run_research_question wiring yet for either FRD-3 or FRD-4."
 
 automation_contract:
   schedule_role: "repository participant in an hourly portfolio-development loop (owner-managed; not created by this session)"
@@ -34,7 +34,7 @@ automation_contract:
   advisory_review_unavailable_is_not_failure: true
 
 verified_repository_state:
-  checked_at: "2026-08-19T09:15:00Z"
+  checked_at: "2026-08-19T12:00:00Z"
   note: "Live PR/check/issue state is intentionally not cached as authoritative counts here. Scheduled runs must query GitHub directly before acting."
   open_prs: 0
   ci_workflows:
@@ -43,7 +43,7 @@ verified_repository_state:
 
 next_continuation:
   priority: "P5-highest-value-authorized-roadmap"
-  action: "This session opened a PR adding FederatedDiscoveryResult.search_run_created_at, parsing Core's already-documented `coverage.created_at` field (docs/core_interface_contract.md) that this repository's parser previously ignored -- half of knowledge-engine-web's WEB-FRD-2 gap (the other half, rendering it in discover.html and bumping Web's pinned AI revision, is Web's own follow-up once this PR merges to main, the same two-step pattern already used for WEB-FRD-3/WEB-FRD-4). Purely additive; no existing field or consumer behavior changed. Separately unresolved: AI-FRD-4's own next continuation is either (a) add a standalone `ke-ai citation-snowball` CLI command, mirroring how AI-FRD-3's ke-ai discover closed the same built-but-unreachable gap for federated_discover, or (b) decide the policy for when a Research Session should run a snowball and from which seeds. AI-FRD-3's own remaining work is also still open: decide the policy for when a Research Session should compile and execute a DiscoveryPlan (vs. searching only the local corpus), and call execute_discovery_plan() from run_research_question's own planning path."
+  action: "This session opened a PR adding `ke-ai citation-snowball`, the first in-repository CLI caller of ke_client.citation_snowball() (AI-FRD-4), mirroring how ke-ai discover closed the same built-but-unreachable gap for federated_discover (AI-FRD-3). Purely additive; no existing command, field, or consumer behavior changed. Both AI-FRD-3 and AI-FRD-4 now stand at the same point: a working, tested, directly-callable CLI command, but no policy inside run_research_question deciding when to invoke either one, and no seed-selection policy for citation-snowball specifically. That policy decision is the next continuation for both sub-milestones and is a genuine product/research-design judgment call, not a mechanical wiring gap -- likely needs the project owner's input on when broader provider coverage or citation expansion is actually warranted during a Research Session. WEB-FRD-2 (search-run timestamp) is fully closed as of knowledge-engine-web PR #67 -- confirmed by reading Web's own repository state, not assumed from a prior cache."
   selection_rule: "Before beginning roadmap work, query live PR state. Handle failed, green, blocked, conflicted, or pending existing work according to docs/agent-development-policy.md and knowledge-engine-core's shared policy document."
 
 human_decision_required: null
