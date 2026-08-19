@@ -1,6 +1,6 @@
 schema_version: 1
 project: knowledge-engine-ai
-updated_at: "2026-08-18T23:55:00Z"
+updated_at: "2026-08-19T00:15:00Z"
 status_source: "Verified repository state plus docs/roadmap/future_ai_orchestration_plan.md; this file is a continuity cache and never overrides higher-authority evidence."
 
 product:
@@ -13,7 +13,7 @@ current_milestone:
   roadmap_file: "docs/roadmap/federated_discovery_orchestration_adoption.md"
   state: "active, early"
   objective: "Let Research Copilot plan bounded federated-discovery requests to Core rather than calling provider APIs directly, without ever treating provider count as evidence quality."
-  known_gap: "closed -- ke-ai discover (this session, unmerged -- see PR) is now the first in-repository caller of ke_client.federated_discover(). Deliberately a standalone CLI command, not wired into run_research_question's own planning; that remains AI-FRD-3's (Discovery-plan compiler) not-yet-started job."
+  known_gap: "ke-ai discover is the first in-repository caller of ke_client.federated_discover(); deliberately a standalone CLI command, not wired into run_research_question's own planning. AI-FRD-3 (Discovery-plan compiler) has its foundation now (discovery_plan.py, this session, unmerged -- see PR): a validated DiscoveryPlan and a bounded execute_discovery_plan() that runs it through the same ke_client boundary and returns Core's own search_run_id. Nothing calls this compiler yet except tests -- wiring it into run_research_question's own planning, and the policy for deciding when to invoke it, remains open."
 
 automation_contract:
   schedule_role: "repository participant in an hourly portfolio-development loop (owner-managed; not created by this session)"
@@ -43,7 +43,7 @@ verified_repository_state:
 
 next_continuation:
   priority: "P5-highest-value-authorized-roadmap"
-  action: "Review/merge the open `ke-ai discover` PR once fresh CI is green. After that, AI-FRD-3 (Discovery-plan compiler) is the next not-started item: let Research Copilot produce a typed, bounded discovery plan validated against a capability registry, rather than a person invoking `ke-ai discover` directly -- see docs/roadmap/federated_discovery_orchestration_adoption.md's AI-FRD-3 exit criteria before starting."
+  action: "Review/merge the open discovery_plan.py PR once fresh CI is green -- this gives AI-FRD-3 its typed-plan/bounded-execution foundation. After that, the remaining AI-FRD-3 work is wiring: decide the policy for when a Research Session should compile and execute a DiscoveryPlan (vs. searching only the local corpus), and call execute_discovery_plan() from run_research_question's own planning path. AI-FRD-4 (citation-snowball planner) has no ke_client wrapper for `ke citation-snowball` yet at all and is not started."
   selection_rule: "Before beginning roadmap work, query live PR state. Handle failed, green, blocked, conflicted, or pending existing work according to docs/agent-development-policy.md and knowledge-engine-core's shared policy document."
 
 human_decision_required: null

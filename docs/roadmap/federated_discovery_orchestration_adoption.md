@@ -255,12 +255,38 @@ Exit criteria:
 Allow Research Copilot to produce a typed, bounded plan using Core discovery
 capabilities.
 
+**Status: compiler/executor foundation implemented; not yet wired into
+Research Copilot's own planning.** `discovery_plan.py`'s `DiscoveryPlan` /
+`compile_discovery_plan()` / `execute_discovery_plan()` give this milestone
+its typed plan and bounded execution primitive: `DiscoveryPlan` validates
+provider names against `KNOWN_DISCOVERY_PROVIDERS` (mirrors Core's own
+`_federated_discovery_registry` set), a limit/year/execution-budget bound
+that fails closed in `__post_init__` before any subprocess call ever runs,
+and `execute_discovery_plan()` runs the plan through the same
+`ke_client.federated_discover()` boundary every other caller uses,
+returning Core's own `search_run_id` (replayable through Core's ledger, not
+a second local record of what ran). What is *not* yet built: nothing calls
+this compiler except tests -- `run_research_question` still only searches
+the local corpus, and no policy exists yet for deciding when a Research
+Session should compile and execute a discovery plan instead. That remains
+this milestone's own next continuation.
+
 Exit criteria:
 
-- provider/tool names validate against capability registry;
-- execution budget/depth is explicit;
-- unknown tool/provider requests fail closed;
-- plan execution remains replayable through Core run IDs.
+- provider/tool names validate against capability registry; **met** --
+  `DiscoveryPlan.__post_init__` against `KNOWN_DISCOVERY_PROVIDERS`
+- execution budget/depth is explicit; **met** -- `max_execution_seconds`
+  and `limit_per_provider` are required, bounded `DiscoveryPlan` fields;
+  `execute_discovery_plan()` always builds its `ExecutionBudget` from the
+  plan's own bound
+- unknown tool/provider requests fail closed; **met** -- raises
+  `DiscoveryPlanError` at plan construction, before any `ke` subprocess call
+- plan execution remains replayable through Core run IDs. **met** --
+  `execute_discovery_plan()` returns Core's own `search_run_id`
+- not yet done: wiring a compiled plan into `run_research_question`'s own
+  planning, and the policy for deciding *when* to compile/execute one --
+  `ke-ai discover`'s docstring flagged this as this milestone's job and it
+  remains open
 
 ### AI-FRD-4 -- Citation-snowball planner
 

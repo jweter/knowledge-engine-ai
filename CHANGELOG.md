@@ -9,6 +9,23 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`discovery_plan.py` -- Discovery-plan compiler (AI-FRD-3, opening slice).**
+  Adds `DiscoveryPlan` (a typed, validated, bounded request against Core's
+  discovery capability), `compile_discovery_plan()`, and
+  `execute_discovery_plan()`. A plan naming an unknown provider, an
+  out-of-range `limit_per_provider`, invalid year bounds, or a missing/invalid
+  execution budget fails to construct at all -- fail-closed before any
+  subprocess or network call, never a request Core has to reject. Execution
+  always builds its `ExecutionBudget` from the plan's own
+  `max_execution_seconds`, and returns Core's own `search_run_id`, so a
+  compiled plan's run remains independently replayable through Core's ledger.
+  This is a foundational slice of AI-FRD-3, not full Research Copilot
+  wiring -- deciding *when* `run_research_question` should compile and
+  execute a plan (rather than searching only the local corpus) remains
+  future work, same as `ke-ai discover`'s own docstring already noted. See
+  `docs/roadmap/federated_discovery_orchestration_adoption.md`'s AI-FRD-3
+  exit criteria.
+
 - **`ke-ai discover` CLI command.** The first caller of `ke_client.federated_discover()`
   inside this repository (previously called only from `knowledge-engine-web`'s
   `/discover` route) -- the "built but unreachable" gap
