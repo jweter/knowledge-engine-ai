@@ -587,3 +587,218 @@ def federated_discover(
         return parse_federated_discovery_result(payload)
     except FederatedDiscoveryParseError as exc:
         raise KeCommandError(str(exc)) from exc
+
+
+class CitationSnowballParseError(RuntimeError):
+    """`ke citation-snowball --output`'s JSON did not match the expected shape."""
+
+
+@dataclasses.dataclass(frozen=True)
+class CitationSnowballCandidate:
+    """One Core-discovered citation-snowball candidate for downstream display.
+
+    Mirrors ``FederatedCandidateSummary`` -- ``canonical_id`` is Core-owned
+    work identity, ``providers``/``observation_flags`` are provider-native
+    assertions this project does not merge or vote on.
+    """
+
+    canonical_id: str
+    title: str
+    doi: str | None
+    publication_year: int | None
+    providers: tuple[str, ...]
+    observation_flags: tuple[FederatedProviderObservationFlags, ...] = ()
+
+
+@dataclasses.dataclass(frozen=True)
+class CitationSnowballEdge:
+    """One provider-asserted provenance edge explaining why a candidate was found."""
+
+    provider: str
+    seed_identifier: str
+    related_provider_id: str
+    direction: str
+    retrieved_at: str
+
+
+@dataclasses.dataclass(frozen=True)
+class CitationSnowballResult:
+    """One `ke citation-snowball --output` response, fully parsed and typed."""
+
+    snowball_run_id: str
+    provider: str
+    seed_identifiers: tuple[str, ...]
+    directions: tuple[str, ...]
+    max_depth: int
+    limit_per_traversal: int
+    max_candidates: int
+    completeness: str
+    truncated: bool
+    candidates: tuple[CitationSnowballCandidate, ...]
+    edges: tuple[CitationSnowballEdge, ...]
+
+
+def parse_citation_snowball_result(payload: dict[str, Any]) -> CitationSnowballResult:
+    """Parse Core's citation-snowball `--output` snapshot without guessing omitted facts.
+
+    Each candidate's per-provider `retracted`/`preprint`/`preprint_version`
+    observations are preserved as `observation_flags`, the same
+    "absent is not negative" contract `parse_federated_discovery_result`
+    uses -- a provider observation that omits these fields parses to
+    explicit `None` rather than a guessed `False`.
+    """
+
+    try:
+        snowball_run_id = payload["snowball_run_id"]
+        provider = payload["provider"]
+        plan = payload["plan"]
+        seed_identifiers = plan["seed_identifiers"]
+        directions = plan["directions"]
+        max_depth = plan["max_depth"]
+        limit_per_traversal = plan["limit_per_traversal"]
+        max_candidates = plan["max_candidates"]
+        completeness = payload["completeness"]
+        truncated = payload["truncated"]
+        raw_candidates = payload["candidates"]
+        raw_edges = payload["edges"]
+    except (KeyError, TypeError) as exc:
+        raise CitationSnowballParseError(
+            f"`ke citation-snowball --output` payload is missing a required field: {exc}"
+        ) from exc
+
+    try:
+        candidates = tuple(
+            CitationSnowballCandidate(
+                canonical_id=candidate["canonical_id"],
+                title=candidate["title"],
+                doi=candidate.get("doi"),
+                publication_year=candidate.get("publication_year"),
+                providers=tuple(
+                    sorted({observation["provider"] for observation in candidate["observations"]})
+                ),
+                observation_flags=tuple(
+                    FederatedProviderObservationFlags(
+                        provider=observation["provider"],
+                        retracted=observation.get("retracted"),
+                        preprint=observation.get("preprint"),
+                        preprint_version=observation.get("preprint_version"),
+                    )
+                    for observation in candidate["observations"]
+                ),
+            )
+            for candidate in raw_candidates
+        )
+        edges = tuple(
+            CitationSnowballEdge(
+                provider=edge["provider"],
+                seed_identifier=edge["seed_identifier"],
+                related_provider_id=edge["related_provider_id"],
+                direction=edge["direction"],
+                retrieved_at=edge["retrieved_at"],
+            )
+            for edge in raw_edges
+        )
+    except (KeyError, TypeError) as exc:
+        raise CitationSnowballParseError(
+            f"`ke citation-snowball --output` payload is malformed: {exc}"
+        ) from exc
+
+    return CitationSnowballResult(
+        snowball_run_id=snowball_run_id,
+        provider=provider,
+        seed_identifiers=tuple(seed_identifiers),
+        directions=tuple(directions),
+        max_depth=max_depth,
+        limit_per_traversal=limit_per_traversal,
+        max_candidates=max_candidates,
+        completeness=completeness,
+        truncated=truncated,
+        candidates=candidates,
+        edges=edges,
+    )
+
+
+def citation_snowball(
+    seed_identifiers: tuple[str, ...],
+    *,
+    ledger_root: Path,
+    provider: str = "semantic_scholar",
+    directions: tuple[str, ...] = ("references", "citations"),
+    max_depth: int = 1,
+    limit_per_traversal: int = 25,
+    max_candidates: int = 100,
+    openalex_api_key: str | None = None,
+    semantic_scholar_api_key: str | None = None,
+    ke_executable: str = "ke",
+    execution_budget: ExecutionBudget | None = None,
+) -> CitationSnowballResult:
+    """Run `ke citation-snowball --output <tmp>` and return the parsed result.
+
+    The first `ke_client` wrapper for Core's FRD-7 citation-snowball
+    command (AI-FRD-4's named prerequisite -- see
+    `docs/roadmap/federated_discovery_orchestration_adoption.md`). Like
+    `federated_discover` above, structured output is written to
+    `--output <path>` rather than stdout; this wrapper writes that
+    snapshot to a private temporary file, parses it, and discards the
+    file -- the caller only sees the typed result. Deliberately just the
+    subprocess/parse boundary: nothing here decides *when* a Research
+    Session should run a citation snowball, selects seeds, or wires this
+    into `run_research_question`'s own planning -- that policy remains
+    AI-FRD-4's own next continuation, the same way AI-FRD-3's compiler
+    exists without being called from planning yet. Raises `KeCommandError`
+    on command or contract failure and never returns a partial or guessed
+    result.
+    """
+
+    with tempfile.TemporaryDirectory(prefix="ke-citation-snowball-") as scratch_dir:
+        output_path = Path(scratch_dir) / "result.json"
+        command = [
+            _resolve_ke_executable(ke_executable),
+            "citation-snowball",
+            "--seeds",
+            ",".join(seed_identifiers),
+            "--ledger-root",
+            str(ledger_root),
+            "--provider",
+            provider,
+            "--directions",
+            ",".join(directions),
+            "--max-depth",
+            str(max_depth),
+            "--limit-per-traversal",
+            str(limit_per_traversal),
+            "--max-candidates",
+            str(max_candidates),
+            "--output",
+            str(output_path),
+        ]
+        if openalex_api_key:
+            command += ["--openalex-api-key", openalex_api_key]
+        if semantic_scholar_api_key:
+            command += ["--semantic-scholar-api-key", semantic_scholar_api_key]
+
+        try:
+            result = _run_ke_command(
+                command, operation="ke citation-snowball", execution_budget=execution_budget
+            )
+        except FileNotFoundError as exc:
+            raise KeCommandError(
+                f"Could not run {ke_executable!r} -- "
+                "is knowledge-engine-core installed and on PATH?"
+            ) from exc
+
+        if result.returncode != 0:
+            message = result.stderr.strip() or result.stdout.strip()
+            raise KeCommandError(f"`ke citation-snowball` exited {result.returncode}: {message}")
+
+        try:
+            payload = json.loads(output_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise KeCommandError(
+                f"`ke citation-snowball` did not write a readable JSON output file: {exc}"
+            ) from exc
+
+    try:
+        return parse_citation_snowball_result(payload)
+    except CitationSnowballParseError as exc:
+        raise KeCommandError(str(exc)) from exc
