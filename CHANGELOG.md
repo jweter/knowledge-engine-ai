@@ -9,6 +9,25 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`ke-ai citation-snowball` -- the first CLI caller of
+  `ke_client.citation_snowball()` (AI-FRD-4).**
+  `docs/roadmap/federated_discovery_orchestration_adoption.md`'s AI-FRD-4
+  named this repository's next continuation explicitly: the
+  `citation_snowball()` client wrapper (below) existed and was
+  unit-tested, but had no in-repository caller -- the same
+  "built but unreachable" gap `ke-ai discover` closed for
+  `federated_discover()`. This command is that caller: `--seeds`,
+  `--ledger-root`, `--provider` (`semantic_scholar` default or
+  `openalex`), `--directions`, `--max-depth`,
+  `--limit-per-traversal`, `--max-candidates`, and the existing
+  `--openalex-api-key`/`--semantic-scholar-api-key` options pass straight
+  through to Core's `ke citation-snowball`, mirroring `discover`'s own
+  option shape and text/JSON output styling (coverage color, per-provider
+  `retracted`/`preprint` flags, a "not Evidence Records" disclaimer).
+  Deliberately *not* wired into `run_research_question`'s own planning --
+  deciding *when* a Research Session should run a snowball and from which
+  seeds remains open policy work, unchanged by this command.
+
 - **`FederatedDiscoveryResult.search_run_created_at` -- parses Core's
   `coverage.created_at` (closes half of `knowledge-engine-web`'s WEB-FRD-2
   gap).** `knowledge-engine-web`'s

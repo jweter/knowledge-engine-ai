@@ -31,8 +31,10 @@ from knowledge_engine_ai.copilot.run_research_question import (
     run_research_question,
 )
 from knowledge_engine_ai.ke_client import (
+    CitationSnowballResult,
     FederatedDiscoveryResult,
     KeCommandError,
+    citation_snowball,
     enriched_evidence_report,
     federated_discover,
 )
@@ -143,6 +145,68 @@ SemanticScholarApiKeyOption = Annotated[
         "--semantic-scholar-api-key",
         envvar="KE_AI_SEMANTIC_SCHOLAR_API_KEY",
         help="Optional Semantic Scholar API key, forwarded to `ke federated-discover`.",
+    ),
+]
+
+
+SnowballSeedsOption = Annotated[
+    str,
+    typer.Option(
+        "--seeds",
+        help=(
+            "Comma-separated seed identifiers (Semantic Scholar paper ID, DOI, "
+            "arXiv ID, or PMID -- anything the provider's own lookup accepts)."
+        ),
+    ),
+]
+SnowballLedgerRootOption = Annotated[
+    Path,
+    typer.Option(
+        "--ledger-root",
+        help="Directory Core's citation-snowball ledger persists JSON run records to.",
+    ),
+]
+SnowballProviderOption = Annotated[
+    str,
+    typer.Option(
+        "--provider",
+        help=(
+            "Which citation-graph provider to traverse: 'semantic_scholar' "
+            "(default, no credential required) or 'openalex' (requires "
+            "--openalex-api-key/KE_AI_OPENALEX_API_KEY; forwarded to `ke "
+            "citation-snowball`)."
+        ),
+    ),
+]
+SnowballDirectionsOption = Annotated[
+    str,
+    typer.Option(
+        "--directions",
+        help=(
+            "Comma-separated traversal directions: 'references', 'citations', "
+            "or both. Defaults to both."
+        ),
+    ),
+]
+SnowballMaxDepthOption = Annotated[
+    int,
+    typer.Option("--max-depth", min=1, max=3, help="Breadth-first expansion depth from the seeds."),
+]
+SnowballLimitPerTraversalOption = Annotated[
+    int,
+    typer.Option(
+        "--limit-per-traversal",
+        min=1,
+        max=1000,
+        help="Maximum works requested per single provider traversal call.",
+    ),
+]
+SnowballMaxCandidatesOption = Annotated[
+    int,
+    typer.Option(
+        "--max-candidates",
+        min=1,
+        help="Hard cap on total newly discovered candidates before the run truncates.",
     ),
 ]
 
@@ -515,4 +579,114 @@ def _print_discovery_result(result: FederatedDiscoveryResult) -> None:
     console.print()
     console.print(
         "[bold]Discovery only -- these are not Evidence Records and were not acquired.[/bold]"
+    )
+
+
+@app.command("citation-snowball")
+def citation_snowball_command(
+    seeds: SnowballSeedsOption,
+    ledger_root: SnowballLedgerRootOption,
+    provider: SnowballProviderOption = "semantic_scholar",
+    directions: SnowballDirectionsOption = "references,citations",
+    max_depth: SnowballMaxDepthOption = 1,
+    limit_per_traversal: SnowballLimitPerTraversalOption = 25,
+    max_candidates: SnowballMaxCandidatesOption = 100,
+    openalex_api_key: OpenAlexApiKeyOption = None,
+    semantic_scholar_api_key: SemanticScholarApiKeyOption = None,
+    output_format: FormatOption = "text",
+) -> None:
+    """Run one bounded citation-snowball expansion via Core's `ke citation-snowball` (AI-FRD-4).
+
+    This repository's `ke_client.citation_snowball()` wrapper was
+    implemented and unit-tested, but -- like `federated_discover()` before
+    `discover` above was added -- had no caller inside this repository. This
+    command is that caller: a direct, bounded way to run and inspect one
+    citation-snowball expansion from `knowledge-engine-ai` itself, without a
+    full Research Copilot session. It is deliberately *not* wired into
+    `run_research_question`'s own planning -- deciding *when* a Research
+    Session should run a snowball and from which seeds remains open policy
+    work, the same way AI-FRD-3's discovery-plan compiler exists without
+    being called from planning yet. See
+    `docs/roadmap/federated_discovery_orchestration_adoption.md`.
+
+    Every candidate's `providers`/`observation_flags` are Core's own
+    provider-native observations -- this command does not re-derive or vote
+    on them, the same discipline `discover` above follows.
+    """
+
+    if output_format not in ("text", "json"):
+        raise typer.BadParameter("--format must be 'text' or 'json'.")
+
+    parsed_seeds = tuple(seed.strip() for seed in seeds.split(",") if seed.strip())
+    if not parsed_seeds:
+        raise typer.BadParameter("--seeds must name at least one seed identifier.")
+    parsed_directions = tuple(
+        direction.strip() for direction in directions.split(",") if direction.strip()
+    )
+    if not parsed_directions:
+        raise typer.BadParameter("--directions must name at least one direction.")
+
+    try:
+        result = citation_snowball(
+            parsed_seeds,
+            ledger_root=ledger_root,
+            provider=provider,
+            directions=parsed_directions,
+            max_depth=max_depth,
+            limit_per_traversal=limit_per_traversal,
+            max_candidates=max_candidates,
+            openalex_api_key=openalex_api_key,
+            semantic_scholar_api_key=semantic_scholar_api_key,
+        )
+    except KeCommandError as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(1) from exc
+
+    if output_format == "json":
+        sys.stdout.write(json.dumps(dataclasses.asdict(result), indent=2, sort_keys=True) + "\n")
+        return
+
+    _print_citation_snowball_result(result)
+
+
+def _print_citation_snowball_result(result: CitationSnowballResult) -> None:
+    console.print(f"[bold]Snowball run:[/bold] {result.snowball_run_id}")
+    console.print(f"[bold]Provider:[/bold] {result.provider}")
+    console.print(f"[bold]Seeds:[/bold] {', '.join(result.seed_identifiers)}")
+    completeness_color = {
+        "complete": "green",
+        "partial": "yellow",
+        "failed": "red",
+    }.get(result.completeness, "white")
+    truncated_note = " (truncated at --max-candidates)" if result.truncated else ""
+    console.print(
+        f"[bold]Coverage:[/bold] "
+        f"[{completeness_color}]{result.completeness}[/{completeness_color}]"
+        f"{truncated_note} ({len(result.candidates)} discovered candidate(s))"
+    )
+    console.print()
+
+    if not result.candidates:
+        console.print("[yellow]No candidates found by the traversal.[/yellow]")
+        return
+
+    for candidate in result.candidates:
+        year = f" ({candidate.publication_year})" if candidate.publication_year else ""
+        doi = f" -- DOI {candidate.doi}" if candidate.doi else ""
+        console.print(f"[bold]{escape(candidate.title)}[/bold]{year}{doi}")
+        console.print(f"  observed by: {', '.join(candidate.providers)}")
+        for flag in candidate.observation_flags:
+            notes = []
+            if flag.retracted:
+                notes.append("retracted")
+            if flag.preprint:
+                version = f" v{flag.preprint_version}" if flag.preprint_version else ""
+                notes.append(f"preprint{version}")
+            if notes:
+                console.print(f"    [yellow]{flag.provider}: {', '.join(notes)}[/yellow]")
+
+    console.print()
+    console.print(
+        "[bold]Citation-snowball discovery only -- these are not Evidence Records and "
+        "were not acquired.[/bold]"
     )

@@ -31,6 +31,14 @@ wrapper for Core's FRD-7 `ke citation-snowball` command.** See AI-FRD-4's
 section below for the exit-criteria status; a no-caller, no-seed-selection
 gap remains this milestone's own next continuation.
 
+**2026-08-19: `ke-ai citation-snowball` added, the first in-repository
+caller of `ke_client.citation_snowball()`.** Closes the "no CLI command
+calls it" half of AI-FRD-4's gap noted immediately above, mirroring how
+`ke-ai discover` closed the same gap for `federated_discover()`. See
+AI-FRD-4's section below and `CHANGELOG.md`'s matching entry. Seed-selection
+policy and wiring into `run_research_question`'s own planning remain
+unstarted.
+
 **2026-08-19: `FederatedCandidateSummary` now surfaces per-provider
 `retracted`/`preprint` observations, unblocking `knowledge-engine-web`'s
 WEB-FRD-4.** `knowledge-engine-web`'s
@@ -335,23 +343,27 @@ Exit criteria:
 
 Add a bounded strategy for reference/citation expansion from selected seed works.
 
-**Status: `ke_client` wrapper added; no planner or caller yet.**
-`ke_client.citation_snowball()` is the first in-repository way to invoke
-Core's FRD-7 `ke citation-snowball` command -- it passes seeds, provider,
-directions, depth, and per-traversal/candidate bounds straight through to
-Core and returns a typed, parsed `CitationSnowballResult` (mirroring
-`federated_discover()`'s own shape). What is *not* yet built: no CLI
-command calls it (unlike `federated_discover`, which `ke-ai discover`
-already exposes), no seed-selection strategy exists, and nothing decides
-*when* a Research Session should run a citation snowball or wires this into
-`run_research_question`'s own planning. That remains this milestone's own
-next continuation.
+**Status: `ke_client` wrapper and standalone CLI command reachable; no
+Research Session seed-selection policy yet.** `ke_client.citation_snowball()`
+is the in-repository way to invoke Core's FRD-7 `ke citation-snowball`
+command -- it passes seeds, provider, directions, depth, and
+per-traversal/candidate bounds straight through to Core and returns a
+typed, parsed `CitationSnowballResult` (mirroring `federated_discover()`'s
+own shape). `ke-ai citation-snowball` (2026-08-19) is now that command's
+first in-repository caller, the same "built but unreachable" gap
+`ke-ai discover` closed for `federated_discover()` -- a direct, bounded way
+to run and inspect one citation-snowball expansion without a full Research
+Copilot session. What is *not* yet built: no seed-selection strategy
+exists, and nothing decides *when* a Research Session should run a
+citation snowball or wires this into `run_research_question`'s own
+planning. That remains this milestone's own next continuation.
 
 Exit criteria:
 
 - seed selection and depth are visible; **partial** -- depth is an explicit,
-  bounded `citation_snowball()` argument; seed *selection* (which works a
-  Research Session should snowball from) is not yet decided by any caller
+  bounded `citation_snowball()`/`ke-ai citation-snowball` argument; seed
+  *selection* (which works a Research Session should snowball from) is not
+  yet decided by any caller
 - results enter normal Core provenance flow; **met** -- every run persists
   to Core's own citation-snowball ledger before `citation_snowball()`
   returns, replayable via Core's `ke citation-snowball-report`
@@ -359,8 +371,7 @@ Exit criteria:
   **met by construction** -- `citation_snowball()` only reads Core's
   discovery/traversal output, the same read-only boundary
   `federated_discover()` uses, and does not touch acquisition
-- not yet done: a CLI or `run_research_question` caller, and a seed-selection
-  policy
+- not yet done: a `run_research_question` caller and a seed-selection policy
 
 ### AI-FRD-5 -- Research freshness / rerun reasoning
 
