@@ -11,6 +11,37 @@ provider choices.
 The matching Core plan is
 `knowledge-engine-core/docs/roadmap/federated_research_discovery_adoption.md`.
 
+**2026-08-20: `ke_client.federated_discover_history()` added, plus
+`federated_discover()` now forwards `project_id`/`research_question_id` --
+closing this repository's two blockers named by `knowledge-engine-web`'s
+WEB-FRD-5 design (`web_frd5_freshness_history_design.md` section 5, items
+3-4).** Core's FRD-6 follow-up (`ke federated-discover
+--research-question-id`/`--project-id` and the new `ke
+federated-discover-history <id>` command) had already merged; this repository
+had no wrapper reaching either surface. `federated_discover_history()`
+mirrors the existing `citation_snowball()`/`federated_discover()` shape:
+shells out to `ke federated-discover-history <id> --ledger-root <dir>
+--output <tmp>`, parses the typed `SearchCoverageReport` list, and returns a
+`FederatedDiscoverHistoryResult` -- an empty `runs` tuple is a valid, honest
+"no prior recorded search for this question" result, never an error.
+`federated_discover()`'s two new optional keyword parameters default to
+`None` and are omitted from the command line entirely when unset, so every
+existing caller (`discovery_plan.py`, `cli.py`'s `ke-ai discover`,
+`copilot/discovery_policy.py`) is unaffected. This is deliberately just the
+subprocess/parse boundary -- no policy here decides when to tag a run with a
+`research_question_id`, or diffs two runs; that remains open (see AI-FRD-5
+below and WEB-FRD-5's own item 5-7 for the Web-side "tracked question"
+product concept this still waits on). A point-lookup wrapper for the
+pre-existing `ke federated-coverage-report` command was considered but not
+added in this change: that CLI command has no `--output` JSON option today
+(confirmed by reading `entrypoint.py`), so wrapping it would mean either
+scraping console text (against this project's own established discipline)
+or first adding a Core-side `--output` flag -- out of scope for this
+AI-only slice. `federated_discover_history()` already returns every run's
+full `SearchCoverageReport` for a tracked question in one call, which is
+sufficient for WEB-FRD-5's actual "list history, diff two runs" use case
+without that point lookup.
+
 **2026-08-19: AI-FRD-3/AI-FRD-4 wired into `run_research_question`'s own
 planning via a new `copilot/discovery_policy.py`, closing this milestone's
 long-standing "known gap."** Jeremy's explicit product-owner decision,
@@ -437,6 +468,15 @@ Exit criteria:
 
 Given an earlier Research Session, help decide whether a new federated search is
 warranted and explain what changed after Core reruns it.
+
+**2026-08-20 status:** the client-boundary prerequisite this milestone needs
+is now built -- `ke_client.federated_discover_history()` can list every past
+run for a tracked `research_question_id`, and `federated_discover()` can tag
+a new run with one. Nothing yet *decides* whether a rerun is warranted or
+computes a diff between two runs' `SearchCoverageReport`s; that reasoning
+(and the Web-side "tracked question" identity it depends on, per
+`knowledge-engine-web`'s WEB-FRD-5 design doc items 5-7) remains this
+milestone's actual, unstarted scope.
 
 Exit criteria:
 

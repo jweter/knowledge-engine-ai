@@ -1,6 +1,6 @@
 schema_version: 1
 project: knowledge-engine-ai
-updated_at: "2026-08-19T18:00:00Z"
+updated_at: "2026-08-20T00:00:00Z"
 status_source: "Verified repository state plus docs/roadmap/future_ai_orchestration_plan.md; this file is a continuity cache and never overrides higher-authority evidence."
 
 product:
@@ -43,10 +43,10 @@ verified_repository_state:
 
 next_continuation:
   priority: "P5-highest-value-authorized-roadmap"
-  action: "This session opened a PR wiring AI-FRD-3/AI-FRD-4 into run_research_question's own planning (knowledge_engine_ai/copilot/discovery_policy.py), per Jeremy's explicit decision to 'continue with the FRD and widen the search.' Both discovery capabilities are now opt-in-reachable end to end (Python API and ke-ai research --broaden-search-on-gap CLI flag), gated by a deterministic coverage-gap trigger and conservative, documented, overridable numeric defaults. Next continuation once this PR merges and gets real traffic: (1) tune the conservative default thresholds/budgets against real Research Session usage rather than this PR's own judgment call; (2) AI-FRD-2 (Coverage-aware Research ISA) is the natural following milestone -- it can now consume DiscoveryAugmentationResult's coverage/trigger facts as a deterministic close-gate criterion input, which did not exist before this PR; (3) knowledge-engine-web has no visibility into this session's discovery/snowball activity yet -- a future Web PR could surface ResearchQuestionResult.discovery on /ask's response, the same two-repo pattern already used for other AI-layer fields."
+  action: "This session opened a PR adding ke_client.federated_discover_history() and forwarding project_id/research_question_id through federated_discover(), closing knowledge-engine-web's WEB-FRD-5 design doc items 3-4 (docs/roadmap/web_frd5_freshness_history_design.md section 5) now that knowledge-engine-core's FRD-6 follow-up (ke federated-discover --research-question-id/--project-id, ke federated-discover-history) has merged. Purely additive client-boundary work: no policy here decides when to tag a run or diffs two runs. Next continuation: (1) knowledge-engine-web can now resume WEB-FRD-5 design doc items 5-7 (a 'tracked question' product identity for /discover, persistent-disk ledger-root wiring, and the diff-rendering route/template) once it bumps its pinned knowledge-engine-ai revision past this change; (2) a ke federated-coverage-report point-lookup wrapper was deliberately not added -- that Core command has no --output JSON option today, so either Core adds one first or Web's use case stays served by federated_discover_history()'s full-list return, which is sufficient for the known use case; (3) AI-FRD-5 (research freshness / rerun reasoning) still needs the actual 'should we rerun, what changed' judgment layer on top of this client-boundary work -- unstarted. Prior continuation (AI-FRD-3/AI-FRD-4 wiring, discovery_policy.py) has already merged; its own next steps (tune conservative defaults against real traffic, AI-FRD-2 coverage-aware Research ISA, surface ResearchQuestionResult.discovery in Web) remain open but are a separate slice from this session's work."
   selection_rule: "Before beginning roadmap work, query live PR state. Handle failed, green, blocked, conflicted, or pending existing work according to docs/agent-development-policy.md and knowledge-engine-core's shared policy document."
 
-human_decision_required: "This PR's exact numeric defaults (coverage threshold 3, provider/seed limits, execution-second ceilings) were a conservative, clearly-labeled choice made without a specific number from Jeremy -- see the PR description. Tune against real usage once this ships; not a blocker to merge."
+human_decision_required: null
 
 maintenance_contract:
   verify_every_scheduled_run: true
