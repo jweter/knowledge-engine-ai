@@ -540,6 +540,8 @@ def federated_discover(
     providers: tuple[str, ...] | None = None,
     openalex_api_key: str | None = None,
     semantic_scholar_api_key: str | None = None,
+    project_id: str | None = None,
+    research_question_id: str | None = None,
     ke_executable: str = "ke",
     execution_budget: ExecutionBudget | None = None,
 ) -> FederatedDiscoveryResult:
@@ -554,6 +556,16 @@ def federated_discover(
     file -- the caller only sees the typed result. Raises `KeCommandError`
     on command or contract failure and never returns a partial or guessed
     result.
+
+    `project_id`/`research_question_id` are optional internal run context,
+    forwarded to Core's `--project-id`/`--research-question-id` flags (the
+    FRD-6 follow-up that made them CLI-reachable). Neither value enters
+    `FederatedDiscoveryResult` -- Core's own `SearchCoverageReport` never
+    includes them in the public coverage payload (see that type's
+    docstring in `knowledge-engine-core`) -- so a caller that wants a
+    tagged run correlated later must retain `research_question_id` itself
+    and pass it to `federated_discover_history` below. Omitting both
+    preserves every existing call's behavior exactly.
     """
 
     with tempfile.TemporaryDirectory(prefix="ke-federated-discover-") as scratch_dir:
@@ -576,6 +588,10 @@ def federated_discover(
             command += ["--openalex-api-key", openalex_api_key]
         if semantic_scholar_api_key:
             command += ["--semantic-scholar-api-key", semantic_scholar_api_key]
+        if project_id:
+            command += ["--project-id", project_id]
+        if research_question_id:
+            command += ["--research-question-id", research_question_id]
 
         try:
             result = _run_ke_command(
@@ -601,6 +617,178 @@ def federated_discover(
     try:
         return parse_federated_discovery_result(payload)
     except FederatedDiscoveryParseError as exc:
+        raise KeCommandError(str(exc)) from exc
+
+
+class FederatedDiscoverHistoryParseError(RuntimeError):
+    """`ke federated-discover-history --output`'s JSON did not match the expected shape."""
+
+
+@dataclasses.dataclass(frozen=True)
+class SearchCoverageReport:
+    """One persisted federated-discover run's public coverage facts.
+
+    Mirrors Core's ``SearchCoverageReport.to_dict()``
+    (`knowledge_engine/federated_search_ledger.py`) field for field -- the
+    same deterministic, provenance-safe shape ``federated-coverage-report``
+    and `federated-discover --output`'s own ``coverage`` field already
+    expose. ``initiated_by``, ``project_id``, and ``research_question_id``
+    are internal run context and deliberately never appear here, matching
+    Core's own docstring for this type.
+    """
+
+    search_run_id: str
+    created_at: str
+    query_text: str
+    year_from: int | None
+    year_to: int | None
+    limit_per_provider: int
+    completeness: str
+    candidate_count: int
+    providers_requested: tuple[str, ...]
+    providers_attempted: tuple[str, ...]
+    providers_completed: tuple[str, ...]
+    providers_failed: tuple[str, ...]
+
+
+@dataclasses.dataclass(frozen=True)
+class FederatedDiscoverHistoryResult:
+    """One `ke federated-discover-history --output` response, fully parsed and typed."""
+
+    research_question_id: str
+    run_count: int
+    runs: tuple[SearchCoverageReport, ...]
+
+
+def _parse_search_coverage_report(payload: dict[str, Any]) -> SearchCoverageReport:
+    try:
+        return SearchCoverageReport(
+            search_run_id=payload["search_run_id"],
+            created_at=payload["created_at"],
+            query_text=payload["query_text"],
+            year_from=payload.get("year_from"),
+            year_to=payload.get("year_to"),
+            limit_per_provider=payload["limit_per_provider"],
+            completeness=payload["completeness"],
+            candidate_count=payload["candidate_count"],
+            providers_requested=tuple(payload["providers_requested"]),
+            providers_attempted=tuple(payload["providers_attempted"]),
+            providers_completed=tuple(payload["providers_completed"]),
+            providers_failed=tuple(payload["providers_failed"]),
+        )
+    except (KeyError, TypeError) as exc:
+        raise FederatedDiscoverHistoryParseError(
+            f"`ke federated-discover-history --output` payload has a malformed run record: {exc}"
+        ) from exc
+
+
+def parse_federated_discover_history_result(
+    payload: dict[str, Any],
+) -> FederatedDiscoverHistoryResult:
+    """Parse Core's `federated-discover-history --output` snapshot without guessing.
+
+    A `research_question_id` with no recorded runs is an expected, honest
+    state (Core's own command docstring: "a tracked question with no prior
+    recorded search is an expected, honest state"), not an error --
+    ``run_count`` is simply ``0`` and ``runs`` is empty.
+    """
+
+    try:
+        research_question_id = payload["research_question_id"]
+        run_count = payload["run_count"]
+        raw_runs = payload["runs"]
+    except (KeyError, TypeError) as exc:
+        raise FederatedDiscoverHistoryParseError(
+            f"`ke federated-discover-history --output` payload is missing a required field: {exc}"
+        ) from exc
+
+    if not isinstance(raw_runs, list):
+        raise FederatedDiscoverHistoryParseError(
+            "`ke federated-discover-history --output` payload's `runs` field is not a list."
+        )
+
+    runs = tuple(_parse_search_coverage_report(run) for run in raw_runs)
+
+    return FederatedDiscoverHistoryResult(
+        research_question_id=research_question_id,
+        run_count=run_count,
+        runs=runs,
+    )
+
+
+def federated_discover_history(
+    research_question_id: str,
+    *,
+    ledger_root: Path,
+    ke_executable: str = "ke",
+    execution_budget: ExecutionBudget | None = None,
+) -> FederatedDiscoverHistoryResult:
+    """Run `ke federated-discover-history <id> --output <tmp>` and return the parsed result.
+
+    The `ke_client` wrapper for Core's FRD-6 follow-up history command --
+    the first ledger read that discovers which `federated-discover` runs
+    exist for a tracked `research_question_id` at all (see
+    `docs/core_interface_contract.md`). This is the capability
+    `knowledge-engine-web`'s WEB-FRD-5 freshness-history design
+    (`docs/roadmap/web_frd5_freshness_history_design.md`, section 5, items
+    3-4) named as blocking: until this wrapper existed, no run for a
+    tracked question was reachable from Web through the sanctioned
+    `ke_client` boundary at all, even a single one.
+
+    Like `federated_discover` above, structured output is written to
+    `--output <path>` rather than stdout; this wrapper writes that
+    snapshot to a private temporary file, parses it, and discards the
+    file -- the caller only sees the typed result. Deliberately just the
+    subprocess/parse boundary: nothing here decides what "changed" between
+    two runs, diffs them, or renders anything -- that comparison remains a
+    future Web-side concern per the design document's own division of
+    labor (Core/AI supply facts, Web renders a diff over facts it does not
+    invent). Raises `KeCommandError` on command or contract failure and
+    never returns a partial or guessed result. An empty `runs` tuple is a
+    valid, non-error result: Core reports a tracked question with no prior
+    recorded search plainly, never as a failure.
+    """
+
+    with tempfile.TemporaryDirectory(prefix="ke-federated-discover-history-") as scratch_dir:
+        output_path = Path(scratch_dir) / "result.json"
+        command = [
+            _resolve_ke_executable(ke_executable),
+            "federated-discover-history",
+            research_question_id,
+            "--ledger-root",
+            str(ledger_root),
+            "--output",
+            str(output_path),
+        ]
+
+        try:
+            result = _run_ke_command(
+                command,
+                operation="ke federated-discover-history",
+                execution_budget=execution_budget,
+            )
+        except FileNotFoundError as exc:
+            raise KeCommandError(
+                f"Could not run {ke_executable!r} -- "
+                "is knowledge-engine-core installed and on PATH?"
+            ) from exc
+
+        if result.returncode != 0:
+            message = result.stderr.strip() or result.stdout.strip()
+            raise KeCommandError(
+                f"`ke federated-discover-history` exited {result.returncode}: {message}"
+            )
+
+        try:
+            payload = json.loads(output_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise KeCommandError(
+                f"`ke federated-discover-history` did not write a readable JSON output file: {exc}"
+            ) from exc
+
+    try:
+        return parse_federated_discover_history_result(payload)
+    except FederatedDiscoverHistoryParseError as exc:
         raise KeCommandError(str(exc)) from exc
 
 

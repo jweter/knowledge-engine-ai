@@ -10,6 +10,7 @@ import pytest
 from knowledge_engine_ai.execution import ExecutionBudget
 from knowledge_engine_ai.ke_client import (
     CitationSnowballParseError,
+    FederatedDiscoverHistoryParseError,
     FederatedDiscoveryParseError,
     FederatedProviderObservationFlags,
     KeCommandError,
@@ -19,7 +20,9 @@ from knowledge_engine_ai.ke_client import (
     evidence_map_report,
     evidence_report,
     federated_discover,
+    federated_discover_history,
     parse_citation_snowball_result,
+    parse_federated_discover_history_result,
     parse_federated_discovery_result,
     statistical_verify,
 )
@@ -777,6 +780,224 @@ def test_federated_discover_never_uses_a_shell(
     monkeypatch.setattr(subprocess, "run", fake_run)
 
     federated_discover("q", ledger_root=tmp_path / "ledger")
+
+
+def test_federated_discover_forwards_project_id_and_research_question_id_when_supplied(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run(command: list[str], **kwargs: object) -> _FakeCompletedProcess:
+        captured["command"] = command
+        output_index = command.index("--output") + 1
+        Path(command[output_index]).write_text(
+            json.dumps(_VALID_FEDERATED_DISCOVERY_PAYLOAD), encoding="utf-8"
+        )
+        return _FakeCompletedProcess(0, "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    federated_discover(
+        "q",
+        ledger_root=tmp_path / "ledger",
+        project_id="proj-1",
+        research_question_id="rq-1",
+    )
+
+    command = captured["command"]
+    assert isinstance(command, list)
+    assert "--project-id" in command and command[command.index("--project-id") + 1] == "proj-1"
+    assert (
+        "--research-question-id" in command
+        and command[command.index("--research-question-id") + 1] == "rq-1"
+    )
+
+
+def test_federated_discover_omits_project_id_and_research_question_id_by_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Omitting both flags preserves every existing caller's behavior exactly."""
+
+    captured: dict[str, object] = {}
+
+    def fake_run(command: list[str], **kwargs: object) -> _FakeCompletedProcess:
+        captured["command"] = command
+        output_index = command.index("--output") + 1
+        Path(command[output_index]).write_text(
+            json.dumps(_VALID_FEDERATED_DISCOVERY_PAYLOAD), encoding="utf-8"
+        )
+        return _FakeCompletedProcess(0, "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    federated_discover("q", ledger_root=tmp_path / "ledger")
+
+    command = captured["command"]
+    assert isinstance(command, list)
+    assert "--project-id" not in command
+    assert "--research-question-id" not in command
+
+
+_VALID_FEDERATED_DISCOVER_HISTORY_PAYLOAD = {
+    "research_question_id": "rq-1",
+    "run_count": 2,
+    "runs": [
+        {
+            "search_run_id": "33333333-3333-3333-3333-333333333333",
+            "created_at": "2026-08-19T09:14:00+00:00",
+            "query_text": "semaglutide weight loss",
+            "year_from": None,
+            "year_to": None,
+            "limit_per_provider": 20,
+            "completeness": "complete",
+            "candidate_count": 5,
+            "providers_requested": ["pubmed", "crossref"],
+            "providers_attempted": ["pubmed", "crossref"],
+            "providers_completed": ["pubmed", "crossref"],
+            "providers_failed": [],
+        },
+        {
+            "search_run_id": "44444444-4444-4444-4444-444444444444",
+            "created_at": "2026-06-01T08:00:00+00:00",
+            "query_text": "semaglutide weight loss",
+            "year_from": None,
+            "year_to": None,
+            "limit_per_provider": 20,
+            "completeness": "partial",
+            "candidate_count": 1,
+            "providers_requested": ["pubmed", "crossref"],
+            "providers_attempted": ["pubmed", "crossref"],
+            "providers_completed": ["pubmed"],
+            "providers_failed": ["crossref"],
+        },
+    ],
+}
+
+
+def test_parse_federated_discover_history_result_parses_a_valid_payload() -> None:
+    result = parse_federated_discover_history_result(_VALID_FEDERATED_DISCOVER_HISTORY_PAYLOAD)
+
+    assert result.research_question_id == "rq-1"
+    assert result.run_count == 2
+    assert len(result.runs) == 2
+    assert result.runs[0].search_run_id == "33333333-3333-3333-3333-333333333333"
+    assert result.runs[0].completeness == "complete"
+    assert result.runs[0].providers_failed == ()
+    assert result.runs[1].providers_failed == ("crossref",)
+
+
+def test_parse_federated_discover_history_result_handles_no_matching_runs() -> None:
+    """A tracked question with no prior recorded search is an honest, non-error state."""
+
+    payload = {"research_question_id": "rq-unseen", "run_count": 0, "runs": []}
+
+    result = parse_federated_discover_history_result(payload)
+
+    assert result.run_count == 0
+    assert result.runs == ()
+
+
+def test_parse_federated_discover_history_result_raises_on_a_missing_field() -> None:
+    payload = {k: v for k, v in _VALID_FEDERATED_DISCOVER_HISTORY_PAYLOAD.items() if k != "runs"}
+
+    with pytest.raises(FederatedDiscoverHistoryParseError, match="missing a required field"):
+        parse_federated_discover_history_result(payload)
+
+
+def test_parse_federated_discover_history_result_raises_on_a_malformed_run() -> None:
+    payload = {
+        "research_question_id": "rq-1",
+        "run_count": 1,
+        "runs": [{"search_run_id": "only-one-field"}],
+    }
+
+    with pytest.raises(FederatedDiscoverHistoryParseError, match="malformed run record"):
+        parse_federated_discover_history_result(payload)
+
+
+def test_federated_discover_history_runs_the_expected_command_and_parses_the_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run(command: list[str], **kwargs: object) -> _FakeCompletedProcess:
+        captured["command"] = command
+        output_index = command.index("--output") + 1
+        Path(command[output_index]).write_text(
+            json.dumps(_VALID_FEDERATED_DISCOVER_HISTORY_PAYLOAD), encoding="utf-8"
+        )
+        return _FakeCompletedProcess(0, "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    ledger_root = tmp_path / "ledger"
+
+    result = federated_discover_history("rq-1", ledger_root=ledger_root)
+
+    assert result.research_question_id == "rq-1"
+    assert result.run_count == 2
+    command = captured["command"]
+    assert isinstance(command, list)
+    assert command[:3] == ["ke", "federated-discover-history", "rq-1"]
+    assert "--ledger-root" in command and command[command.index("--ledger-root") + 1] == str(
+        ledger_root
+    )
+    assert "--output" in command
+
+
+def test_federated_discover_history_raises_on_a_nonzero_exit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fake_run(command: list[str], **kwargs: object) -> _FakeCompletedProcess:
+        return _FakeCompletedProcess(1, "", "boom")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    with pytest.raises(KeCommandError, match="exited 1"):
+        federated_discover_history("rq-1", ledger_root=tmp_path / "ledger")
+
+
+def test_federated_discover_history_raises_when_the_output_file_is_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fake_run(command: list[str], **kwargs: object) -> _FakeCompletedProcess:
+        return _FakeCompletedProcess(0, "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    with pytest.raises(KeCommandError, match="did not write a readable JSON output file"):
+        federated_discover_history("rq-1", ledger_root=tmp_path / "ledger")
+
+
+def test_federated_discover_history_raises_a_clear_error_when_ke_is_not_installed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fake_run(command: list[str], **kwargs: object) -> _FakeCompletedProcess:
+        raise FileNotFoundError("ke")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    with pytest.raises(KeCommandError, match="is knowledge-engine-core installed"):
+        federated_discover_history("rq-1", ledger_root=tmp_path / "ledger")
+
+
+def test_federated_discover_history_never_uses_a_shell(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured_kwargs: dict[str, object] = {}
+
+    def fake_run(command: list[str], **kwargs: object) -> _FakeCompletedProcess:
+        captured_kwargs.update(kwargs)
+        output_index = command.index("--output") + 1
+        Path(command[output_index]).write_text(
+            json.dumps(_VALID_FEDERATED_DISCOVER_HISTORY_PAYLOAD), encoding="utf-8"
+        )
+        return _FakeCompletedProcess(0, "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    federated_discover_history("rq-1", ledger_root=tmp_path / "ledger")
+
+    assert captured_kwargs.get("shell", False) is False
 
 
 _VALID_CITATION_SNOWBALL_PAYLOAD = {

@@ -9,6 +9,24 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`ke_client.federated_discover_history()` added; `federated_discover()`
+  now forwards `project_id`/`research_question_id`.** Closes the two
+  `knowledge-engine-ai` blockers named by `knowledge-engine-web`'s WEB-FRD-5
+  design doc (`web_frd5_freshness_history_design.md` section 5, items 3-4),
+  now that Core's FRD-6 follow-up (`ke federated-discover
+  --research-question-id`/`--project-id`, `ke federated-discover-history
+  <id>`) has merged. `federated_discover_history()` shells out to Core's new
+  history command and parses its `--output` JSON into a typed
+  `FederatedDiscoverHistoryResult` (a tuple of `SearchCoverageReport`, one
+  per persisted run for the tracked question, newest first); a
+  `research_question_id` with no prior recorded search returns an empty,
+  non-error result. `federated_discover()`'s two new optional keyword
+  parameters default to `None` and are omitted from the command line when
+  unset, so every existing caller is unaffected. See
+  `docs/roadmap/federated_discovery_orchestration_adoption.md`'s matching
+  entry for why a `ke federated-coverage-report` point-lookup wrapper was
+  not added in this change.
+
 - **AI-FRD-3/AI-FRD-4 wired into `run_research_question`'s own planning
   (`copilot/discovery_policy.py`), closing this milestone's long-standing
   "known gap."** Jeremy's explicit product-owner decision: "continue with
