@@ -9,6 +9,30 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Core's `corrected`/`expression_of_concern`/`withdrawn` provider
+  observation flags are now parsed at the `ke_client` boundary.**
+  `knowledge-engine-core`'s `ProviderObservation` gained these three flags
+  alongside the existing `retracted`, and Core PR #396 ("Wire Crossref
+  update-to relation into ProviderObservation publication-status flags",
+  `4866ebd`) made Crossref's `update-to` relation a real source of data for
+  them rather than present-but-always-`None` schema fields. Both
+  `FederatedProviderObservationFlags` (the at-request-time subset shared by
+  `parse_federated_discovery_result` and `parse_citation_snowball_result`)
+  and `FederatedCandidateObservation` (the richer persisted shape that
+  documents itself as mirroring Core's `CandidateObservationRecord.to_dict()`
+  field for field, and had drifted from it) carry the three new fields. Each
+  defaults to `None`, so an older Core payload -- or a provider that never
+  reports the flag -- parses to explicit unknown rather than a guessed
+  `False`, the same "absent is not negative" contract already applied to
+  `retracted`. The four flags are independent, not one status enum: a work
+  may carry more than one at once, and a provider asserting one says nothing
+  about the others. `ke-ai discover` and `ke-ai citation-snowball` surface
+  each flag in their per-provider note line only when a provider actually
+  asserted it `True`. Purely additive -- no existing caller's behavior
+  changes, and nothing here merges, votes on, or picks an authoritative
+  value across providers, nor decides what a publication-status flag means
+  for evidence quality.
+
 - **`ke_client.federated_coverage_report()` added -- the point-lookup wrapper
   previously deferred pending a Core `--output` option.** Core's FRD-6
   candidate-snapshot follow-up (`96d30ac`, "Persist federated-discover
