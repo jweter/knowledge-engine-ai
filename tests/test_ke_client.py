@@ -632,6 +632,75 @@ def test_parse_federated_discovery_result_preserves_per_provider_retraction_flag
     assert result.candidates[0].providers == ("arxiv", "crossref", "pubmed")
 
 
+def test_parse_federated_discovery_result_preserves_independent_publication_status_flags() -> None:
+    """Core's four publication-status flags are independent, not one status enum.
+
+    A Crossref-sourced candidate can carry more than one at once (a work that
+    was corrected and later retracted), and a provider asserting one says
+    nothing about the others -- so an unreported flag stays `None`, never a
+    guessed `False`.
+    """
+
+    payload = {
+        **_VALID_FEDERATED_DISCOVERY_PAYLOAD,
+        "candidates": [
+            {
+                "canonical_id": "doi:10.1000/example",
+                "title": "A semaglutide trial",
+                "doi": "10.1000/example",
+                "publication_year": 2026,
+                "observations": [
+                    {
+                        "provider": "crossref",
+                        "retracted": True,
+                        "corrected": True,
+                        "expression_of_concern": True,
+                        "withdrawn": True,
+                    },
+                    {"provider": "openalex", "retracted": False},
+                ],
+            }
+        ],
+    }
+
+    result = parse_federated_discovery_result(payload)
+
+    flags = {flag.provider: flag for flag in result.candidates[0].observation_flags}
+    assert flags["crossref"] == FederatedProviderObservationFlags(
+        provider="crossref",
+        retracted=True,
+        preprint=None,
+        preprint_version=None,
+        corrected=True,
+        expression_of_concern=True,
+        withdrawn=True,
+    )
+    # OpenAlex reports only `is_retracted`; the other three stay unknown.
+    assert flags["openalex"] == FederatedProviderObservationFlags(
+        provider="openalex",
+        retracted=False,
+        preprint=None,
+        preprint_version=None,
+        corrected=None,
+        expression_of_concern=None,
+        withdrawn=None,
+    )
+
+
+def test_parse_federated_discovery_result_defaults_new_status_flags_to_none_when_absent() -> None:
+    """A Core run predating the three newer flags must parse them as unknown."""
+
+    flags = (
+        parse_federated_discovery_result(_VALID_FEDERATED_DISCOVERY_PAYLOAD)
+        .candidates[0]
+        .observation_flags
+    )
+
+    assert flags[0].corrected is None
+    assert flags[0].expression_of_concern is None
+    assert flags[0].withdrawn is None
+
+
 def test_parse_federated_discovery_result_parses_search_run_created_at_from_coverage() -> None:
     """Core's public `coverage` block carries the search run's own timestamp.
 
@@ -1080,6 +1149,37 @@ def test_parse_federated_coverage_report_result_parses_a_valid_payload() -> None
     assert observation.open_access is True
 
 
+def test_parse_federated_coverage_report_result_preserves_publication_status_flags() -> None:
+    """The persisted observation shape mirrors Core's record field for field.
+
+    Core's `CandidateObservationRecord` gained `corrected`/
+    `expression_of_concern`/`withdrawn` alongside the existing `retracted`;
+    a ledger record written before they existed parses them as `None`.
+    """
+
+    payload = json.loads(json.dumps(_VALID_FEDERATED_COVERAGE_REPORT_PAYLOAD))
+    payload["candidates"][0]["observations"][0].update(
+        {"corrected": True, "expression_of_concern": True, "withdrawn": False}
+    )
+
+    observation = parse_federated_coverage_report_result(payload).candidates[0].observations[0]
+
+    assert observation.corrected is True
+    assert observation.expression_of_concern is True
+    assert observation.withdrawn is False
+    # Unchanged pre-existing flag, parsed from the same record.
+    assert observation.retracted is False
+
+    older = (
+        parse_federated_coverage_report_result(_VALID_FEDERATED_COVERAGE_REPORT_PAYLOAD)
+        .candidates[0]
+        .observations[0]
+    )
+    assert older.corrected is None
+    assert older.expression_of_concern is None
+    assert older.withdrawn is None
+
+
 def test_parse_federated_coverage_report_result_handles_no_recorded_candidates() -> None:
     """A run persisted before Core's candidate-snapshot follow-up has an honest empty list."""
 
@@ -1289,6 +1389,42 @@ def test_parse_citation_snowball_result_defaults_observation_flags_to_none_when_
     assert flags == (
         FederatedProviderObservationFlags(
             provider="semantic_scholar", retracted=None, preprint=None, preprint_version=None
+        ),
+    )
+
+
+def test_parse_citation_snowball_result_preserves_independent_publication_status_flags() -> None:
+    payload = {
+        **_VALID_CITATION_SNOWBALL_PAYLOAD,
+        "candidates": [
+            {
+                "canonical_id": "doi:10.1000/found",
+                "title": "A downstream trial",
+                "doi": "10.1000/found",
+                "publication_year": 2025,
+                "observations": [
+                    {
+                        "provider": "crossref",
+                        "corrected": True,
+                        "expression_of_concern": True,
+                        "withdrawn": True,
+                    },
+                ],
+            }
+        ],
+    }
+
+    result = parse_citation_snowball_result(payload)
+
+    assert result.candidates[0].observation_flags == (
+        FederatedProviderObservationFlags(
+            provider="crossref",
+            retracted=None,
+            preprint=None,
+            preprint_version=None,
+            corrected=True,
+            expression_of_concern=True,
+            withdrawn=True,
         ),
     )
 

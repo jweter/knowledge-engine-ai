@@ -372,19 +372,27 @@ class FederatedCandidateDisagreements:
 
 @dataclasses.dataclass(frozen=True)
 class FederatedProviderObservationFlags:
-    """One provider's retraction/preprint observation for one candidate.
+    """One provider's publication-status/preprint observation for one candidate.
 
     These are provider-native assertions, preserved per-provider like
     ``FederatedProviderAssertion`` above -- AI does not merge, vote on, or
     pick an authoritative value across providers. ``None`` means the
     provider did not report the flag, which is distinct from the provider
     reporting ``False``.
+
+    ``retracted``/``corrected``/``expression_of_concern``/``withdrawn`` are
+    four independent Core flags, not one status enum: a work may carry more
+    than one at once, and a provider reporting one says nothing about the
+    others.
     """
 
     provider: str
     retracted: bool | None
     preprint: bool | None
     preprint_version: int | None
+    corrected: bool | None = None
+    expression_of_concern: bool | None = None
+    withdrawn: bool | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -426,7 +434,8 @@ def parse_federated_discovery_result(payload: dict[str, Any]) -> FederatedDiscov
     not contain the disagreement report remain explicitly ``None`` rather than
     being misrepresented as an empty report.
 
-    Each candidate's per-provider ``retracted``/``preprint``/``preprint_version``
+    Each candidate's per-provider ``retracted``/``corrected``/
+    ``expression_of_concern``/``withdrawn``/``preprint``/``preprint_version``
     observations (Core's ``ProviderObservation`` fields) are preserved as
     ``FederatedCandidateSummary.observation_flags``, one entry per provider
     observation, unmerged and unvoted-on across providers. A provider
@@ -488,6 +497,9 @@ def parse_federated_discovery_result(payload: dict[str, Any]) -> FederatedDiscov
                         retracted=observation.get("retracted"),
                         preprint=observation.get("preprint"),
                         preprint_version=observation.get("preprint_version"),
+                        corrected=observation.get("corrected"),
+                        expression_of_concern=observation.get("expression_of_concern"),
+                        withdrawn=observation.get("withdrawn"),
                     )
                     for observation in candidate["observations"]
                 ),
@@ -806,7 +818,7 @@ class FederatedCandidateObservation:
     now exposes for one specific past run by ID. This is a richer shape than
     `FederatedProviderObservationFlags` above: that type is
     `federated_discover`'s at-request-time subset (only the
-    retracted/preprint/preprint_version flags); this type is every field
+    publication-status and preprint flags); this type is every field
     Core persisted for the observation. AI does not merge, vote on, or pick
     an authoritative provider value across observations.
     """
@@ -839,6 +851,9 @@ class FederatedCandidateObservation:
     related_journal_doi: str | None
     related_journal_reference: str | None
     retrieved_at: str | None
+    corrected: bool | None = None
+    expression_of_concern: bool | None = None
+    withdrawn: bool | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -909,6 +924,9 @@ def _parse_federated_candidate_observation(
             related_journal_doi=payload.get("related_journal_doi"),
             related_journal_reference=payload.get("related_journal_reference"),
             retrieved_at=payload.get("retrieved_at"),
+            corrected=payload.get("corrected"),
+            expression_of_concern=payload.get("expression_of_concern"),
+            withdrawn=payload.get("withdrawn"),
         )
     except (KeyError, TypeError) as exc:
         raise FederatedCoverageReportParseError(
@@ -1116,7 +1134,8 @@ class CitationSnowballResult:
 def parse_citation_snowball_result(payload: dict[str, Any]) -> CitationSnowballResult:
     """Parse Core's citation-snowball `--output` snapshot without guessing omitted facts.
 
-    Each candidate's per-provider `retracted`/`preprint`/`preprint_version`
+    Each candidate's per-provider `retracted`/`corrected`/
+    `expression_of_concern`/`withdrawn`/`preprint`/`preprint_version`
     observations are preserved as `observation_flags`, the same
     "absent is not negative" contract `parse_federated_discovery_result`
     uses -- a provider observation that omits these fields parses to
@@ -1157,6 +1176,9 @@ def parse_citation_snowball_result(payload: dict[str, Any]) -> CitationSnowballR
                         retracted=observation.get("retracted"),
                         preprint=observation.get("preprint"),
                         preprint_version=observation.get("preprint_version"),
+                        corrected=observation.get("corrected"),
+                        expression_of_concern=observation.get("expression_of_concern"),
+                        withdrawn=observation.get("withdrawn"),
                     )
                     for observation in candidate["observations"]
                 ),

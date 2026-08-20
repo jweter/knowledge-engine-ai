@@ -701,6 +701,12 @@ def _print_discovery_result(result: FederatedDiscoveryResult) -> None:
             notes = []
             if flag.retracted:
                 notes.append("retracted")
+            if flag.withdrawn:
+                notes.append("withdrawn")
+            if flag.expression_of_concern:
+                notes.append("expression of concern")
+            if flag.corrected:
+                notes.append("corrected")
             if flag.preprint:
                 version = f" v{flag.preprint_version}" if flag.preprint_version else ""
                 notes.append(f"preprint{version}")
@@ -810,6 +816,12 @@ def _print_citation_snowball_result(result: CitationSnowballResult) -> None:
             notes = []
             if flag.retracted:
                 notes.append("retracted")
+            if flag.withdrawn:
+                notes.append("withdrawn")
+            if flag.expression_of_concern:
+                notes.append("expression of concern")
+            if flag.corrected:
+                notes.append("corrected")
             if flag.preprint:
                 version = f" v{flag.preprint_version}" if flag.preprint_version else ""
                 notes.append(f"preprint{version}")
