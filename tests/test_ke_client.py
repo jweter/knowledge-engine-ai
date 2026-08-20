@@ -10,6 +10,7 @@ import pytest
 from knowledge_engine_ai.execution import ExecutionBudget
 from knowledge_engine_ai.ke_client import (
     CitationSnowballParseError,
+    FederatedCoverageReportParseError,
     FederatedDiscoverHistoryParseError,
     FederatedDiscoveryParseError,
     FederatedProviderObservationFlags,
@@ -19,9 +20,11 @@ from knowledge_engine_ai.ke_client import (
     evidence_intelligence,
     evidence_map_report,
     evidence_report,
+    federated_coverage_report,
     federated_discover,
     federated_discover_history,
     parse_citation_snowball_result,
+    parse_federated_coverage_report_result,
     parse_federated_discover_history_result,
     parse_federated_discovery_result,
     statistical_verify,
@@ -996,6 +999,210 @@ def test_federated_discover_history_never_uses_a_shell(
     monkeypatch.setattr(subprocess, "run", fake_run)
 
     federated_discover_history("rq-1", ledger_root=tmp_path / "ledger")
+
+    assert captured_kwargs.get("shell", False) is False
+
+
+_VALID_FEDERATED_COVERAGE_REPORT_PAYLOAD = {
+    "search_run_id": "33333333-3333-3333-3333-333333333333",
+    "coverage": {
+        "search_run_id": "33333333-3333-3333-3333-333333333333",
+        "created_at": "2026-08-19T09:14:00+00:00",
+        "query_text": "semaglutide weight loss",
+        "year_from": None,
+        "year_to": None,
+        "limit_per_provider": 20,
+        "completeness": "complete",
+        "candidate_count": 1,
+        "providers_requested": ["alpha"],
+        "providers_attempted": ["alpha"],
+        "providers_completed": ["alpha"],
+        "providers_failed": [],
+    },
+    "candidates": [
+        {
+            "canonical_id": "canon-1",
+            "title": "A paper found by alpha",
+            "doi": "10.1000/alpha-1",
+            "publication_year": 2024,
+            "observations": [
+                {
+                    "provider": "alpha",
+                    "provider_id": "alpha-1",
+                    "title": "A paper found by alpha",
+                    "authors": ["A. Author"],
+                    "publication_year": 2024,
+                    "venue": "Journal of Alpha",
+                    "abstract": "An abstract.",
+                    "doi": "10.1000/alpha-1",
+                    "pmid": None,
+                    "pmcid": None,
+                    "arxiv_id": None,
+                    "openalex_id": None,
+                    "semantic_scholar_id": None,
+                    "landing_url": "https://example.org/alpha-1",
+                    "full_text_url": None,
+                    "xml_url": None,
+                    "license": None,
+                    "metadata_source": "alpha",
+                    "pmcid_source": None,
+                    "open_access_source": None,
+                    "citation_count": 3,
+                    "open_access": True,
+                    "retracted": False,
+                    "preprint": False,
+                    "preprint_version": None,
+                    "related_journal_doi": None,
+                    "related_journal_reference": None,
+                    "retrieved_at": "2026-08-19T09:14:00+00:00",
+                }
+            ],
+        }
+    ],
+}
+
+
+def test_parse_federated_coverage_report_result_parses_a_valid_payload() -> None:
+    result = parse_federated_coverage_report_result(_VALID_FEDERATED_COVERAGE_REPORT_PAYLOAD)
+
+    assert result.search_run_id == "33333333-3333-3333-3333-333333333333"
+    assert result.coverage.completeness == "complete"
+    assert result.coverage.candidate_count == 1
+    assert len(result.candidates) == 1
+    candidate = result.candidates[0]
+    assert candidate.canonical_id == "canon-1"
+    assert candidate.doi == "10.1000/alpha-1"
+    assert len(candidate.observations) == 1
+    observation = candidate.observations[0]
+    assert observation.provider == "alpha"
+    assert observation.authors == ("A. Author",)
+    assert observation.citation_count == 3
+    assert observation.open_access is True
+
+
+def test_parse_federated_coverage_report_result_handles_no_recorded_candidates() -> None:
+    """A run persisted before Core's candidate-snapshot follow-up has an honest empty list."""
+
+    payload = dict(_VALID_FEDERATED_COVERAGE_REPORT_PAYLOAD)
+    payload["candidates"] = []
+
+    result = parse_federated_coverage_report_result(payload)
+
+    assert result.candidates == ()
+
+
+def test_parse_federated_coverage_report_result_raises_on_a_missing_field() -> None:
+    payload = {
+        k: v for k, v in _VALID_FEDERATED_COVERAGE_REPORT_PAYLOAD.items() if k != "candidates"
+    }
+
+    with pytest.raises(FederatedCoverageReportParseError, match="missing a required field"):
+        parse_federated_coverage_report_result(payload)
+
+
+def test_parse_federated_coverage_report_result_raises_on_a_malformed_coverage_record() -> None:
+    payload = dict(_VALID_FEDERATED_COVERAGE_REPORT_PAYLOAD)
+    payload["coverage"] = {"search_run_id": "only-one-field"}
+
+    with pytest.raises(FederatedCoverageReportParseError, match="malformed coverage record"):
+        parse_federated_coverage_report_result(payload)
+
+
+def test_parse_federated_coverage_report_result_raises_on_a_malformed_candidate() -> None:
+    payload = dict(_VALID_FEDERATED_COVERAGE_REPORT_PAYLOAD)
+    payload["candidates"] = [{"canonical_id": "only-one-field"}]
+
+    with pytest.raises(FederatedCoverageReportParseError, match="malformed candidate"):
+        parse_federated_coverage_report_result(payload)
+
+
+def test_federated_coverage_report_runs_the_expected_command_and_parses_the_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run(command: list[str], **kwargs: object) -> _FakeCompletedProcess:
+        captured["command"] = command
+        output_index = command.index("--output") + 1
+        Path(command[output_index]).write_text(
+            json.dumps(_VALID_FEDERATED_COVERAGE_REPORT_PAYLOAD), encoding="utf-8"
+        )
+        return _FakeCompletedProcess(0, "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    ledger_root = tmp_path / "ledger"
+
+    result = federated_coverage_report(
+        "33333333-3333-3333-3333-333333333333", ledger_root=ledger_root
+    )
+
+    assert result.search_run_id == "33333333-3333-3333-3333-333333333333"
+    assert len(result.candidates) == 1
+    command = captured["command"]
+    assert isinstance(command, list)
+    assert command[:3] == [
+        "ke",
+        "federated-coverage-report",
+        "33333333-3333-3333-3333-333333333333",
+    ]
+    assert "--ledger-root" in command and command[command.index("--ledger-root") + 1] == str(
+        ledger_root
+    )
+    assert "--output" in command
+
+
+def test_federated_coverage_report_raises_on_a_nonzero_exit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fake_run(command: list[str], **kwargs: object) -> _FakeCompletedProcess:
+        return _FakeCompletedProcess(1, "", "boom")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    with pytest.raises(KeCommandError, match="exited 1"):
+        federated_coverage_report("run-1", ledger_root=tmp_path / "ledger")
+
+
+def test_federated_coverage_report_raises_when_the_output_file_is_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fake_run(command: list[str], **kwargs: object) -> _FakeCompletedProcess:
+        return _FakeCompletedProcess(0, "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    with pytest.raises(KeCommandError, match="did not write a readable JSON output file"):
+        federated_coverage_report("run-1", ledger_root=tmp_path / "ledger")
+
+
+def test_federated_coverage_report_raises_a_clear_error_when_ke_is_not_installed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fake_run(command: list[str], **kwargs: object) -> _FakeCompletedProcess:
+        raise FileNotFoundError("ke")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    with pytest.raises(KeCommandError, match="is knowledge-engine-core installed"):
+        federated_coverage_report("run-1", ledger_root=tmp_path / "ledger")
+
+
+def test_federated_coverage_report_never_uses_a_shell(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured_kwargs: dict[str, object] = {}
+
+    def fake_run(command: list[str], **kwargs: object) -> _FakeCompletedProcess:
+        captured_kwargs.update(kwargs)
+        output_index = command.index("--output") + 1
+        Path(command[output_index]).write_text(
+            json.dumps(_VALID_FEDERATED_COVERAGE_REPORT_PAYLOAD), encoding="utf-8"
+        )
+        return _FakeCompletedProcess(0, "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    federated_coverage_report("run-1", ledger_root=tmp_path / "ledger")
 
     assert captured_kwargs.get("shell", False) is False
 

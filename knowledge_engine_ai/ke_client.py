@@ -792,6 +792,278 @@ def federated_discover_history(
         raise KeCommandError(str(exc)) from exc
 
 
+class FederatedCoverageReportParseError(RuntimeError):
+    """`ke federated-coverage-report --output`'s JSON did not match the expected shape."""
+
+
+@dataclasses.dataclass(frozen=True)
+class FederatedCandidateObservation:
+    """One provider's full persisted observation of one candidate, for one past run.
+
+    Mirrors Core's `CandidateObservationRecord.to_dict()`
+    (`knowledge_engine/federated_search_ledger.py`) field for field -- the
+    durable, per-provider observation `federated-coverage-report --output`
+    now exposes for one specific past run by ID. This is a richer shape than
+    `FederatedProviderObservationFlags` above: that type is
+    `federated_discover`'s at-request-time subset (only the
+    retracted/preprint/preprint_version flags); this type is every field
+    Core persisted for the observation. AI does not merge, vote on, or pick
+    an authoritative provider value across observations.
+    """
+
+    provider: str
+    provider_id: str
+    title: str
+    authors: tuple[str, ...]
+    publication_year: int | None
+    venue: str | None
+    abstract: str | None
+    doi: str | None
+    pmid: str | None
+    pmcid: str | None
+    arxiv_id: str | None
+    openalex_id: str | None
+    semantic_scholar_id: str | None
+    landing_url: str | None
+    full_text_url: str | None
+    xml_url: str | None
+    license: str | None
+    metadata_source: str | None
+    pmcid_source: str | None
+    open_access_source: str | None
+    citation_count: int | None
+    open_access: bool | None
+    retracted: bool | None
+    preprint: bool | None
+    preprint_version: int | None
+    related_journal_doi: str | None
+    related_journal_reference: str | None
+    retrieved_at: str | None
+
+
+@dataclasses.dataclass(frozen=True)
+class FederatedCandidateRecord:
+    """One persisted deduplicated candidate for a specific past federated-discover run.
+
+    Mirrors Core's `CandidateRecord.to_dict()` field for field.
+    ``canonical_id`` is Core-owned work identity; AI does not re-deduplicate
+    candidates or select an authoritative provider observation. A run
+    persisted before Core's candidate-snapshot follow-up landed has no
+    candidates recorded -- Core reports that as an honest empty list, never
+    a fabricated or reconstructed one, and this type is unchanged either way.
+    """
+
+    canonical_id: str
+    title: str
+    observations: tuple[FederatedCandidateObservation, ...]
+    doi: str | None
+    publication_year: int | None
+
+
+@dataclasses.dataclass(frozen=True)
+class FederatedCoverageReportResult:
+    """One `ke federated-coverage-report --output` response, fully parsed and typed.
+
+    Pairs one past run's public `SearchCoverageReport` with that same run's
+    full deduplicated candidate snapshot -- the point-lookup capability
+    `docs/roadmap/federated_discovery_orchestration_adoption.md` named as
+    deliberately deferred until Core added an `--output` option to
+    `federated-coverage-report`.
+    """
+
+    search_run_id: str
+    coverage: SearchCoverageReport
+    candidates: tuple[FederatedCandidateRecord, ...]
+
+
+def _parse_federated_candidate_observation(
+    payload: dict[str, Any],
+) -> FederatedCandidateObservation:
+    try:
+        return FederatedCandidateObservation(
+            provider=payload["provider"],
+            provider_id=payload["provider_id"],
+            title=payload["title"],
+            authors=tuple(payload.get("authors") or ()),
+            publication_year=payload.get("publication_year"),
+            venue=payload.get("venue"),
+            abstract=payload.get("abstract"),
+            doi=payload.get("doi"),
+            pmid=payload.get("pmid"),
+            pmcid=payload.get("pmcid"),
+            arxiv_id=payload.get("arxiv_id"),
+            openalex_id=payload.get("openalex_id"),
+            semantic_scholar_id=payload.get("semantic_scholar_id"),
+            landing_url=payload.get("landing_url"),
+            full_text_url=payload.get("full_text_url"),
+            xml_url=payload.get("xml_url"),
+            license=payload.get("license"),
+            metadata_source=payload.get("metadata_source"),
+            pmcid_source=payload.get("pmcid_source"),
+            open_access_source=payload.get("open_access_source"),
+            citation_count=payload.get("citation_count"),
+            open_access=payload.get("open_access"),
+            retracted=payload.get("retracted"),
+            preprint=payload.get("preprint"),
+            preprint_version=payload.get("preprint_version"),
+            related_journal_doi=payload.get("related_journal_doi"),
+            related_journal_reference=payload.get("related_journal_reference"),
+            retrieved_at=payload.get("retrieved_at"),
+        )
+    except (KeyError, TypeError) as exc:
+        raise FederatedCoverageReportParseError(
+            "`ke federated-coverage-report --output` payload has a malformed "
+            f"candidate observation: {exc}"
+        ) from exc
+
+
+def _parse_federated_candidate_record(payload: dict[str, Any]) -> FederatedCandidateRecord:
+    try:
+        canonical_id = payload["canonical_id"]
+        title = payload["title"]
+        raw_observations = payload["observations"]
+    except (KeyError, TypeError) as exc:
+        raise FederatedCoverageReportParseError(
+            f"`ke federated-coverage-report --output` payload has a malformed candidate: {exc}"
+        ) from exc
+
+    if not isinstance(raw_observations, list):
+        raise FederatedCoverageReportParseError(
+            "`ke federated-coverage-report --output` payload's candidate "
+            "`observations` field is not a list."
+        )
+
+    return FederatedCandidateRecord(
+        canonical_id=canonical_id,
+        title=title,
+        observations=tuple(
+            _parse_federated_candidate_observation(observation) for observation in raw_observations
+        ),
+        doi=payload.get("doi"),
+        publication_year=payload.get("publication_year"),
+    )
+
+
+def parse_federated_coverage_report_result(
+    payload: dict[str, Any],
+) -> FederatedCoverageReportResult:
+    """Parse Core's `federated-coverage-report --output` snapshot without guessing.
+
+    A run persisted before Core's candidate-snapshot follow-up existed
+    carries an empty `candidates` list -- Core's own documented, honest
+    "not recorded" state, not an error here either.
+    """
+
+    try:
+        search_run_id = payload["search_run_id"]
+        raw_coverage = payload["coverage"]
+        raw_candidates = payload["candidates"]
+    except (KeyError, TypeError) as exc:
+        raise FederatedCoverageReportParseError(
+            f"`ke federated-coverage-report --output` payload is missing a required field: {exc}"
+        ) from exc
+
+    if not isinstance(raw_coverage, dict):
+        raise FederatedCoverageReportParseError(
+            "`ke federated-coverage-report --output` payload's `coverage` field is not an object."
+        )
+    if not isinstance(raw_candidates, list):
+        raise FederatedCoverageReportParseError(
+            "`ke federated-coverage-report --output` payload's `candidates` field is not a list."
+        )
+
+    try:
+        coverage = _parse_search_coverage_report(raw_coverage)
+    except FederatedDiscoverHistoryParseError as exc:
+        raise FederatedCoverageReportParseError(
+            "`ke federated-coverage-report --output` payload has a malformed "
+            f"coverage record: {exc}"
+        ) from exc
+
+    candidates = tuple(_parse_federated_candidate_record(candidate) for candidate in raw_candidates)
+
+    return FederatedCoverageReportResult(
+        search_run_id=search_run_id,
+        coverage=coverage,
+        candidates=candidates,
+    )
+
+
+def federated_coverage_report(
+    search_run_id: str,
+    *,
+    ledger_root: Path,
+    ke_executable: str = "ke",
+    execution_budget: ExecutionBudget | None = None,
+) -> FederatedCoverageReportResult:
+    """Run `ke federated-coverage-report <id> --ledger-root <dir> --output <tmp>`.
+
+    The `ke_client` wrapper for Core's FRD-6 candidate-snapshot follow-up
+    (`docs/core_interface_contract.md`): a point lookup of one specific past
+    federated-discover run's public coverage facts plus its full
+    deduplicated candidate snapshot (title, DOI, publication year, and every
+    provider's full observation), now durable in Core's
+    `FederatedSearchLedger` and re-fetchable by `search_run_id` without
+    rerunning the search. This is the point-lookup wrapper
+    `docs/roadmap/federated_discovery_orchestration_adoption.md` recorded as
+    deliberately deferred until Core added an `--output` option to this
+    command -- it now has one.
+
+    Like `federated_discover`/`federated_discover_history` above,
+    structured output is written to `--output <path>` rather than stdout;
+    this wrapper writes that snapshot to a private temporary file, parses
+    it, and discards the file -- the caller only sees the typed result.
+    Deliberately just the subprocess/parse boundary: nothing here decides
+    what "changed" between two runs or renders anything -- that remains a
+    future Web-side concern. Raises `KeCommandError` on command or contract
+    failure and never returns a partial or guessed result. A run recorded
+    before Core's candidate-snapshot follow-up existed returns an honest
+    empty `candidates` tuple, never a fabricated one.
+    """
+
+    with tempfile.TemporaryDirectory(prefix="ke-federated-coverage-report-") as scratch_dir:
+        output_path = Path(scratch_dir) / "result.json"
+        command = [
+            _resolve_ke_executable(ke_executable),
+            "federated-coverage-report",
+            search_run_id,
+            "--ledger-root",
+            str(ledger_root),
+            "--output",
+            str(output_path),
+        ]
+
+        try:
+            result = _run_ke_command(
+                command,
+                operation="ke federated-coverage-report",
+                execution_budget=execution_budget,
+            )
+        except FileNotFoundError as exc:
+            raise KeCommandError(
+                f"Could not run {ke_executable!r} -- "
+                "is knowledge-engine-core installed and on PATH?"
+            ) from exc
+
+        if result.returncode != 0:
+            message = result.stderr.strip() or result.stdout.strip()
+            raise KeCommandError(
+                f"`ke federated-coverage-report` exited {result.returncode}: {message}"
+            )
+
+        try:
+            payload = json.loads(output_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise KeCommandError(
+                f"`ke federated-coverage-report` did not write a readable JSON output file: {exc}"
+            ) from exc
+
+    try:
+        return parse_federated_coverage_report_result(payload)
+    except FederatedCoverageReportParseError as exc:
+        raise KeCommandError(str(exc)) from exc
+
+
 class CitationSnowballParseError(RuntimeError):
     """`ke citation-snowball --output`'s JSON did not match the expected shape."""
 
