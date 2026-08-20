@@ -9,6 +9,29 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`ke_client.federated_coverage_report()` added -- the point-lookup wrapper
+  previously deferred pending a Core `--output` option.** Core's FRD-6
+  candidate-snapshot follow-up (`96d30ac`, "Persist federated-discover
+  candidate snapshots; add coverage-report --output") added `--output` to
+  `ke federated-coverage-report` and started persisting each run's full
+  deduplicated candidate list (canonical ID, title, DOI, publication year,
+  every provider's full observation) on `SearchRunRecord.candidates`. This
+  wrapper shells out to `ke federated-coverage-report <search_run_id>
+  --ledger-root <dir> --output <tmp>` and parses the result into a typed
+  `FederatedCoverageReportResult` (`coverage: SearchCoverageReport`,
+  `candidates: tuple[FederatedCandidateRecord, ...]`), mirroring the
+  existing `federated_discover()`/`federated_discover_history()` shape.
+  `FederatedCandidateRecord`/`FederatedCandidateObservation` are a richer,
+  distinct shape from `federated_discover()`'s existing
+  `FederatedCandidateSummary`/`FederatedProviderObservationFlags` (those
+  only carry the at-request-time provider set and retraction/preprint
+  flags); this wrapper exposes every field Core persisted for a specific
+  past run's candidate observations. A run recorded before Core's
+  candidate-snapshot follow-up existed parses to an honest empty
+  `candidates` tuple, never a fabricated one. Purely additive
+  client-boundary work: no policy here decides what changed between runs
+  or renders anything. Live-verified against the real `ke` binary.
+
 - **`ke_client.federated_discover_history()` added; `federated_discover()`
   now forwards `project_id`/`research_question_id`.** Closes the two
   `knowledge-engine-ai` blockers named by `knowledge-engine-web`'s WEB-FRD-5

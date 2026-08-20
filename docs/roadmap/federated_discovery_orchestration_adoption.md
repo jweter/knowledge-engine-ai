@@ -11,6 +11,32 @@ provider choices.
 The matching Core plan is
 `knowledge-engine-core/docs/roadmap/federated_research_discovery_adoption.md`.
 
+**2026-08-20: `ke_client.federated_coverage_report()` added, closing the
+point-lookup gap the entry below deliberately deferred.** Core's FRD-6
+candidate-snapshot follow-up (commit `96d30ac`, "Persist federated-discover
+candidate snapshots; add coverage-report --output", merged as PR #394) added
+an `--output` option to `ke federated-coverage-report` and started
+persisting each run's full deduplicated candidate list (canonical ID,
+title, DOI, publication year, every provider's full observation) on the
+ledger's `SearchRunRecord.candidates` -- exactly the two conditions the
+entry below named as blocking this wrapper. `federated_coverage_report()`
+mirrors the existing `federated_discover()`/`federated_discover_history()`
+shape: shells out to `ke federated-coverage-report <search_run_id>
+--ledger-root <dir> --output <tmp>`, parses the result into a typed
+`FederatedCoverageReportResult` pairing that run's `SearchCoverageReport`
+with its full candidate snapshot, and discards the temporary file. A run
+recorded before Core's candidate-snapshot follow-up existed returns an
+honest empty `candidates` tuple, never a fabricated one. Live-verified
+against the real `ke` binary (a ledger record seeded via Core's own
+`FederatedSearchLedger.record()`, no network provider call involved, since
+this command is a pure ledger read). This is purely additive
+client-boundary work: no policy here decides what changed between two
+runs, diffs them, or renders anything -- that remains the Web-side concern
+WEB-FRD-5's design doc names for items 5-7, per that document's own
+division of labor. Deliberately out of scope for this change:
+`knowledge-engine-web` closing WEB-FRD-5's candidate-level exit criteria on
+top of this wrapper.
+
 **2026-08-20: `ke_client.federated_discover_history()` added, plus
 `federated_discover()` now forwards `project_id`/`research_question_id` --
 closing this repository's two blockers named by `knowledge-engine-web`'s
