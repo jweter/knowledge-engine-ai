@@ -9,6 +9,38 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **AI-FRD-5 (research freshness / rerun reasoning): a first bounded slice,
+  deterministic and unwired.** `copilot/research_freshness.py` adds two pure
+  functions over data `ke_client.federated_discover_history()` and
+  `ke_client.federated_coverage_report()` already return:
+  `assess_rerun_need()` recommends whether a fresh `federated_discover()`
+  call is warranted for a tracked `research_question_id` (no run ever
+  recorded, or the most recent run did not complete, or it is older than a
+  configurable -- default 7-day -- freshness threshold), and
+  `diff_candidate_snapshots()` compares two specific past runs' full
+  candidate snapshots to report newly discovered candidates and candidates
+  whose retraction/correction/expression-of-concern/withdrawal flag newly
+  flipped to asserted-`True`. Both are deterministic rules -- never an LLM
+  judgment call -- and neither merges, votes on, or picks an authoritative
+  provider value across observations, the same discipline
+  `discovery_policy.py` already established for AI-FRD-3/AI-FRD-4. New
+  `ke-ai research-freshness <research_question_id>` command is this
+  module's first caller: it fetches this tracked question's full run
+  history, prints the rerun recommendation, and -- once at least two runs
+  are recorded -- diffs the two most recent runs' candidate snapshots.
+  Live-verified against the real `ke` binary: a ledger was seeded directly
+  via Core's own `FederatedSearchLedger.record()` with two runs for one
+  tracked question (an older run with one clear candidate, a newer run with
+  that same candidate now retracted plus one brand-new candidate), and
+  `ke-ai research-freshness` correctly reported both the newly discovered
+  candidate and the newly flagged retraction through the real subprocess
+  boundary, in both `--format text` and `--format json`. Deliberately *not*
+  wired into `run_research_question` or a Research Session -- deciding that
+  a correction or retraction invalidates a prior narrative, and versioning
+  prior answer text accordingly, remains open work; see AI-FRD-5's own exit
+  criteria in
+  `docs/roadmap/federated_discovery_orchestration_adoption.md`.
+
 - **Core's `corrected`/`expression_of_concern`/`withdrawn` provider
   observation flags are now parsed at the `ke_client` boundary.**
   `knowledge-engine-core`'s `ProviderObservation` gained these three flags

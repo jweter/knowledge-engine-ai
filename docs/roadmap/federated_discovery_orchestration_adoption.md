@@ -11,6 +11,16 @@ provider choices.
 The matching Core plan is
 `knowledge-engine-core/docs/roadmap/federated_research_discovery_adoption.md`.
 
+**2026-08-21: AI-FRD-5's rerun/diff reasoning implemented as a first bounded,
+tested, standalone slice.** `copilot/research_freshness.py`'s
+`assess_rerun_need()`/`diff_candidate_snapshots()` and the new
+`ke-ai research-freshness` CLI command answer this milestone's "new evidence
+is distinguished from previously seen evidence" exit criterion over data
+`federated_discover_history()`/`federated_coverage_report()` already return
+-- no new Core change, no new subprocess call shape. Deliberately not wired
+into `run_research_question`; see AI-FRD-5's own section below for the full
+account and remaining scope.
+
 **2026-08-20: `ke_client.federated_coverage_report()` added, closing the
 point-lookup gap the entry below deliberately deferred.** Core's FRD-6
 candidate-snapshot follow-up (commit `96d30ac`, "Persist federated-discover
@@ -504,12 +514,37 @@ computes a diff between two runs' `SearchCoverageReport`s; that reasoning
 `knowledge-engine-web`'s WEB-FRD-5 design doc items 5-7) remains this
 milestone's actual, unstarted scope.
 
+**2026-08-21: the rerun/diff reasoning itself now exists as a first bounded,
+tested, standalone slice -- deliberately not yet wired into a session.**
+`copilot/research_freshness.py`'s `assess_rerun_need()` (deterministic:
+no run ever recorded, or the most recent run incomplete, or older than a
+configurable freshness threshold, each in that order) and
+`diff_candidate_snapshots()` (newly discovered candidates and newly
+asserted publication-status flags between two specific past runs' full
+candidate snapshots, by Core's own `canonical_id`) answer this milestone's
+first exit criterion -- new evidence is distinguished from previously seen
+evidence -- over data `federated_discover_history()`/
+`federated_coverage_report()` already return, no new Core or subprocess
+call. `ke-ai research-freshness <research_question_id>` is the first
+caller, mirroring the "build the tested primitive, add a standalone CLI
+caller, wire into `run_research_question` later" sequencing AI-FRD-3/
+AI-FRD-4 already used -- see `CHANGELOG.md`'s matching entry for the
+live-verification account. The remaining two exit criteria
+(corrections/retractions invalidating or qualifying prior synthesis, and
+versioned rather than silently overwritten prior answer text) require a
+durable Research Session to attach this reasoning to and are explicitly
+this milestone's next continuation, not yet started.
+
 Exit criteria:
 
-- new evidence is distinguished from previously seen evidence;
-- corrections/retractions can invalidate or qualify prior synthesis;
+- new evidence is distinguished from previously seen evidence; **met** --
+  `diff_candidate_snapshots()`, live-verified against the real `ke` binary
+- corrections/retractions can invalidate or qualify prior synthesis; **not
+  started** -- requires wiring this reasoning into a Research Session, which
+  this slice deliberately does not do
 - prior answer text is never silently overwritten as if it had always been the
-  updated answer.
+  updated answer. **not started** -- no answer/session versioning exists yet
+  for this reasoning to attach to
 
 ## Improvements beyond the external reference
 
