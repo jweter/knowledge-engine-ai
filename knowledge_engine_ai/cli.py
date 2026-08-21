@@ -19,6 +19,7 @@ import dataclasses
 import json
 import os
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -31,6 +32,14 @@ from knowledge_engine_ai.copilot.discovery_policy import (
     DiscoveryPolicyError,
     FederatedDiscoveryPolicy,
 )
+from knowledge_engine_ai.copilot.research_freshness import (
+    DEFAULT_MAX_AGE_SECONDS,
+    CandidateFreshnessDiff,
+    RerunRecommendation,
+    ResearchFreshnessError,
+    assess_rerun_need,
+    diff_candidate_snapshots,
+)
 from knowledge_engine_ai.copilot.run_research_question import (
     ResearchQuestionResult,
     run_research_question,
@@ -41,7 +50,9 @@ from knowledge_engine_ai.ke_client import (
     KeCommandError,
     citation_snowball,
     enriched_evidence_report,
+    federated_coverage_report,
     federated_discover,
+    federated_discover_history,
 )
 from knowledge_engine_ai.llm import DEFAULT_OLLAMA_HOST, LocalLLMError, OllamaLLM
 from knowledge_engine_ai.models import EvidenceReport
@@ -237,6 +248,35 @@ SnowballMaxCandidatesOption = Annotated[
         "--max-candidates",
         min=1,
         help="Hard cap on total newly discovered candidates before the run truncates.",
+    ),
+]
+
+
+ResearchQuestionIdArgument = Annotated[
+    str,
+    typer.Argument(
+        help=(
+            "The tracked `research_question_id` a prior `federated-discover "
+            "--research-question-id` run was tagged with."
+        )
+    ),
+]
+FreshnessLedgerRootOption = Annotated[
+    Path,
+    typer.Option(
+        "--ledger-root",
+        help="Directory Core's federated search-run ledger persists JSON run records to.",
+    ),
+]
+MaxAgeSecondsOption = Annotated[
+    float,
+    typer.Option(
+        "--max-age-seconds",
+        min=0.0,
+        help=(
+            "How old the most recent complete run may be before a rerun is recommended. "
+            f"Defaults to {DEFAULT_MAX_AGE_SECONDS:.0f}s (7 days)."
+        ),
     ),
 ]
 
@@ -832,4 +872,115 @@ def _print_citation_snowball_result(result: CitationSnowballResult) -> None:
     console.print(
         "[bold]Citation-snowball discovery only -- these are not Evidence Records and "
         "were not acquired.[/bold]"
+    )
+
+
+@app.command("research-freshness")
+def research_freshness_command(
+    research_question_id: ResearchQuestionIdArgument,
+    ledger_root: FreshnessLedgerRootOption,
+    max_age_seconds: MaxAgeSecondsOption = DEFAULT_MAX_AGE_SECONDS,
+    output_format: FormatOption = "text",
+) -> None:
+    """Assess whether a fresh federated-discovery search is warranted (AI-FRD-5).
+
+    `copilot/research_freshness.py`'s `assess_rerun_need`/
+    `diff_candidate_snapshots` were implemented and unit-tested, but --
+    like `discover`/`citation-snowball` before this command existed for
+    them -- had no caller inside this repository. This command is that
+    caller: it looks up this tracked question's full run history via
+    `ke_client.federated_discover_history()`, decides whether a rerun is
+    warranted, and -- when at least two runs are recorded -- fetches the
+    two most recent runs' full candidate snapshots via
+    `ke_client.federated_coverage_report()` and reports what specifically
+    changed between them (newly discovered candidates, newly asserted
+    retraction/correction/expression-of-concern/withdrawal flags).
+
+    Deliberately *not* wired into `run_research_question` or a Research
+    Session -- deciding that a correction or retraction invalidates a
+    prior narrative, and versioning prior answer text accordingly, remains
+    open work (see AI-FRD-5's exit criteria in
+    `docs/roadmap/federated_discovery_orchestration_adoption.md`). This
+    command only reasons over Core's own already-recorded run history; it
+    never runs a new federated-discovery search itself.
+    """
+
+    if output_format not in ("text", "json"):
+        raise typer.BadParameter("--format must be 'text' or 'json'.")
+
+    try:
+        history = federated_discover_history(research_question_id, ledger_root=ledger_root)
+    except KeCommandError as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(1) from exc
+
+    try:
+        recommendation = assess_rerun_need(
+            history, now=datetime.now(UTC), max_age_seconds=max_age_seconds
+        )
+    except ResearchFreshnessError as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(1) from exc
+
+    diff: CandidateFreshnessDiff | None = None
+    if len(history.runs) >= 2:
+        sorted_runs = sorted(history.runs, key=lambda run: run.created_at)
+        previous_run_id = sorted_runs[-2].search_run_id
+        current_run_id = sorted_runs[-1].search_run_id
+        try:
+            previous_snapshot = federated_coverage_report(previous_run_id, ledger_root=ledger_root)
+            current_snapshot = federated_coverage_report(current_run_id, ledger_root=ledger_root)
+        except KeCommandError as exc:
+            console.print(f"[red]Error:[/red] {exc}")
+            raise typer.Exit(1) from exc
+        diff = diff_candidate_snapshots(previous_snapshot, current_snapshot)
+
+    if output_format == "json":
+        payload: dict[str, object] = {
+            "research_question_id": research_question_id,
+            "recommendation": dataclasses.asdict(recommendation),
+            "diff": dataclasses.asdict(diff) if diff is not None else None,
+        }
+        sys.stdout.write(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n")
+        return
+
+    _print_research_freshness_result(research_question_id, recommendation, diff)
+
+
+def _print_research_freshness_result(
+    research_question_id: str,
+    recommendation: RerunRecommendation,
+    diff: CandidateFreshnessDiff | None,
+) -> None:
+    console.print(f"[bold]Research question:[/bold] {research_question_id}")
+    verdict_color = "yellow" if recommendation.recommended else "green"
+    verdict_text = "rerun recommended" if recommendation.recommended else "no rerun needed"
+    console.print(f"[bold]Verdict:[/bold] [{verdict_color}]{verdict_text}[/{verdict_color}]")
+    console.print(f"  {escape(recommendation.reason)}")
+    console.print()
+
+    if diff is None:
+        console.print("[dim]Fewer than two recorded runs -- no candidate-level diff to show.[/dim]")
+        return
+
+    if not diff.newly_discovered:
+        console.print("[bold]Newly discovered candidates:[/bold] none")
+    else:
+        console.print(f"[bold]Newly discovered candidates:[/bold] {len(diff.newly_discovered)}")
+        for candidate in diff.newly_discovered:
+            year = f" ({candidate.publication_year})" if candidate.publication_year else ""
+            console.print(f"  {escape(candidate.title)}{year}")
+
+    console.print()
+    if not diff.newly_flagged:
+        console.print("[bold]Newly flagged publication status:[/bold] none")
+    else:
+        console.print(f"[bold]Newly flagged publication status:[/bold] {len(diff.newly_flagged)}")
+        for flip in diff.newly_flagged:
+            console.print(f"  [yellow]{escape(flip.title)} -- {flip.flag}[/yellow]")
+
+    console.print()
+    console.print(
+        "[bold]This is discovery-run reasoning only -- it does not decide whether prior "
+        "synthesis should be invalidated or re-run.[/bold]"
     )
