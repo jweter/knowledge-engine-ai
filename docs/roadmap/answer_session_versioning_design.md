@@ -88,6 +88,31 @@ and it does not mint a version-*N+1* session. Still not implemented: the
 `AnswerFreshness` read-side projection, and the version-minting caller --
 see "What this does not do" below, updated to match.
 
+**2026-08-22 (later still than the session-freshness caller session): the
+`AnswerFreshness` read-side projection is now implemented too.**
+`copilot/research_freshness.py` gained `AnswerFreshness`/
+`build_answer_freshness()`, exactly the shape "What a caller (Web, later)
+sees" sketches below: a frozen dataclass composing a `ResearchSession`'s own
+`answer_version`/`status`/`supersedes_session_id`/`narrative_invalidated_at`
+with a `RerunRecommendation` and a batch of crosswalked
+`NarrativeTouchingFlip`s (as `pending_flips`) into one `releaseable`
+property -- the exact two-field check this document specifies. It queries
+nothing itself, matching `observability.build_session_trace`'s "caller owns
+the I/O" shape. `ke-ai session-freshness` is now this projection's first
+real caller: every invocation builds and reports it, reflecting the same
+invocation's own newly-recorded invalidation immediately (via
+`dataclasses.replace` on the session it passes in) rather than the
+pre-check state, so a run that finds and applies an invalidating flip
+reports `releaseable: false` in that same run's own output, not only on a
+later re-check. `superseded_by_session_id` has no repository lookup to
+derive it from yet -- no caller mints a version-*N+1* session, so it stays
+`None` for every session today, which is the honest value, not a stub. 6
+new unit tests plus 1 new CLI test (415 total pass); full local quality
+gate clean via `scripts/preflight.py`. Still not implemented: any caller
+that mints a version-*N+1* session and calls `supersede_session()`, and the
+still-open policy question of who/what invokes a freshness check
+automatically -- see "What this does not do" below, updated to match.
+
 This document scopes the answer/session-versioning concept that
 `docs/project-status.yaml`'s `next_continuation` names as a prerequisite for
 AI-FRD-5's remaining work: wiring `copilot/research_freshness.py`'s
@@ -745,11 +770,18 @@ Three honestly-distinguished states, never collapsed into one:
   `run_research_question.py` or `orchestrator/close_gate.py`.
   **Still not implemented: everything that decides *when* a freshness
   check happens automatically for a session (a scheduled job, a person, a
-  Web page load), the `AnswerFreshness` read-side projection, and any
-  caller that mints a version-*N+1* session** (setting
-  `answer_version`/`supersedes_session_id` at `create_session` time and
-  then calling `supersede_session()` on the prior version once *N+1*
-  reaches `COMPLETED`) -- these remain proposed only, not implemented.
+  Web page load), and any caller that mints a version-*N+1* session**
+  (setting `answer_version`/`supersedes_session_id` at `create_session`
+  time and then calling `supersede_session()` on the prior version once
+  *N+1* reaches `COMPLETED`) -- these remain proposed only, not
+  implemented.
+- **The `AnswerFreshness` read-side projection is implemented (2026-08-22,
+  later still than the session-freshness caller) -- see the status header
+  above.** `copilot/research_freshness.py`'s `build_answer_freshness()`
+  assembles it from a `ResearchSession` plus this module's own
+  already-computed findings, and `ke-ai session-freshness` reports it on
+  every run. Still proposed only: any caller that consumes `AnswerFreshness`
+  outside this one CLI command (a scheduled job, a future Web page).
 - **No SQLite schema migration for `research_question_id`/`answer_version`/
   `supersedes_session_id`/`narrative_invalidated_at`/`source_dois` was
   needed beyond the guarded `ALTER TABLE` additions already shipped**
@@ -802,19 +834,17 @@ section):
   a version-*N+1* session or calls it.
 
 The first exit criterion now has a real, tested, explicitly-invoked path
-end to end (`ke-ai session-freshness --apply`); it is not yet **met**
-because nothing decides *when* that path runs on its own, and the
-`AnswerFreshness` read-side projection a durable caller (e.g. a future Web
-page) would consume does not exist yet. The second exit criterion remains
-**not started** in code terms: `run_research_question.py`/
-`orchestrator/close_gate.py` are unchanged, and no caller mints a
-version-*N+1* session or calls `supersede_session()`. The next small,
-coherent slice is either the `AnswerFreshness` read-side projection (now
-that `session-freshness` exists to populate its
-`pending_flips`/`narrative_invalidated_at`-consuming fields meaningfully)
-or the version-minting caller (mints a version-*N+1* session and calls
-`supersede_session()` on the prior version once *N+1* reaches
-`COMPLETED`) -- either can proceed independently of the other. The policy
-question of *when* a freshness check should run automatically (a
-scheduled job, a person, a Web page load) remains open and is not decided
+end to end (`ke-ai session-freshness --apply`), and the `AnswerFreshness`
+read-side projection a durable caller (e.g. a future Web page) would
+consume is now implemented and reported on every `ke-ai session-freshness`
+run (2026-08-22, later still); it is not yet **met** only because nothing
+decides *when* that path runs on its own -- still explicitly open policy
+work. The second exit criterion remains **not started** in code terms:
+`run_research_question.py`/`orchestrator/close_gate.py` are unchanged, and
+no caller mints a version-*N+1* session or calls `supersede_session()`. The
+next small, coherent slice is the version-minting caller (mints a
+version-*N+1* session and calls `supersede_session()` on the prior version
+once *N+1* reaches `COMPLETED`), or the still-open policy question of
+*when* a freshness check should run automatically (a scheduled job, a
+person, a Web page load), which remains open and is not decided
 by this document -- see "What this does not do" above.

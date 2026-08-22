@@ -12,6 +12,7 @@ from knowledge_engine_ai.copilot.research_freshness import (
     ResearchFreshnessError,
     apply_narrative_touching_flips,
     assess_rerun_need,
+    build_answer_freshness,
     crosswalk_publication_status_flips,
     diff_candidate_snapshots,
     session_retrieval_dois,
@@ -649,3 +650,86 @@ class TestApplyNarrativeTouchingFlips:
         fetched = repository.get_session("session-1")
         assert fetched is not None
         assert fetched.narrative_invalidated_at == result.narrative_invalidated_event.timestamp
+
+
+class TestBuildAnswerFreshness:
+    def test_current_session_with_no_findings_is_releaseable(self) -> None:
+        repository = _repository_with_session()
+        session = repository.get_session("session-1")
+        assert session is not None
+
+        freshness = build_answer_freshness(session)
+
+        assert freshness.session_id == "session-1"
+        assert freshness.research_question_id is None
+        assert freshness.answer_version == 1
+        assert freshness.status == SessionStatus.COMPLETED
+        assert freshness.supersedes_session_id is None
+        assert freshness.superseded_by_session_id is None
+        assert freshness.narrative_invalidated_at is None
+        assert freshness.rerun_recommended is None
+        assert freshness.pending_flips == ()
+        assert freshness.releaseable is True
+
+    def test_qualifying_pending_flip_stays_releaseable(self) -> None:
+        repository = _repository_with_session()
+        session = repository.get_session("session-1")
+        assert session is not None
+        flip = _touching_flip("corrected")
+
+        freshness = build_answer_freshness(session, pending_flips=(flip,))
+
+        assert freshness.pending_flips == (flip,)
+        # Corrected/expression_of_concern is a caveat, not an invalidation --
+        # the narrative may still be released, per the design doc's
+        # "Invalidates versus qualifies" split.
+        assert freshness.releaseable is True
+
+    def test_invalidated_session_is_not_releaseable_even_with_completed_status(self) -> None:
+        repository = _repository_with_session()
+        flip = _touching_flip("retracted")
+        apply_narrative_touching_flips(repository, (flip,), session_id="session-1")
+        session = repository.get_session("session-1")
+        assert session is not None
+        assert session.narrative_invalidated_at is not None
+        # status is untouched by an invalidating flip (see
+        # apply_narrative_touching_flips's own docstring) -- releaseable
+        # must react to narrative_invalidated_at directly, not to status.
+        assert session.status is SessionStatus.COMPLETED
+
+        freshness = build_answer_freshness(session, pending_flips=(flip,))
+
+        assert freshness.narrative_invalidated_at == session.narrative_invalidated_at
+        assert freshness.releaseable is False
+
+    def test_non_completed_status_is_not_releaseable(self) -> None:
+        repository = _repository_with_session(status=SessionStatus.BLOCKED)
+        session = repository.get_session("session-1")
+        assert session is not None
+
+        freshness = build_answer_freshness(session)
+
+        assert freshness.releaseable is False
+
+    def test_superseded_by_session_id_defaults_to_none_and_can_be_supplied(self) -> None:
+        repository = _repository_with_session()
+        session = repository.get_session("session-1")
+        assert session is not None
+
+        default_freshness = build_answer_freshness(session)
+        assert default_freshness.superseded_by_session_id is None
+
+        supplied_freshness = build_answer_freshness(session, superseded_by_session_id="session-2")
+        assert supplied_freshness.superseded_by_session_id == "session-2"
+
+    def test_rerun_recommended_and_answer_version_are_carried_through(self) -> None:
+        repository = _repository_with_session()
+        session = repository.get_session("session-1")
+        assert session is not None
+        recommendation = assess_rerun_need(_history(), now=_NOW)
+
+        freshness = build_answer_freshness(session, rerun_recommended=recommendation)
+
+        assert freshness.rerun_recommended is recommendation
+        assert freshness.rerun_recommended.recommended is True
+        assert freshness.answer_version == session.answer_version

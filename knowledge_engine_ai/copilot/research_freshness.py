@@ -54,10 +54,9 @@ coherent step: for one batch of already-crosswalked `NarrativeTouchingFlip`s,
 decide which are `retracted`/`withdrawn` (invalidates -- call
 `SessionRepository.record_narrative_invalidation`, at most once per session)
 versus `corrected`/`expression_of_concern` (qualifies -- reported back to the
-caller, not persisted; the `AnswerFreshness` read-side projection that would
-track a durable `pending_flips` list does not exist yet). Still deliberately
-out of scope: the `AnswerFreshness` projection itself, and any caller that
-mints a version-*N+1* session (`SessionRepository.supersede_session` remains
+caller, not persisted). Still deliberately out of scope at that point: the
+`AnswerFreshness` projection itself, and any caller that mints a
+version-*N+1* session (`SessionRepository.supersede_session` remains
 uncalled by this module). `assess_rerun_need`/`diff_candidate_snapshots`/
 `session_retrieval_dois`/`crosswalk_publication_status_flips` are pure,
 deterministic, and take already-fetched data -- no `SessionRepository` call,
@@ -70,6 +69,22 @@ calls `ke`, never runs the crosswalk itself, and never decides *when* a
 freshness check happens at all, matching this module's existing "reasoning
 lives here, I/O orchestration lives with the caller" split for everything
 upstream of it.
+
+The most recent slice (2026-08-22, later still than `ke-ai session-freshness`)
+added `AnswerFreshness`/`build_answer_freshness` below -- the read-side
+projection `docs/roadmap/answer_session_versioning_design.md`'s "What a
+caller (Web, later) sees" section sketches, now that `ke-ai
+session-freshness` exists as a real caller to populate its
+`pending_flips`/`narrative_invalidated_at`-consuming fields meaningfully.
+`build_answer_freshness` follows the exact same "queries nothing itself"
+shape as `observability.build_session_trace`: it assembles a `ResearchSession`
+plus this module's own already-computed findings (a `RerunRecommendation`,
+a batch of crosswalked `NarrativeTouchingFlip`s) into one honestly-labeled
+`AnswerFreshness.releaseable` verdict -- it does not call `SessionRepository`,
+`ke`, or any other function in this module. Still deliberately out of scope:
+any caller that mints a version-*N+1* session and calls `supersede_session`,
+and the still-open product/policy question of who/what invokes a freshness
+check and how often.
 """
 
 from __future__ import annotations
@@ -86,7 +101,7 @@ from knowledge_engine_ai.ke_client import (
     SearchCoverageReport,
 )
 from knowledge_engine_ai.orchestrator.verification import CITATION_PATTERN
-from knowledge_engine_ai.sessions.models import ResearchEvent
+from knowledge_engine_ai.sessions.models import ResearchEvent, ResearchSession, SessionStatus
 from knowledge_engine_ai.sessions.repository import (
     NarrativeAlreadyInvalidatedError,
     SessionRepository,
@@ -549,6 +564,101 @@ def apply_narrative_touching_flips(
     )
 
 
+@dataclasses.dataclass(frozen=True)
+class AnswerFreshness:
+    """A pure read-side projection of one session's current freshness state.
+
+    The `AnswerFreshness` `docs/roadmap/answer_session_versioning_design.md`'s
+    "What a caller (Web, later) sees" section sketches: it composes a
+    `ResearchSession`'s own version/invalidation fields with this module's
+    other findings (a `RerunRecommendation`, crosswalked
+    `NarrativeTouchingFlip`s) into the three honestly-distinguished states
+    that design section names -- *current*, *flagged* (rerun recommended
+    and/or a pending flip, `releaseable` still reflecting whether it was
+    invalidating or only qualifying), and *superseded*. Nothing on this
+    dataclass is derived by guessing; every field is either read verbatim
+    from the `ResearchSession` that was passed in, or is exactly the
+    already-computed value a caller supplies (see `build_answer_freshness`
+    below).
+
+    `pending_flips` holds every `NarrativeTouchingFlip` a freshness check
+    found for this session that has not yet been resolved by a superseding
+    version -- both invalidating and qualifying flips, since neither kind
+    is cleared until a version-*N+1* session actually supersedes this one
+    (no caller does that yet; see the module docstring). Whether a given
+    entry was invalidating or qualifying is read from its own
+    `.flip.flag`, not tracked as a separate field here.
+    """
+
+    session_id: str
+    research_question_id: str | None
+    answer_version: int
+    status: SessionStatus
+    supersedes_session_id: str | None
+    superseded_by_session_id: str | None
+    narrative_invalidated_at: str | None
+    rerun_recommended: RerunRecommendation | None
+    pending_flips: tuple[NarrativeTouchingFlip, ...]
+
+    @property
+    def releaseable(self) -> bool:
+        """Mirrors the design doc's two-field check: `COMPLETED` and not since invalidated.
+
+        `True` for a session with only qualifying (`corrected`/
+        `expression_of_concern`) pending flips, or none at all -- the
+        narrative may still be shown, with any caveat named in
+        `pending_flips`. `False` the moment `narrative_invalidated_at` is
+        set, regardless of whether a completed superseding version exists
+        yet -- an invalidating flip makes a session non-releaseable
+        immediately, not only once a replacement is ready.
+        """
+
+        return self.status is SessionStatus.COMPLETED and self.narrative_invalidated_at is None
+
+
+def build_answer_freshness(
+    session: ResearchSession,
+    *,
+    rerun_recommended: RerunRecommendation | None = None,
+    pending_flips: tuple[NarrativeTouchingFlip, ...] = (),
+    superseded_by_session_id: str | None = None,
+) -> AnswerFreshness:
+    """Assemble `AnswerFreshness` from `session` plus this check's own findings.
+
+    Queries nothing itself -- the same "caller owns the I/O" boundary every
+    other function in this module (aside from `apply_narrative_touching_flips`)
+    already follows, and the same shape `observability.build_session_trace`
+    uses for `SessionTrace`. `session_id`/`research_question_id`/
+    `answer_version`/`status`/`supersedes_session_id`/`narrative_invalidated_at`
+    are read straight from `session`: if a caller just called
+    `apply_narrative_touching_flips` in the same pass and it recorded a new
+    invalidation, pass an updated `session` (e.g. `dataclasses.replace(session,
+    narrative_invalidated_at=trigger_result.narrative_invalidated_event.timestamp)`,
+    or a fresh `SessionRepository.get_session` read) rather than the
+    pre-check one, so `releaseable` reflects the just-applied result instead
+    of the state before this check ran.
+
+    `superseded_by_session_id` has no repository lookup to derive it from
+    yet -- no caller mints a version-*N+1* session yet (see the module
+    docstring), so there is never a later session's `supersedes_session_id`
+    to find. It defaults to `None`, honestly describing "not superseded" for
+    every session today; a future caller that has already found the thread's
+    later sessions may pass the real value.
+    """
+
+    return AnswerFreshness(
+        session_id=session.session_id,
+        research_question_id=session.research_question_id,
+        answer_version=session.answer_version,
+        status=session.status,
+        supersedes_session_id=session.supersedes_session_id,
+        superseded_by_session_id=superseded_by_session_id,
+        narrative_invalidated_at=session.narrative_invalidated_at,
+        rerun_recommended=rerun_recommended,
+        pending_flips=pending_flips,
+    )
+
+
 def _now_iso() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
@@ -576,6 +686,7 @@ def _parse_timestamp(value: str) -> datetime:
 
 __all__ = [
     "DEFAULT_MAX_AGE_SECONDS",
+    "AnswerFreshness",
     "CandidateFreshnessDiff",
     "NarrativeFreshnessTriggerResult",
     "NarrativeTouchingFlip",
@@ -584,6 +695,7 @@ __all__ = [
     "ResearchFreshnessError",
     "apply_narrative_touching_flips",
     "assess_rerun_need",
+    "build_answer_freshness",
     "crosswalk_publication_status_flips",
     "diff_candidate_snapshots",
     "session_retrieval_dois",

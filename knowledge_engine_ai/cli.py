@@ -34,6 +34,7 @@ from knowledge_engine_ai.copilot.discovery_policy import (
 )
 from knowledge_engine_ai.copilot.research_freshness import (
     DEFAULT_MAX_AGE_SECONDS,
+    AnswerFreshness,
     CandidateFreshnessDiff,
     NarrativeFreshnessTriggerResult,
     NarrativeTouchingFlip,
@@ -41,6 +42,7 @@ from knowledge_engine_ai.copilot.research_freshness import (
     ResearchFreshnessError,
     apply_narrative_touching_flips,
     assess_rerun_need,
+    build_answer_freshness,
     crosswalk_publication_status_flips,
     diff_candidate_snapshots,
     session_retrieval_dois,
@@ -1055,6 +1057,13 @@ def session_freshness_command(
     `SessionRepository.supersede_session` -- that remains a separate,
     not-yet-built slice per the design doc's own "next continuation."
 
+    Every run also builds and reports an `AnswerFreshness` projection
+    (`build_answer_freshness`) -- this session's own `releaseable` verdict,
+    the two-field `status`/`narrative_invalidated_at` check the design doc
+    specifies, reflecting whatever this same invocation just found (an
+    `--apply` run's newly-recorded invalidation included, not the
+    pre-check state).
+
     A session baseline that has recorded fewer than two federated-discover
     runs for its `research_question_id` has nothing to diff yet -- see
     `RerunRecommendation`'s "never recorded"/"first run" reasons -- so no
@@ -1147,6 +1156,22 @@ def session_freshness_command(
             session_repository, touching, session_id=session_id
         )
 
+    # Reflect this same invocation's own newly-recorded invalidation (if
+    # any) rather than the pre-check `session` read above -- see
+    # `build_answer_freshness`'s own docstring for why `releaseable` would
+    # otherwise be one step stale on the exact run that just invalidated it.
+    effective_session = session
+    if trigger_result is not None and trigger_result.narrative_invalidated_event is not None:
+        effective_session = dataclasses.replace(
+            session,
+            narrative_invalidated_at=trigger_result.narrative_invalidated_event.timestamp,
+        )
+    freshness = build_answer_freshness(
+        effective_session,
+        rerun_recommended=recommendation,
+        pending_flips=touching,
+    )
+
     if output_format == "json":
         payload: dict[str, object] = {
             "session_id": session_id,
@@ -1182,6 +1207,15 @@ def session_freshness_command(
                     ),
                 }
             ),
+            "answer_freshness": {
+                "answer_version": freshness.answer_version,
+                "status": str(freshness.status),
+                "supersedes_session_id": freshness.supersedes_session_id,
+                "superseded_by_session_id": freshness.superseded_by_session_id,
+                "narrative_invalidated_at": freshness.narrative_invalidated_at,
+                "pending_flip_count": len(freshness.pending_flips),
+                "releaseable": freshness.releaseable,
+            },
         }
         sys.stdout.write(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n")
         return
@@ -1195,6 +1229,7 @@ def session_freshness_command(
         touching=touching,
         apply=apply,
         trigger_result=trigger_result,
+        freshness=freshness,
     )
 
 
@@ -1225,6 +1260,7 @@ def _print_session_freshness_result(
     touching: tuple[NarrativeTouchingFlip, ...],
     apply: bool,
     trigger_result: NarrativeFreshnessTriggerResult | None,
+    freshness: AnswerFreshness,
 ) -> None:
     console.print(f"[bold]Session:[/bold] {session_id}")
     console.print(f"[bold]Research question:[/bold] {research_question_id}")
@@ -1232,6 +1268,14 @@ def _print_session_freshness_result(
     verdict_text = "rerun recommended" if recommendation.recommended else "no rerun needed"
     console.print(f"[bold]Verdict:[/bold] [{verdict_color}]{verdict_text}[/{verdict_color}]")
     console.print(f"  {escape(recommendation.reason)}")
+    releaseable_color = "green" if freshness.releaseable else "red"
+    releaseable_text = "yes" if freshness.releaseable else "no"
+    console.print(
+        f"[bold]Releaseable (answer_version {freshness.answer_version}):[/bold] "
+        f"[{releaseable_color}]{releaseable_text}[/{releaseable_color}]"
+    )
+    if freshness.narrative_invalidated_at is not None:
+        console.print(f"  narrative_invalidated_at: {freshness.narrative_invalidated_at}")
     console.print()
 
     if diff is None:
@@ -1286,6 +1330,7 @@ def _print_session_freshness_result(
     if trigger_result.qualifying:
         console.print(
             f"[yellow]{len(trigger_result.qualifying)} qualifying flip(s) found -- not "
-            "persisted; the AnswerFreshness projection to track pending qualifications "
-            "durably does not exist yet.[/yellow]"
+            "persisted (only an invalidating flip's record_narrative_invalidation call is "
+            "durable); reported above via AnswerFreshness.pending_flips for this run only, "
+            "not tracked across future runs yet.[/yellow]"
         )

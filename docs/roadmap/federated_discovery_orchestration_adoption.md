@@ -747,6 +747,35 @@ does not mint a version-*N+1* session. 10 new tests
 `scripts/preflight.py`. See `CHANGELOG.md`'s matching entry for the full
 account.
 
+**2026-08-22 (later still than the session-freshness caller): the
+`AnswerFreshness` read-side projection is now implemented too.**
+`copilot/research_freshness.py` gains `AnswerFreshness`/
+`build_answer_freshness()`, the projection
+`answer_session_versioning_design.md`'s "What a caller (Web, later) sees"
+section sketches: it composes a `ResearchSession`'s own
+`answer_version`/`status`/`supersedes_session_id`/`narrative_invalidated_at`
+with a `RerunRecommendation` and a batch of crosswalked
+`NarrativeTouchingFlip`s into one `releaseable` verdict (`COMPLETED` and not
+since invalidated -- the same two-field check the design doc specifies).
+Queries nothing itself, the same shape `observability.build_session_trace`
+already established. `ke-ai session-freshness` is now this projection's
+first real caller: every invocation builds and reports it (text output
+gains a `Releaseable (answer_version N): yes/no` line; `--format json`
+gains an `answer_freshness` object), reflecting the same invocation's own
+newly-recorded invalidation immediately when `--apply` finds one, not the
+pre-check state. `superseded_by_session_id` has no repository lookup to
+derive it from yet -- no caller mints a version-*N+1* session yet, so it is
+always `None` today, honestly. 6 new unit tests
+(`tests/copilot/test_research_freshness.py`) plus 1 new CLI test extending
+the existing JSON-output coverage
+(`tests/test_cli_session_freshness.py`), 415 total pass; full local quality
+gate (ruff format/check, mypy, pytest, pip-audit, git diff --check) clean
+via `scripts/preflight.py`. Still not implemented: any caller that mints a
+version-*N+1* session and calls `supersede_session()`, and the still-open
+product/policy question of who/what invokes a freshness check and how
+often. No Web-facing API or UI for `AnswerFreshness` exists or is implied by
+this slice -- see the design doc's own "What this does not do."
+
 Exit criteria:
 
 - new evidence is distinguished from previously seen evidence; **met** --
@@ -756,12 +785,13 @@ Exit criteria:
   mechanism is now built and exercised end to end against a real session by
   `ke-ai session-freshness --apply`: `research_question_id` threading, the
   repository-layer mechanics, the DOI crosswalk detection layer, the
-  invalidates-versus-qualifies trigger, and now a caller that runs all of
-  it and persists an invalidating flip on request (all 2026-08-22). What
-  remains is only the decision of *when* a freshness check runs at all
-  (this command makes it possible on demand, not automatic) and the
-  `AnswerFreshness` read-side projection for a caller to consume the result
-  durably
+  invalidates-versus-qualifies trigger, a caller that runs all of it and
+  persists an invalidating flip on request, and now the `AnswerFreshness`
+  read-side projection that same caller reports on every run (all
+  2026-08-22). What remains is only the decision of *when* a freshness
+  check runs at all -- `ke-ai session-freshness` makes it possible on
+  demand, not automatic, and no scheduled job, person, or Web page load
+  invokes it yet
 - prior answer text is never silently overwritten as if it had always been the
   updated answer. **not started** -- `answer_session_versioning_design.md`
   scopes the versioning concept this reasoning needs to attach to; the

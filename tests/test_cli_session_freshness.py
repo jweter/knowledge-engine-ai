@@ -375,6 +375,66 @@ def test_session_freshness_json_output(tmp_path: Path, monkeypatch: pytest.Monke
     assert payload["checked"] is True
     assert payload["diff"] is None
     assert payload["applied"] is False
+    assert payload["answer_freshness"]["answer_version"] == 1
+    assert payload["answer_freshness"]["status"] == "completed"
+    assert payload["answer_freshness"]["narrative_invalidated_at"] is None
+    assert payload["answer_freshness"]["releaseable"] is True
+    assert payload["answer_freshness"]["pending_flip_count"] == 0
+
+
+def test_session_freshness_apply_invalidation_flips_answer_freshness_releaseable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The AnswerFreshness projection built in the same invocation that
+    # records a new invalidation must reflect it immediately, not the
+    # pre-check state -- see build_answer_freshness's own docstring.
+    db_path = str(tmp_path / "sessions.db")
+    _seed_session(db_path)
+
+    older = _coverage(search_run_id="run-older", created_at="2026-08-01T00:00:00Z")
+    newer = _coverage(search_run_id="run-newer", created_at="2026-08-21T00:00:00Z")
+    monkeypatch.setattr(
+        cli, "federated_discover_history", lambda rqid, **kwargs: _history(older, newer)
+    )
+
+    previous_snapshot = _snapshot(
+        _candidate("c-1", observations=(_observation(),)), search_run_id="run-older"
+    )
+    current_snapshot = _snapshot(
+        _candidate("c-1", observations=(_observation(retracted=True),)),
+        search_run_id="run-newer",
+    )
+
+    def fake_coverage_report(search_run_id: str, **kwargs: object) -> FederatedCoverageReportResult:
+        return previous_snapshot if search_run_id == "run-older" else current_snapshot
+
+    monkeypatch.setattr(cli, "federated_coverage_report", fake_coverage_report)
+
+    result = _invoke(
+        [
+            "session-1",
+            "--ledger-root",
+            "/tmp/ledger",
+            "--session-db",
+            db_path,
+            "--apply",
+            "--format",
+            "json",
+        ]
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["answer_freshness"]["releaseable"] is False
+    assert payload["answer_freshness"]["narrative_invalidated_at"] is not None
+    assert payload["answer_freshness"]["pending_flip_count"] == 1
+    # Matches the repository's own persisted value, not just this run's echo.
+    repository = SessionRepository(new_connection(db_path))
+    fetched = repository.get_session("session-1")
+    assert fetched is not None
+    assert (
+        payload["answer_freshness"]["narrative_invalidated_at"] == fetched.narrative_invalidated_at
+    )
 
 
 def test_session_freshness_reports_ke_command_errors(
