@@ -6,9 +6,12 @@ import pytest
 
 from knowledge_engine_ai.copilot.research_freshness import (
     DEFAULT_MAX_AGE_SECONDS,
+    PublicationStatusFlip,
     ResearchFreshnessError,
     assess_rerun_need,
+    crosswalk_publication_status_flips,
     diff_candidate_snapshots,
+    session_retrieval_dois,
 )
 from knowledge_engine_ai.ke_client import (
     FederatedCandidateObservation,
@@ -17,6 +20,7 @@ from knowledge_engine_ai.ke_client import (
     FederatedDiscoverHistoryResult,
     SearchCoverageReport,
 )
+from knowledge_engine_ai.sessions.models import ResearchEvent
 
 _NOW = datetime(2026, 8, 21, 12, 0, 0, tzinfo=UTC)
 
@@ -252,3 +256,151 @@ class TestDiffCandidateSnapshots:
         diff = diff_candidate_snapshots(previous, current)
 
         assert {c.canonical_id for c in diff.newly_discovered} == {"c-1", "c-2"}
+
+
+def _retrieval_event(
+    *,
+    source_ids: tuple[str, ...],
+    source_dois: tuple[str, ...],
+    event_id: str = "e-retrieval",
+) -> ResearchEvent:
+    return ResearchEvent(
+        event_id=event_id,
+        session_id="session-1",
+        timestamp="2026-08-22T00:00:00Z",
+        workflow_node="retrieval_and_evidence_intelligence",
+        executor_type="deterministic_tool",
+        source_ids=source_ids,
+        source_dois=source_dois,
+    )
+
+
+class TestSessionRetrievalDois:
+    def test_maps_evidence_record_id_to_doi(self) -> None:
+        events = [_retrieval_event(source_ids=("ev-1", "ev-2"), source_dois=("10.1/a", "10.1/b"))]
+
+        assert session_retrieval_dois(events) == {"ev-1": "10.1/a", "ev-2": "10.1/b"}
+
+    def test_combines_across_multiple_retrieval_events(self) -> None:
+        events = [
+            _retrieval_event(event_id="e-1", source_ids=("ev-1",), source_dois=("10.1/a",)),
+            _retrieval_event(
+                event_id="e-2",
+                source_ids=("ev-2",),
+                source_dois=("10.1/b",),
+            ),
+        ]
+
+        assert session_retrieval_dois(events) == {"ev-1": "10.1/a", "ev-2": "10.1/b"}
+
+    def test_old_event_with_no_source_dois_contributes_nothing(self) -> None:
+        # Pre-existing rows persisted before `source_dois` existed have an
+        # empty `source_dois` even though `source_ids` is non-empty.
+        events = [_retrieval_event(source_ids=("ev-1",), source_dois=())]
+
+        assert session_retrieval_dois(events) == {}
+
+    def test_empty_doi_string_is_not_included(self) -> None:
+        events = [_retrieval_event(source_ids=("ev-1", "ev-2"), source_dois=("", "10.1/b"))]
+
+        assert session_retrieval_dois(events) == {"ev-2": "10.1/b"}
+
+    def test_non_retrieval_events_with_empty_source_ids_are_harmless(self) -> None:
+        synthesis_event = ResearchEvent(
+            event_id="e-synth",
+            session_id="session-1",
+            timestamp="2026-08-22T00:00:01Z",
+            workflow_node="synthesis",
+            executor_type="local_llm",
+        )
+
+        assert session_retrieval_dois([synthesis_event]) == {}
+
+
+class TestCrosswalkPublicationStatusFlips:
+    def test_flip_touching_a_cited_evidence_record_is_reported(self) -> None:
+        flip = PublicationStatusFlip(canonical_id="c-1", title="A trial", flag="retracted")
+        current = _snapshot(_candidate("c-1"))  # doi="10.1000/example"
+
+        touching = crosswalk_publication_status_flips(
+            (flip,),
+            current=current,
+            retrieval_dois={"ev-1": "10.1000/example"},
+            narrative="The effect was significant [ev-1].",
+        )
+
+        assert len(touching) == 1
+        assert touching[0].flip == flip
+        assert touching[0].doi == "10.1000/example"
+        assert touching[0].cited_evidence_record_ids == ("ev-1",)
+
+    def test_flip_whose_doi_was_retrieved_but_never_cited_is_a_freshness_signal_only(
+        self,
+    ) -> None:
+        flip = PublicationStatusFlip(canonical_id="c-1", title="A trial", flag="retracted")
+        current = _snapshot(_candidate("c-1"))
+
+        touching = crosswalk_publication_status_flips(
+            (flip,),
+            current=current,
+            retrieval_dois={"ev-1": "10.1000/example"},
+            narrative="Nothing here cites that record at all.",
+        )
+
+        assert touching == ()
+
+    def test_flip_whose_doi_was_never_retrieved_is_not_reported(self) -> None:
+        flip = PublicationStatusFlip(canonical_id="c-1", title="A trial", flag="retracted")
+        current = _snapshot(_candidate("c-1"))
+
+        touching = crosswalk_publication_status_flips(
+            (flip,),
+            current=current,
+            retrieval_dois={"ev-1": "10.9999/unrelated"},
+            narrative="The effect was significant [ev-1].",
+        )
+
+        assert touching == ()
+
+    def test_flip_with_no_matching_candidate_in_current_is_skipped(self) -> None:
+        flip = PublicationStatusFlip(canonical_id="c-missing", title="A trial", flag="retracted")
+        current = _snapshot(_candidate("c-1"))
+
+        touching = crosswalk_publication_status_flips(
+            (flip,),
+            current=current,
+            retrieval_dois={"ev-1": "10.1000/example"},
+            narrative="[ev-1]",
+        )
+
+        assert touching == ()
+
+    def test_multiple_evidence_records_sharing_a_doi_are_all_named_when_cited(self) -> None:
+        flip = PublicationStatusFlip(canonical_id="c-1", title="A trial", flag="withdrawn")
+        current = _snapshot(_candidate("c-1"))
+
+        touching = crosswalk_publication_status_flips(
+            (flip,),
+            current=current,
+            retrieval_dois={"ev-1": "10.1000/example", "ev-2": "10.1000/example"},
+            narrative="[ev-1] and also [ev-2].",
+        )
+
+        assert len(touching) == 1
+        assert touching[0].cited_evidence_record_ids == ("ev-1", "ev-2")
+
+    def test_qualifying_flag_is_reported_the_same_way_as_invalidating(self) -> None:
+        # crosswalk_publication_status_flips does not itself split
+        # invalidates-versus-qualifies -- that reads `.flip.flag` downstream.
+        flip = PublicationStatusFlip(canonical_id="c-1", title="A trial", flag="corrected")
+        current = _snapshot(_candidate("c-1"))
+
+        touching = crosswalk_publication_status_flips(
+            (flip,),
+            current=current,
+            retrieval_dois={"ev-1": "10.1000/example"},
+            narrative="[ev-1]",
+        )
+
+        assert len(touching) == 1
+        assert touching[0].flip.flag == "corrected"

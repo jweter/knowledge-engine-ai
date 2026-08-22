@@ -167,6 +167,7 @@ def run_fixed_evidence_workflow(
             error=parallel_result.primary.error,
             duration_ms=retrieval_duration_ms,
             source_ids=_evidence_record_ids(report) if report is not None else (),
+            source_dois=_evidence_record_dois(report) if report is not None else (),
         )
     )
     contradiction_report = parallel_result.contradiction.report
@@ -193,6 +194,11 @@ def run_fixed_evidence_workflow(
             duration_ms=retrieval_duration_ms,
             source_ids=(
                 _evidence_record_ids(contradiction_report)
+                if contradiction_report is not None
+                else ()
+            ),
+            source_dois=(
+                _evidence_record_dois(contradiction_report)
                 if contradiction_report is not None
                 else ()
             ),
@@ -298,6 +304,31 @@ def _evidence_record_ids(report: EvidenceReport) -> tuple[str, ...]:
     )
 
 
+def _evidence_record_dois(report: EvidenceReport) -> tuple[str, ...]:
+    """Each evidence record's own paper's DOI, aligned index-for-index with `_evidence_record_ids`.
+
+    AI-FRD-5's DOI-crosswalk slice (`docs/roadmap/answer_session_versioning_design.md`'s
+    "the crosswalk" section) needs to join a flagged federated-discovery
+    candidate's DOI back to the specific evidence record(s) a session
+    actually cited -- and `RetrievedPaper.doi` is otherwise not persisted
+    anywhere durable. `ResearchEvent.source_dois` (parallel to `source_ids`,
+    same order) is that persistence; this helper builds it from the same
+    `(paper, record)` iteration `_evidence_record_ids` already sorts by
+    `evidence_record_id`, so `source_dois[i]` is always the DOI of the paper
+    that produced `source_ids[i]`. An empty string means the paper carries
+    no DOI, matching `RetrievedPaper.doi`'s own non-optional-but-sometimes-
+    empty shape (`models.py`) rather than conflating "no DOI" with "unknown."
+    """
+
+    pairs = sorted(
+        (record.evidence_record_id, paper.doi)
+        for paper in report.papers
+        for record in paper.evidence_records
+        if record.evidence_record_id
+    )
+    return tuple(doi for _evidence_record_id, doi in pairs)
+
+
 def _retrieval_summary(report: EvidenceReport) -> str:
     """A short, human-readable summary -- the durable audit trail is the event's `output_hash`."""
 
@@ -340,6 +371,7 @@ def _record_step(
     error: str | None,
     duration_ms: int | None = None,
     source_ids: tuple[str, ...] = (),
+    source_dois: tuple[str, ...] = (),
 ) -> WorkflowStepResult:
     event = ResearchEvent(
         event_id=str(uuid.uuid4()),
@@ -354,6 +386,7 @@ def _record_step(
         notes=error,
         duration_ms=duration_ms,
         source_ids=source_ids,
+        source_dois=source_dois,
     )
     session_repository.append_event(event)
     return WorkflowStepResult(

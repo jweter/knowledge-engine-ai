@@ -39,11 +39,28 @@ a future slice once this bounded reasoning has a caller inside a session.
 `ke-ai research-freshness` (see `cli.py`) is this slice's first caller, the
 same "build the tested primitive, add a standalone CLI caller, wire into
 `run_research_question` later" sequencing AI-FRD-3/AI-FRD-4 already used.
+
+A later slice (2026-08-22, `docs/roadmap/answer_session_versioning_design.md`'s
+"the crosswalk" section) added `crosswalk_publication_status_flips` and its
+`session_retrieval_dois` helper below -- the detection layer that decides
+*whether* a `PublicationStatusFlip` this module already computes actually
+touches one specific session's own cited narrative, as opposed to a
+discovery lead that session never promoted to a claim. Still deliberately
+out of scope, per that design doc's own "What this does not do": which of
+`record_narrative_invalidation()`/a qualifying `pending_flip` to call for a
+touching flip (the invalidates-versus-qualifies trigger), the
+`AnswerFreshness` read-side projection, and any caller that mints a
+version-*N+1* session. Both new functions are pure, deterministic, and take
+already-fetched data -- no `SessionRepository` call, no `ke` subprocess --
+the same "caller owns the I/O" boundary `assess_rerun_need`/
+`diff_candidate_snapshots` above and `observability.build_session_trace`
+already follow.
 """
 
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 
 from knowledge_engine_ai.ke_client import (
@@ -52,6 +69,8 @@ from knowledge_engine_ai.ke_client import (
     FederatedDiscoverHistoryResult,
     SearchCoverageReport,
 )
+from knowledge_engine_ai.orchestrator.verification import CITATION_PATTERN
+from knowledge_engine_ai.sessions.models import ResearchEvent
 
 # A conservative, documented, overridable default -- not a claim about how
 # quickly the scholarly literature actually changes. Callers with a
@@ -236,6 +255,114 @@ def diff_candidate_snapshots(
     )
 
 
+@dataclasses.dataclass(frozen=True)
+class NarrativeTouchingFlip:
+    """One `PublicationStatusFlip` the crosswalk confirmed actually touches a session's narrative.
+
+    "Touches" means: the flagged candidate's DOI matches a DOI from the
+    session's own retrieval step, *and* at least one evidence record from
+    that same paper was actually cited (`[evidence_record_id]`,
+    `verification.CITATION_PATTERN`) in the session's persisted narrative --
+    not merely retrieved as a discovery lead. `cited_evidence_record_ids`
+    names every one of the session's own evidence-record ids from that DOI
+    that was cited (there can be more than one paper->evidence-record edge
+    for the same DOI); it is never empty on a returned `NarrativeTouchingFlip`.
+    """
+
+    flip: PublicationStatusFlip
+    doi: str
+    cited_evidence_record_ids: tuple[str, ...]
+
+
+def session_retrieval_dois(events: Sequence[ResearchEvent]) -> dict[str, str]:
+    """Map each of a session's own retrieved evidence-record ids to its paper's DOI.
+
+    Built from `ResearchEvent.source_dois` -- additive, parallel to the
+    pre-existing `source_ids` (see `sessions/models.py`), populated by the
+    two retrieval-step events `orchestrator/workflow.py` records. Identified
+    structurally (any event whose `source_ids`/`source_dois` pair up), not
+    by workflow-node name, so this stays correct even if a future retrieval
+    branch is added under a new node. An event from before `source_dois`
+    existed contributes nothing here (empty `source_dois`), which is the
+    correct "DOI unknown for this old record," never "no DOI" -- and an
+    event whose paper had no DOI contributes an empty string, filtered out
+    below, since an empty DOI can never legitimately match a flagged
+    candidate's own DOI.
+
+    A caller feeds this a session's *own* full event log
+    (`SessionRepository.list_events(session_id)`), not this function --
+    matching `assess_rerun_need`/`diff_candidate_snapshots`'s "caller owns
+    the repository/CLI call" boundary above.
+    """
+
+    dois: dict[str, str] = {}
+    for event in events:
+        for evidence_record_id, doi in zip(event.source_ids, event.source_dois, strict=False):
+            if doi and evidence_record_id not in dois:
+                dois[evidence_record_id] = doi
+    return dois
+
+
+def crosswalk_publication_status_flips(
+    flips: tuple[PublicationStatusFlip, ...],
+    *,
+    current: FederatedCoverageReportResult,
+    retrieval_dois: Mapping[str, str],
+    narrative: str,
+) -> tuple[NarrativeTouchingFlip, ...]:
+    """Which of `flips` actually touch `narrative`'s cited evidence, per "the crosswalk."
+
+    For each flip: 1) look up its `canonical_id` in `current.candidates` to
+    get the flagged candidate's own DOI (a flip whose candidate is missing
+    from `current`, or whose candidate carries no DOI, cannot be crosswalked
+    and is skipped -- Core's own `canonical_id`/`doi` are read verbatim,
+    never re-derived); 2) find every one of the session's own retrieval-step
+    evidence-record ids that share that DOI (`retrieval_dois`, typically
+    built by `session_retrieval_dois()` above); 3) keep only the ones that
+    were actually cited in `narrative` (`CITATION_PATTERN.findall`, the
+    same pattern `verification.py`/`session_report.py` already share). A
+    flip with a DOI match but no citation match is a discovery lead the
+    session never promoted to a claim -- a freshness signal only,
+    correctly absent from the returned tuple, per the design doc's own
+    "the retracted/corrected work was a discovery lead S never promoted to
+    a cited claim" rule. Order-preserving over `flips`; does not itself
+    decide invalidates-versus-qualifies -- that split reads
+    `NarrativeTouchingFlip.flip.flag` (see "Invalidates versus qualifies"
+    in the design doc) and is intentionally left to the still-future
+    trigger-wiring slice.
+    """
+
+    candidates_by_id = {candidate.canonical_id: candidate for candidate in current.candidates}
+    cited_evidence_record_ids = frozenset(CITATION_PATTERN.findall(narrative))
+
+    evidence_record_ids_by_doi: dict[str, list[str]] = {}
+    for evidence_record_id, doi in retrieval_dois.items():
+        if doi:
+            evidence_record_ids_by_doi.setdefault(doi, []).append(evidence_record_id)
+
+    touching: list[NarrativeTouchingFlip] = []
+    for flip in flips:
+        candidate = candidates_by_id.get(flip.canonical_id)
+        if candidate is None or not candidate.doi:
+            continue
+        matching_ids = evidence_record_ids_by_doi.get(candidate.doi, ())
+        cited_matching_ids = tuple(
+            evidence_record_id
+            for evidence_record_id in matching_ids
+            if evidence_record_id in cited_evidence_record_ids
+        )
+        if cited_matching_ids:
+            touching.append(
+                NarrativeTouchingFlip(
+                    flip=flip,
+                    doi=candidate.doi,
+                    cited_evidence_record_ids=cited_matching_ids,
+                )
+            )
+
+    return tuple(touching)
+
+
 def _any_observation_asserts(candidate: FederatedCandidateRecord, flag: str) -> bool:
     return any(bool(getattr(observation, flag)) for observation in candidate.observations)
 
@@ -260,9 +387,12 @@ def _parse_timestamp(value: str) -> datetime:
 __all__ = [
     "DEFAULT_MAX_AGE_SECONDS",
     "CandidateFreshnessDiff",
+    "NarrativeTouchingFlip",
     "PublicationStatusFlip",
     "RerunRecommendation",
     "ResearchFreshnessError",
     "assess_rerun_need",
+    "crosswalk_publication_status_flips",
     "diff_candidate_snapshots",
+    "session_retrieval_dois",
 ]

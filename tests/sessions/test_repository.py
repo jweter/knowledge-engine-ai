@@ -433,3 +433,108 @@ def test_opening_a_pre_versioning_database_adds_the_versioning_columns(
     assert fetched.narrative_invalidated_at is None
 
     migrated_connection.close()
+
+
+def test_source_dois_round_trips_alongside_source_ids(repository: SessionRepository) -> None:
+    repository.create_session(_session())
+    repository.append_event(_event(source_ids=("ev-1", "ev-2"), source_dois=("10.1/a", "10.1/b")))
+
+    (event,) = repository.list_events("session-1")
+
+    assert event.source_ids == ("ev-1", "ev-2")
+    assert event.source_dois == ("10.1/a", "10.1/b")
+
+
+def test_source_dois_defaults_to_empty(repository: SessionRepository) -> None:
+    repository.create_session(_session())
+    repository.append_event(_event(source_ids=("ev-1",)))
+
+    (event,) = repository.list_events("session-1")
+
+    assert event.source_ids == ("ev-1",)
+    assert event.source_dois == ()
+
+
+def test_opening_a_pre_source_dois_database_adds_the_column(tmp_path: Path) -> None:
+    """A database created before `source_dois` existed must still open.
+
+    Old `research_events` rows get `source_dois = '[]'` from the guarded
+    `ALTER TABLE ... DEFAULT '[]'` migration -- an empty tuple on read,
+    matching "DOI unknown for this old record," not a fabricated value.
+    """
+
+    database_path = f"{tmp_path}/pre_source_dois.sqlite3"
+    pre_migration_connection = new_connection(database_path)
+    pre_migration_connection.execute(
+        """
+        CREATE TABLE research_sessions (
+            session_id TEXT PRIMARY KEY,
+            schema_version INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            user_question_original TEXT NOT NULL,
+            status TEXT NOT NULL,
+            normalized_question TEXT,
+            domain_hints TEXT NOT NULL,
+            research_plan_id TEXT,
+            corpus_snapshot_id TEXT,
+            evidence_cutoff_time TEXT,
+            final_status TEXT
+        )
+        """
+    )
+    pre_migration_connection.execute(
+        """
+        CREATE TABLE research_events (
+            event_id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES research_sessions(session_id),
+            sequence_number INTEGER NOT NULL,
+            timestamp TEXT NOT NULL,
+            workflow_node TEXT NOT NULL,
+            executor_type TEXT NOT NULL,
+            validation_status TEXT,
+            output_schema_version INTEGER,
+            output_hash TEXT,
+            inputs_hash TEXT,
+            model_name TEXT,
+            model_version TEXT,
+            prompt_template_version TEXT,
+            tool_name TEXT,
+            tool_version TEXT,
+            source_ids TEXT NOT NULL,
+            parent_event_ids TEXT NOT NULL,
+            retry_of TEXT,
+            notes TEXT,
+            duration_ms INTEGER
+        )
+        """
+    )
+    pre_migration_connection.execute(
+        """
+        INSERT INTO research_sessions (
+            session_id, schema_version, created_at, updated_at,
+            user_question_original, status, domain_hints
+        ) VALUES ('pre-existing', 1, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z',
+                  'Old question', 'completed', '[]')
+        """
+    )
+    pre_migration_connection.execute(
+        """
+        INSERT INTO research_events (
+            event_id, session_id, sequence_number, timestamp, workflow_node,
+            executor_type, source_ids, parent_event_ids
+        ) VALUES ('e-old', 'pre-existing', 1, '2026-01-01T00:00:01Z', 'retrieval',
+                  'deterministic', '["ev-old"]', '[]')
+        """
+    )
+    pre_migration_connection.commit()
+    pre_migration_connection.close()
+
+    migrated_connection = new_connection(database_path)
+    repository = SessionRepository(migrated_connection)
+
+    (event,) = repository.list_events("pre-existing")
+    assert event.source_ids == ("ev-old",)
+    assert event.source_dois == ()
+
+    migrated_connection.close()

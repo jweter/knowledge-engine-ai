@@ -9,6 +9,42 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **DOI crosswalk (AI-FRD-5 / answer-session-versioning, third wiring
+  slice).** `copilot/research_freshness.py` gains `session_retrieval_dois()`
+  (builds an `evidence_record_id -> doi` mapping from a session's own
+  retrieval-step `ResearchEvent`s) and `crosswalk_publication_status_flips()`
+  (the join `docs/roadmap/answer_session_versioning_design.md`'s "the
+  crosswalk" section scopes: for each `PublicationStatusFlip`, look up its
+  candidate's DOI in the current coverage snapshot, match it against the
+  session's own retrieval DOIs, and keep only the matches actually cited in
+  the session's persisted narrative via `verification.py`'s existing
+  `CITATION_PATTERN` -- returns a new `NarrativeTouchingFlip` per real hit).
+  Both functions are pure and deterministic, taking already-fetched data;
+  neither calls `SessionRepository` or `ke` itself, matching
+  `assess_rerun_need`/`diff_candidate_snapshots`'s own shape. Resolves the
+  design doc's own named open sub-decision -- re-run `ke evidence-report` at
+  check time, or add an additive `doi` field alongside the retrieval event's
+  existing `source_ids` -- as the additive field: `ResearchEvent` gains
+  `source_dois` (parallel to `source_ids`, same order, same additive/no-
+  schema-bump precedent as `duration_ms`), populated by both retrieval-step
+  events in `orchestrator/workflow.py`, with a guarded `ALTER TABLE`
+  migration for `research_events` in `sessions/repository.py::_migrate_schema`.
+  Re-running was rejected: it answers "what would retrieval see today," not
+  "what did this session's retrieval step actually see," and a corpus that
+  changed since the session ran -- the exact scenario a freshness check
+  exists to detect -- can make a re-run return different papers, undermining
+  the citation match this crosswalk depends on. 14 new tests (385 total
+  pass); full local quality gate (ruff format/check, mypy, pytest, pip-audit,
+  git diff --check) clean via `scripts/preflight.py`. The
+  invalidates-versus-qualifies trigger that acts on a detected
+  `NarrativeTouchingFlip`, the `AnswerFreshness` read-side projection, and a
+  caller that mints a version-*N+1* session remain future work -- see
+  `docs/roadmap/answer_session_versioning_design.md`'s updated "What this
+  does not do" section. `knowledge-engine-web` is unaffected: it pins a
+  specific `knowledge-engine-ai` commit; this change adds new functions and
+  additive fields/columns only, and changes no existing function's required
+  signature.
+
 - **Answer/session-versioning repository mechanics (AI-FRD-5 /
   answer-session-versioning, second wiring slice).** `ResearchSession`
   gains three additive fields: `answer_version` (1-based, monotonic within

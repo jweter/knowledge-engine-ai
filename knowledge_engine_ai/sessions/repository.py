@@ -66,6 +66,7 @@ CREATE TABLE IF NOT EXISTS research_events (
     tool_name TEXT,
     tool_version TEXT,
     source_ids TEXT NOT NULL,
+    source_dois TEXT NOT NULL DEFAULT '[]',
     parent_event_ids TEXT NOT NULL,
     retry_of TEXT,
     notes TEXT,
@@ -177,6 +178,14 @@ class SessionRepository:
         if "narrative_invalidated_at" not in existing_columns:
             self._connection.execute(
                 "ALTER TABLE research_sessions ADD COLUMN narrative_invalidated_at TEXT"
+            )
+
+        existing_event_columns = {
+            row["name"] for row in self._connection.execute("PRAGMA table_info(research_events)")
+        }
+        if "source_dois" not in existing_event_columns:
+            self._connection.execute(
+                "ALTER TABLE research_events ADD COLUMN source_dois TEXT NOT NULL DEFAULT '[]'"
             )
 
     def create_session(self, session: ResearchSession) -> None:
@@ -440,9 +449,9 @@ class SessionRepository:
                     event_id, session_id, sequence_number, timestamp, workflow_node,
                     executor_type, validation_status, output_schema_version, output_hash,
                     inputs_hash, model_name, model_version, prompt_template_version,
-                    tool_name, tool_version, source_ids, parent_event_ids, retry_of, notes,
-                    duration_ms
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    tool_name, tool_version, source_ids, source_dois, parent_event_ids,
+                    retry_of, notes, duration_ms
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     event.event_id,
@@ -461,6 +470,7 @@ class SessionRepository:
                     event.tool_name,
                     event.tool_version,
                     json.dumps(list(event.source_ids)),
+                    json.dumps(list(event.source_dois)),
                     json.dumps(list(event.parent_event_ids)),
                     event.retry_of,
                     event.notes,
@@ -554,6 +564,7 @@ def _event_from_row(row: sqlite3.Row) -> ResearchEvent:
         tool_name=row["tool_name"],
         tool_version=row["tool_version"],
         source_ids=tuple(json.loads(row["source_ids"])),
+        source_dois=tuple(json.loads(row["source_dois"])),
         parent_event_ids=tuple(json.loads(row["parent_event_ids"])),
         retry_of=row["retry_of"],
         notes=row["notes"],

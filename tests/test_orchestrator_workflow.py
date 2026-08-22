@@ -151,6 +151,11 @@ def test_runs_retrieval_step_only_when_no_optional_inputs_supplied(
     assert events[0].source_ids == ("ev-1",)
     assert events[1].source_ids == ("ev-1",)
 
+    # AI-FRD-5's DOI-crosswalk slice: each retrieval event's source_dois is
+    # aligned index-for-index with its own source_ids.
+    assert events[0].source_dois == ("10.1/x",)
+    assert events[1].source_dois == ("10.1/x",)
+
 
 def test_runs_all_fixed_steps_in_order_when_optional_inputs_supplied(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, repository: SessionRepository
