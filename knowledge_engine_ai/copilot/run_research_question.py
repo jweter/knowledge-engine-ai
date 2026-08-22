@@ -52,6 +52,28 @@ visible and durable -- it is recorded as its own failed `ResearchEvent`
 and surfaced on `ResearchQuestionResult.synthesis_error` -- it is simply
 not what blocks the ISA close gate, which is scoped to narrative
 correctness, not synthesis availability.
+
+AI-FRD-2's first bounded slice (coverage-aware Research ISA): when a caller
+supplies `discovery_policy`, a fourth, *optional* (`required=False`)
+`discovery_coverage` criterion is attached alongside the three fixed ones
+above and evaluated from the same `DiscoveryAugmentationResult` AI-FRD-3/
+AI-FRD-4's wiring already produces. It reports `FAILED` -- naming the
+specific provider(s) and their recorded outcome -- whenever a triggered
+federated-discovery run's own Core-derived `completeness` is not
+`"complete"` (i.e. some attempted provider genuinely failed, was rate
+limited, or was unavailable; Core's own `completeness` already excludes
+disabled/skipped providers from this judgment, so AI never re-derives it).
+It is `NOT_APPLICABLE` when discovery was not triggered (coverage was
+already sufficient, or the primary retrieval itself failed and is already
+blocked by `workflow_integrity`) and omitted from the ISA entirely when no
+`discovery_policy` was supplied at all -- the existing three-criteria path
+is unchanged byte for byte. Being optional means a degraded federated
+search never silently blocks session close (synthesis may still proceed in
+degraded mode), but it also means the limitation is always explicit and
+inspectable on the session's own ISA validation, never hidden behind a
+model's unverified claim to have "searched broadly." See
+`docs/roadmap/federated_discovery_orchestration_adoption.md`'s AI-FRD-2
+section.
 """
 
 from __future__ import annotations
@@ -95,6 +117,7 @@ _ISA_SCHEMA_VERSION = 1
 _WORKFLOW_INTEGRITY_CRITERION_ID = "workflow_integrity"
 _CITATION_INTEGRITY_CRITERION_ID = "citation_integrity"
 _CONTRADICTION_REVIEW_CRITERION_ID = "contradiction_review"
+_DISCOVERY_COVERAGE_CRITERION_ID = "discovery_coverage"
 _SYNTHESIS_NODE = "synthesis"
 _SYNTHESIS_EXECUTOR_TYPE = "local_llm"
 
@@ -227,9 +250,12 @@ def run_research_question(
             narrative, workflow_result.evidence_report, verification
         )
 
-    session_repository.attach_research_isa(session_id, _build_isa(session_id, question))
+    session_repository.attach_research_isa(
+        session_id,
+        _build_isa(session_id, question, discovery_policy_supplied=discovery_policy is not None),
+    )
     recorded_at = _timestamp()
-    for result in _isa_criterion_results(workflow_result, verification):
+    for result in _isa_criterion_results(workflow_result, verification, discovery_augmentation):
         session_repository.record_criterion_result(session_id, result, recorded_at=recorded_at)
 
     close_result = attempt_session_close(session_repository, session_id=session_id)
@@ -336,7 +362,41 @@ def _record_synthesis_event(
     )
 
 
-def _build_isa(session_id: str, question: str) -> ResearchISA:
+def _build_isa(session_id: str, question: str, *, discovery_policy_supplied: bool) -> ResearchISA:
+    criteria: tuple[IdealStateCriterion, ...] = (
+        IdealStateCriterion(
+            criterion_id=_WORKFLOW_INTEGRITY_CRITERION_ID,
+            claim="Every required deterministic workflow step completed successfully.",
+            probe="workflow_result: every configured step has succeeded=true",
+        ),
+        IdealStateCriterion(
+            criterion_id=_CITATION_INTEGRITY_CRITERION_ID,
+            claim="Every citation the narrative makes is grounded in retrieved evidence.",
+            probe="verify_synthesis: hallucinated_citations and ungrounded_numbers are empty",
+        ),
+        IdealStateCriterion(
+            criterion_id=_CONTRADICTION_REVIEW_CRITERION_ID,
+            claim="Contradicting or qualifying evidence was not silently omitted.",
+            probe="verify_synthesis: missed_qualifiers is empty",
+        ),
+    )
+    if discovery_policy_supplied:
+        # AI-FRD-2: optional (`required=False`) -- a degraded federated-discovery
+        # broadening must never silently block session close, but it must also
+        # never be silently omitted from the ISA once discovery is in play.
+        criteria = (
+            *criteria,
+            IdealStateCriterion(
+                criterion_id=_DISCOVERY_COVERAGE_CRITERION_ID,
+                claim=(
+                    "If federated discovery was triggered to broaden thin corpus "
+                    "coverage, every attempted provider succeeded; a genuine provider "
+                    "failure is reported explicitly, never silently as complete coverage."
+                ),
+                probe="discovery_augmentation: federated_discovery.completeness == 'complete'",
+                required=False,
+            ),
+        )
     return ResearchISA(
         schema_version=_ISA_SCHEMA_VERSION,
         run_id=f"run-{session_id}",
@@ -346,30 +406,15 @@ def _build_isa(session_id: str, question: str) -> ResearchISA:
             "evidence, and which does not silently omit contradicting or qualifying "
             "evidence, or an honest statement that no evidence was available to answer."
         ),
-        criteria=(
-            IdealStateCriterion(
-                criterion_id=_WORKFLOW_INTEGRITY_CRITERION_ID,
-                claim="Every required deterministic workflow step completed successfully.",
-                probe="workflow_result: every configured step has succeeded=true",
-            ),
-            IdealStateCriterion(
-                criterion_id=_CITATION_INTEGRITY_CRITERION_ID,
-                claim="Every citation the narrative makes is grounded in retrieved evidence.",
-                probe="verify_synthesis: hallucinated_citations and ungrounded_numbers are empty",
-            ),
-            IdealStateCriterion(
-                criterion_id=_CONTRADICTION_REVIEW_CRITERION_ID,
-                claim="Contradicting or qualifying evidence was not silently omitted.",
-                probe="verify_synthesis: missed_qualifiers is empty",
-            ),
-        ),
+        criteria=criteria,
     )
 
 
 def _isa_criterion_results(
     workflow_result: WorkflowResult,
     verification: VerificationResult | None,
-) -> tuple[CriterionResult, CriterionResult, CriterionResult]:
+    discovery_augmentation: DiscoveryAugmentationResult | None,
+) -> tuple[CriterionResult, ...]:
     failed_workflow_nodes = tuple(
         step.workflow_node for step in workflow_result.steps if not step.succeeded
     )
@@ -386,40 +431,101 @@ def _isa_criterion_results(
 
     if verification is None:
         evidence = "No narrative was produced this run; nothing to verify."
-        return (
+        results = (
             workflow_result_record,
             CriterionResult(_CITATION_INTEGRITY_CRITERION_ID, CriterionStatus.PASSED, evidence),
             CriterionResult(_CONTRADICTION_REVIEW_CRITERION_ID, CriterionStatus.PASSED, evidence),
         )
-
-    citation_clean = not (verification.hallucinated_citations or verification.ungrounded_numbers)
-    citation_evidence = (
-        "No hallucinated citations or ungrounded numbers found."
-        if citation_clean
-        else (
-            f"hallucinated_citations={list(verification.hallucinated_citations)}, "
-            f"ungrounded_numbers={list(verification.ungrounded_numbers)}"
+    else:
+        citation_clean = not (
+            verification.hallucinated_citations or verification.ungrounded_numbers
         )
-    )
+        citation_evidence = (
+            "No hallucinated citations or ungrounded numbers found."
+            if citation_clean
+            else (
+                f"hallucinated_citations={list(verification.hallucinated_citations)}, "
+                f"ungrounded_numbers={list(verification.ungrounded_numbers)}"
+            )
+        )
 
-    contradiction_clean = not verification.missed_qualifiers
-    contradiction_evidence = (
-        "No qualifying/contradicting evidence record was omitted from the narrative."
-        if contradiction_clean
-        else f"missed_qualifiers={list(verification.missed_qualifiers)}"
-    )
+        contradiction_clean = not verification.missed_qualifiers
+        contradiction_evidence = (
+            "No qualifying/contradicting evidence record was omitted from the narrative."
+            if contradiction_clean
+            else f"missed_qualifiers={list(verification.missed_qualifiers)}"
+        )
 
-    return (
-        workflow_result_record,
-        CriterionResult(
-            _CITATION_INTEGRITY_CRITERION_ID,
-            CriterionStatus.PASSED if citation_clean else CriterionStatus.FAILED,
-            citation_evidence,
-        ),
-        CriterionResult(
-            _CONTRADICTION_REVIEW_CRITERION_ID,
-            CriterionStatus.PASSED if contradiction_clean else CriterionStatus.FAILED,
-            contradiction_evidence,
+        results = (
+            workflow_result_record,
+            CriterionResult(
+                _CITATION_INTEGRITY_CRITERION_ID,
+                CriterionStatus.PASSED if citation_clean else CriterionStatus.FAILED,
+                citation_evidence,
+            ),
+            CriterionResult(
+                _CONTRADICTION_REVIEW_CRITERION_ID,
+                CriterionStatus.PASSED if contradiction_clean else CriterionStatus.FAILED,
+                contradiction_evidence,
+            ),
+        )
+
+    if discovery_augmentation is None:
+        return results
+    return (*results, _discovery_coverage_result(discovery_augmentation))
+
+
+def _discovery_coverage_result(
+    discovery_augmentation: DiscoveryAugmentationResult,
+) -> CriterionResult:
+    """AI-FRD-2: deterministic coverage criterion over this run's discovery augmentation.
+
+    Never re-derives provider success/failure -- Core's own `completeness`
+    (already computed only from *attempted* providers, excluding disabled/
+    skipped ones) is the single source of truth. `NOT_APPLICABLE` when
+    discovery was not triggered at all (coverage was already sufficient, or
+    primary retrieval failed and is already blocked by `workflow_integrity`),
+    so this criterion never fabricates a "searched broadly" pass for a run
+    that never broadened its search.
+    """
+
+    if not discovery_augmentation.triggered:
+        return CriterionResult(
+            _DISCOVERY_COVERAGE_CRITERION_ID,
+            CriterionStatus.NOT_APPLICABLE,
+            discovery_augmentation.trigger_reason,
+        )
+
+    federated_result = discovery_augmentation.federated_discovery
+    if federated_result is None:
+        return CriterionResult(
+            _DISCOVERY_COVERAGE_CRITERION_ID,
+            CriterionStatus.FAILED,
+            (
+                "Federated discovery was triggered but did not complete: "
+                f"{discovery_augmentation.federated_discovery_error}"
+            ),
+        )
+
+    if federated_result.completeness == "complete":
+        return CriterionResult(
+            _DISCOVERY_COVERAGE_CRITERION_ID,
+            CriterionStatus.PASSED,
+            f"Every attempted provider succeeded (search_run_id={federated_result.search_run_id}).",
+        )
+
+    unsuccessful = tuple(
+        f"{status.provider}={status.outcome}" + (f" ({status.reason})" if status.reason else "")
+        for status in federated_result.provider_statuses
+        if status.attempted and status.outcome not in ("success", "empty")
+    )
+    return CriterionResult(
+        _DISCOVERY_COVERAGE_CRITERION_ID,
+        CriterionStatus.FAILED,
+        (
+            f"Federated discovery completeness={federated_result.completeness} "
+            f"(search_run_id={federated_result.search_run_id}); "
+            f"unsuccessful attempted providers: {list(unsuccessful)}"
         ),
     )
 

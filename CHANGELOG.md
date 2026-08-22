@@ -9,6 +9,29 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **AI-FRD-2 (coverage-aware Research ISA): first bounded slice.**
+  `run_research_question` now attaches a fourth, *optional*
+  (`required=False`) `discovery_coverage` Ideal State criterion whenever a
+  caller supplies `discovery_policy` -- it is omitted from the ISA entirely
+  when no `discovery_policy` is supplied, leaving the pre-existing
+  three-criteria path unchanged byte for byte. The criterion is evaluated
+  from the same `DiscoveryAugmentationResult` AI-FRD-3/AI-FRD-4's wiring
+  already produces: `NOT_APPLICABLE` when federated discovery was not
+  triggered this run (coverage already sufficient, or primary retrieval
+  already failed and is blocked by `workflow_integrity`); `FAILED` --
+  naming the specific unsuccessful provider(s) and Core's own recorded
+  reason -- whenever a triggered run's Core-derived `completeness` is not
+  `"complete"`; `PASSED` otherwise. Core's own `completeness` (already
+  computed only from *attempted* providers, excluding disabled/skipped
+  ones) is the single source of truth here -- AI never re-derives provider
+  success/failure. Being optional means a degraded federated-discovery
+  broadening never silently blocks session close (synthesis may still
+  proceed in degraded mode, per this milestone's own exit criteria), but
+  the limitation is always explicit and inspectable on the session's ISA
+  validation, never hidden behind an unverified "searched broadly" claim.
+  See `docs/roadmap/federated_discovery_orchestration_adoption.md`'s
+  AI-FRD-2 section for the full account.
+
 - **AI-FRD-5 (research freshness / rerun reasoning): a first bounded slice,
   deterministic and unwired.** `copilot/research_freshness.py` adds two pure
   functions over data `ke_client.federated_discover_history()` and

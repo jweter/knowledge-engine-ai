@@ -10,7 +10,11 @@ import pytest
 import knowledge_engine_ai.copilot.discovery_policy as discovery_policy
 from knowledge_engine_ai.copilot.discovery_policy import FederatedDiscoveryPolicy
 from knowledge_engine_ai.copilot.run_research_question import run_research_question
-from knowledge_engine_ai.ke_client import CitationSnowballResult, FederatedDiscoveryResult
+from knowledge_engine_ai.ke_client import (
+    CitationSnowballResult,
+    FederatedDiscoveryResult,
+    FederatedProviderStatus,
+)
 from knowledge_engine_ai.llm import LocalLLMError
 from knowledge_engine_ai.sessions.models import SessionStatus
 from knowledge_engine_ai.sessions.repository import SessionRepository, new_connection
@@ -501,3 +505,172 @@ def test_discovery_policy_does_not_trigger_when_coverage_already_sufficient(
     assert result.discovery.triggered is False
     assert result.narrative == "Semaglutide reduced body weight [ev-1]."
     assert result.close_result.status is SessionStatus.COMPLETED
+
+
+# --- AI-FRD-2 wiring (coverage-aware Research ISA) ----------------------------
+
+
+def test_discovery_coverage_criterion_absent_when_no_discovery_policy_supplied(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(subprocess, "run", _fake_run(_payload(evidence_records=[_GROUNDED_RECORD])))
+    repository = _repository()
+
+    result = run_research_question(
+        "does semaglutide reduce body weight",
+        session_repository=repository,
+        sources=tmp_path / "s.csv",
+        evidence=tmp_path / "e.jsonl",
+        llm=_FakeLLM(),
+    )
+
+    isa = repository.get_research_isa(result.session_id)
+    assert isa is not None
+    assert {criterion.criterion_id for criterion in isa.criteria} == {
+        "workflow_integrity",
+        "citation_integrity",
+        "contradiction_review",
+    }
+    criterion_ids = {
+        item.criterion_id for item in repository.latest_criterion_results(result.session_id)
+    }
+    assert "discovery_coverage" not in criterion_ids
+
+
+def test_discovery_coverage_criterion_not_applicable_when_not_triggered(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def _fail(*args: object, **kwargs: object) -> None:
+        raise AssertionError("Should not attempt any discovery/snowball call.")
+
+    monkeypatch.setattr(discovery_policy, "execute_discovery_plan", _fail)
+    monkeypatch.setattr(discovery_policy, "citation_snowball", _fail)
+    monkeypatch.setattr(subprocess, "run", _fake_run(_payload(evidence_records=[_GROUNDED_RECORD])))
+    repository = _repository()
+    policy = FederatedDiscoveryPolicy(
+        ledger_root=tmp_path / "ledger", min_evidence_record_coverage=1
+    )
+
+    result = run_research_question(
+        "does semaglutide reduce body weight",
+        session_repository=repository,
+        sources=tmp_path / "s.csv",
+        evidence=tmp_path / "e.jsonl",
+        llm=_FakeLLM(),
+        discovery_policy=policy,
+    )
+
+    isa = repository.get_research_isa(result.session_id)
+    assert isa is not None
+    discovery_criterion = next(c for c in isa.criteria if c.criterion_id == "discovery_coverage")
+    assert discovery_criterion.required is False
+
+    criterion_result = next(
+        item
+        for item in repository.latest_criterion_results(result.session_id)
+        if item.criterion_id == "discovery_coverage"
+    )
+    assert criterion_result.status.value == "not_applicable"
+    assert result.close_result.status is SessionStatus.COMPLETED
+
+
+def test_discovery_coverage_criterion_passes_when_all_providers_succeed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(discovery_policy, "execute_discovery_plan", _federated_discovery_stub)
+    monkeypatch.setattr(discovery_policy, "citation_snowball", _citation_snowball_stub)
+    monkeypatch.setattr(subprocess, "run", _fake_run(_payload(evidence_records=[_GROUNDED_RECORD])))
+    repository = _repository()
+    policy = FederatedDiscoveryPolicy(
+        ledger_root=tmp_path / "ledger", min_evidence_record_coverage=5
+    )
+
+    result = run_research_question(
+        "does semaglutide reduce body weight",
+        session_repository=repository,
+        sources=tmp_path / "s.csv",
+        evidence=tmp_path / "e.jsonl",
+        llm=_FakeLLM(),
+        discovery_policy=policy,
+    )
+
+    criterion_result = next(
+        item
+        for item in repository.latest_criterion_results(result.session_id)
+        if item.criterion_id == "discovery_coverage"
+    )
+    assert criterion_result.status.value == "passed"
+    assert "run-xyz" in criterion_result.evidence
+    assert result.close_result.status is SessionStatus.COMPLETED
+
+
+def _provider_status(
+    provider: str, *, outcome: str, attempted: bool, result_count: int, reason: str | None = None
+) -> FederatedProviderStatus:
+    return FederatedProviderStatus(
+        provider=provider,
+        outcome=outcome,
+        attempted=attempted,
+        result_count=result_count,
+        reason=reason,
+    )
+
+
+def _degraded_federated_discovery_stub(*args: object, **kwargs: object) -> FederatedDiscoveryResult:
+    del args, kwargs
+    return FederatedDiscoveryResult(
+        search_run_id="run-degraded",
+        query_text="does semaglutide reduce body weight",
+        completeness="partial",
+        provider_statuses=(
+            _provider_status("pubmed", outcome="success", attempted=True, result_count=3),
+            _provider_status(
+                "semantic_scholar",
+                outcome="rate_limited",
+                attempted=True,
+                result_count=0,
+                reason="429 Too Many Requests",
+            ),
+        ),
+        candidates=(),
+        provider_disagreements=None,
+        search_run_created_at=None,
+    )
+
+
+def test_discovery_coverage_criterion_fails_on_failed_provider_without_blocking_close(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        discovery_policy, "execute_discovery_plan", _degraded_federated_discovery_stub
+    )
+    monkeypatch.setattr(discovery_policy, "citation_snowball", _citation_snowball_stub)
+    monkeypatch.setattr(subprocess, "run", _fake_run(_payload(evidence_records=[_GROUNDED_RECORD])))
+    repository = _repository()
+    policy = FederatedDiscoveryPolicy(
+        ledger_root=tmp_path / "ledger", min_evidence_record_coverage=5
+    )
+
+    result = run_research_question(
+        "does semaglutide reduce body weight",
+        session_repository=repository,
+        sources=tmp_path / "s.csv",
+        evidence=tmp_path / "e.jsonl",
+        llm=_FakeLLM(),
+        discovery_policy=policy,
+    )
+
+    criterion_result = next(
+        item
+        for item in repository.latest_criterion_results(result.session_id)
+        if item.criterion_id == "discovery_coverage"
+    )
+    assert criterion_result.status.value == "failed"
+    assert "semantic_scholar=rate_limited" in criterion_result.evidence
+    assert "429 Too Many Requests" in criterion_result.evidence
+
+    # Optional criterion: a degraded federated-discovery broadening is
+    # visible and explicit, but does not by itself block session close --
+    # synthesis may still proceed in degraded mode.
+    assert result.close_result.status is SessionStatus.COMPLETED
+    assert "discovery_coverage" not in result.close_result.validation.unresolved_required_criteria
