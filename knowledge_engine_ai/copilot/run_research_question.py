@@ -76,6 +76,20 @@ inspectable on the session's own ISA validation, never hidden behind a
 model's unverified claim to have "searched broadly." See
 `docs/roadmap/federated_discovery_orchestration_adoption.md`'s AI-FRD-2
 section.
+
+`research_question_id` threading (`docs/roadmap/answer_session_versioning_design.md`):
+this module now accepts an optional `research_question_id` and always sets
+it on the `ResearchSession` it creates (caller-supplied, or deterministically
+derived from the question text when omitted), forwarding it to the
+federated-discovery sub-step only when `discovery_policy` is also supplied.
+This closes the concrete plumbing gap that design doc's "Where
+`research_question_id` actually comes from" section named -- Core's
+`federated_discover_history`/`federated_coverage_report` now have something
+to find later for any session whose discovery step actually ran under a
+given thread identity. It adds no versioning/supersession behavior itself
+-- `ResearchSession` gains only this one additive field; `answer_version`,
+`supersedes_session_id`, `narrative_invalidated_at`, and the crosswalk/
+rerun-trigger wiring the design doc also scopes remain future work.
 """
 
 from __future__ import annotations
@@ -180,6 +194,7 @@ def run_research_question(
     limit: int = 5,
     external_discovery: ExternalDiscoveryCallable | None = None,
     discovery_policy: FederatedDiscoveryPolicy | None = None,
+    research_question_id: str | None = None,
     ke_executable: str = "ke",
     timeout_seconds: float | None = None,
 ) -> ResearchQuestionResult:
@@ -196,12 +211,28 @@ def run_research_question(
     see `ResearchQuestionResult`'s docstring for how each is represented
     instead. The discovery policy step never raises either -- see
     `evaluate_and_run_discovery_augmentation`'s own docstring.
+
+    `research_question_id` is the answer/session-versioning thread identity
+    `docs/roadmap/answer_session_versioning_design.md` scopes: the same
+    string `ke_client.federated_discover()`/`federated_discover_history()`
+    key on, so a later freshness check can find every federated-discovery
+    run tagged under this question's thread. When a caller supplies one, it
+    is used verbatim -- typically a stable per-question-thread identifier a
+    caller mints and persists on its own side. When omitted (the common
+    case today, until such a caller exists), one is derived deterministically
+    from the normalized question text, so separate calls that are really
+    "the same question, asked again" thread together even without a caller
+    coordinating an ID -- a named trade-off, not a guarantee of uniqueness
+    in a multi-tenant setting (see the design doc's "Origin" section). Always
+    set on the created `ResearchSession`, and forwarded to the discovery
+    step only when `discovery_policy` is also supplied.
     """
 
     execution_budget = (
         ExecutionBudget.from_timeout(timeout_seconds) if timeout_seconds is not None else None
     )
     session_id = str(uuid.uuid4())
+    resolved_research_question_id = research_question_id or _derive_research_question_id(question)
     created_at = _timestamp()
     session_repository.create_session(
         ResearchSession(
@@ -211,6 +242,7 @@ def run_research_question(
             updated_at=created_at,
             user_question_original=question,
             status=SessionStatus.RUNNING,
+            research_question_id=resolved_research_question_id,
         )
     )
 
@@ -234,6 +266,7 @@ def run_research_question(
             workflow_result=workflow_result,
             policy=discovery_policy,
             execution_budget=execution_budget,
+            research_question_id=resolved_research_question_id,
         )
 
     narrative, synthesis_error = _synthesize(
@@ -552,6 +585,22 @@ def _elapsed_ms(start: float) -> int:
 
 def _hash(text: str) -> str:
     return f"sha256:{hashlib.sha256(text.encode('utf-8')).hexdigest()}"
+
+
+def _derive_research_question_id(question: str) -> str:
+    """Deterministically derive a thread identity from question text alone.
+
+    A different prefix/truncation than `_hash`'s own `sha256:` output,
+    since this is a thread identity meant to be reused across separate
+    calls asking "the same question," not a tamper-evidence value for one
+    call's own output. Deliberately not a fresh `uuid4()` -- see
+    `docs/roadmap/answer_session_versioning_design.md`'s "Origin" section
+    for why derivation from the question text, not randomness, is the
+    right default here, and the named trade-off that comes with it.
+    """
+
+    normalized = question.strip().lower()
+    return f"rq-{hashlib.sha256(normalized.encode('utf-8')).hexdigest()[:16]}"
 
 
 __all__ = ["ResearchQuestionResult", "run_research_question"]

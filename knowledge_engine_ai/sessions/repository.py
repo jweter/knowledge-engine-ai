@@ -42,7 +42,8 @@ CREATE TABLE IF NOT EXISTS research_sessions (
     research_plan_id TEXT,
     corpus_snapshot_id TEXT,
     evidence_cutoff_time TEXT,
-    final_status TEXT
+    final_status TEXT,
+    research_question_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS research_events (
@@ -124,7 +125,25 @@ class SessionRepository:
         self._connection = connection
         self._connection.execute("PRAGMA foreign_keys = ON")
         self._connection.executescript(_SCHEMA)
+        self._migrate_schema()
         self._connection.commit()
+
+    def _migrate_schema(self) -> None:
+        """Add columns to pre-existing databases that predate them.
+
+        ``CREATE TABLE IF NOT EXISTS`` in ``_SCHEMA`` is a no-op against a
+        table that already exists, so a column added there is invisible to
+        any database created before that change. Each entry here is an
+        idempotent, guarded ``ALTER TABLE`` for exactly such a column.
+        """
+
+        existing_columns = {
+            row["name"] for row in self._connection.execute("PRAGMA table_info(research_sessions)")
+        }
+        if "research_question_id" not in existing_columns:
+            self._connection.execute(
+                "ALTER TABLE research_sessions ADD COLUMN research_question_id TEXT"
+            )
 
     def create_session(self, session: ResearchSession) -> None:
         try:
@@ -134,8 +153,8 @@ class SessionRepository:
                     session_id, schema_version, created_at, updated_at,
                     user_question_original, status, normalized_question,
                     domain_hints, research_plan_id, corpus_snapshot_id,
-                    evidence_cutoff_time, final_status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    evidence_cutoff_time, final_status, research_question_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     session.session_id,
@@ -150,6 +169,7 @@ class SessionRepository:
                     session.corpus_snapshot_id,
                     session.evidence_cutoff_time,
                     session.final_status,
+                    session.research_question_id,
                 ),
             )
         except sqlite3.IntegrityError as exc:
@@ -378,6 +398,7 @@ def _session_from_row(row: sqlite3.Row) -> ResearchSession:
         corpus_snapshot_id=row["corpus_snapshot_id"],
         evidence_cutoff_time=row["evidence_cutoff_time"],
         final_status=row["final_status"],
+        research_question_id=row["research_question_id"],
     )
 
 

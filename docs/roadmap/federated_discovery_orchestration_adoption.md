@@ -2,6 +2,18 @@
 
 Status: adopted AI-layer guidance, 2026-08-15.
 
+**2026-08-22 (later same day): `research_question_id` threading implemented
+-- the first concrete wiring slice of `answer_session_versioning_design.md`.**
+`run_research_question` now accepts an optional `research_question_id` and
+always sets it on the `ResearchSession` it creates (caller-supplied, or
+deterministically derived from the question text), threading it down to
+the already-existing `ke_client.federated_discover(research_question_id=...)`
+call whenever `discovery_policy` is also supplied. See AI-FRD-5's section
+below for the full account. Adds no versioning/supersession behavior itself
+-- `answer_version`, `supersedes_session_id`, `narrative_invalidated_at`,
+the DOI crosswalk, and `SessionStatus.SUPERSEDED`'s first real use remain
+unimplemented.
+
 **2026-08-22: `docs/roadmap/answer_session_versioning_design.md` scopes the
 answer/session-versioning concept AI-FRD-5's remaining wiring needs.**
 Docs-only -- no change to `run_research_question.py`, `sessions/models.py`,
@@ -597,6 +609,35 @@ versioned rather than silently overwritten prior answer text) require a
 durable Research Session to attach this reasoning to and are explicitly
 this milestone's next continuation, not yet started.
 
+**2026-08-22: `research_question_id` threading, the first concrete slice of
+`answer_session_versioning_design.md`'s wiring, is implemented.**
+`run_research_question` now accepts an optional `research_question_id`
+keyword parameter and always sets it on the `ResearchSession` it creates --
+a caller-supplied value used verbatim, or (the common case today) one
+derived deterministically from the normalized question text
+(`rq-<sha256[:16]>`), the exact origin rule that design doc's "Where
+`research_question_id` actually comes from" section specifies. The value
+threads down the existing call chain -- `evaluate_and_run_discovery_augmentation`
+-> `_run_federated_discovery` -> `execute_discovery_plan` -> the
+already-existing `ke_client.federated_discover(research_question_id=...)`
+call -- only when `discovery_policy` is also supplied; deliberately not
+threaded into citation-snowball (no `research_question_id` parameter exists
+on that call, and this design's freshness mechanism only ever reads
+federated-discover run history). `ResearchSession` gains only this one
+additive field (`schema_version` unchanged, existing rows load it as
+`None`); no new `ke_client.py` wrapper function was added (the underlying
+`federated_discover`/Core `--research-question-id` flag were already built
+and live-verified in an earlier session), so this slice's own verification
+is the local test suite -- 8 new tests across `sessions/test_repository.py`,
+`test_discovery_plan.py`, `copilot/test_discovery_policy.py`, and
+`copilot/test_run_research_question.py` (358 total pass; full local quality
+gate -- ruff format/check, mypy, pytest, pip-audit, git diff --check --
+clean). This closes only the plumbing gap the design doc named; it adds no
+versioning/supersession behavior. `answer_version`, `supersedes_session_id`,
+`narrative_invalidated_at`, the crosswalk, the invalidates/qualifies
+trigger, and `SessionStatus.SUPERSEDED`'s first real use all remain
+unimplemented -- the next continuation below.
+
 Exit criteria:
 
 - new evidence is distinguished from previously seen evidence; **met** --
@@ -604,11 +645,15 @@ Exit criteria:
 - corrections/retractions can invalidate or qualify prior synthesis; **not
   started** -- requires wiring this reasoning into a Research Session, which
   this slice deliberately does not do; the wiring's design is now scoped in
-  `answer_session_versioning_design.md` (this directory)
+  `answer_session_versioning_design.md` (this directory), and that design's
+  own `research_question_id`-threading prerequisite is now implemented
+  (2026-08-22 entry above) -- the crosswalk/invalidates-qualifies/
+  `SUPERSEDED` mechanics it depends on remain the open part
 - prior answer text is never silently overwritten as if it had always been the
   updated answer. **not started** -- `answer_session_versioning_design.md`
   scopes the versioning concept this reasoning needs to attach to; the
-  fields/events it describes are not yet implemented
+  `answer_version`/`supersedes_session_id`/`narrative_invalidated_at` fields
+  and events it describes are not yet implemented
 
 ## Improvements beyond the external reference
 

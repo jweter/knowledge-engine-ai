@@ -9,6 +9,32 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`research_question_id` threading (AI-FRD-5 / answer-session-versioning,
+  first wiring slice).** `run_research_question` now accepts an optional
+  `research_question_id` keyword parameter and always sets it on the
+  `ResearchSession` it creates: a caller-supplied value used verbatim, or
+  (the common case today) one derived deterministically from the
+  normalized question text (`rq-<sha256[:16]>`), so separate calls that are
+  really "the same question, asked again" thread together without a
+  caller coordinating an ID. The value threads down the existing call
+  chain -- `evaluate_and_run_discovery_augmentation` ->
+  `_run_federated_discovery` -> `execute_discovery_plan` -> the
+  already-existing `ke_client.federated_discover(research_question_id=...)`
+  call -- only when `discovery_policy` is also supplied; deliberately not
+  threaded into citation-snowball (no `research_question_id` parameter
+  exists there). `ResearchSession` gains one additive field
+  (`schema_version` unchanged; existing rows load it as `None`). No new
+  `ke_client.py` wrapper function was added -- the underlying
+  `federated_discover`/Core `--research-question-id` flag were already
+  built and live-verified in an earlier session -- so this closes only the
+  concrete plumbing gap `docs/roadmap/answer_session_versioning_design.md`'s
+  "Where `research_question_id` actually comes from" section named, adding
+  no versioning/supersession behavior itself. 8 new tests (358 total pass);
+  full local quality gate (ruff format/check, mypy, pytest, pip-audit,
+  git diff --check) clean. See
+  `docs/roadmap/federated_discovery_orchestration_adoption.md`'s matching
+  2026-08-22 entry.
+
 - **`docs/roadmap/answer_session_versioning_design.md`: scopes the
   answer/session-versioning concept AI-FRD-5's remaining wiring needs.**
   Docs-only -- no change to `run_research_question.py`, `sessions/models.py`,

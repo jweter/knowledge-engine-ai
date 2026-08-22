@@ -207,6 +207,7 @@ def evaluate_and_run_discovery_augmentation(
     workflow_result: WorkflowResult,
     policy: FederatedDiscoveryPolicy,
     execution_budget: ExecutionBudget | None,
+    research_question_id: str | None = None,
 ) -> DiscoveryAugmentationResult:
     """Evaluate the coverage-gap trigger and run the bounded steps it authorizes.
 
@@ -218,6 +219,13 @@ def evaluate_and_run_discovery_augmentation(
     already established. Each attempted sub-step appends exactly one
     `ResearchEvent`, whether it succeeds, fails, or is skipped for a
     resolvable reason -- durable workflow history either way.
+
+    `research_question_id`, when supplied, is forwarded only to the
+    federated-discovery sub-step (never citation-snowball -- see
+    `docs/roadmap/answer_session_versioning_design.md`'s "Citation-snowball
+    is out of scope for this threading") so a later freshness check can find
+    this run via `ke_client.federated_discover_history`. Defaulting to
+    `None` preserves every existing caller's behavior exactly.
     """
 
     parallel_retrieval = workflow_result.parallel_retrieval
@@ -257,6 +265,7 @@ def evaluate_and_run_discovery_augmentation(
             question=workflow_result.question,
             policy=policy,
             execution_budget=execution_budget,
+            research_question_id=research_question_id,
         )
 
     seed_dois = _seed_dois(workflow_result, policy)
@@ -342,6 +351,7 @@ def _run_federated_discovery(
     question: str,
     policy: FederatedDiscoveryPolicy,
     execution_budget: ExecutionBudget | None,
+    research_question_id: str | None = None,
 ) -> tuple[FederatedDiscoveryResult | None, str | None]:
     start = time.monotonic()
     try:
@@ -357,6 +367,7 @@ def _run_federated_discovery(
             ledger_root=policy.ledger_root,
             openalex_api_key=policy.openalex_api_key,
             semantic_scholar_api_key=policy.semantic_scholar_api_key,
+            research_question_id=research_question_id,
             ke_executable=policy.ke_executable,
         )
     except (DiscoveryPlanError, KeCommandError, ExecutionBudgetExceeded) as exc:

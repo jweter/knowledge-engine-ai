@@ -298,6 +298,85 @@ def test_thin_coverage_triggers_federated_discovery_and_citation_snowball(
         assert event.validation_status == "succeeded"
 
 
+def test_research_question_id_reaches_federated_discovery_but_not_citation_snowball(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured_discovery: dict[str, object] = {}
+    captured_snowball: dict[str, object] = {}
+
+    def fake_execute_discovery_plan(plan: object, **kwargs: object) -> FederatedDiscoveryResult:
+        captured_discovery.update(kwargs)
+        return _federated_result(candidate_count=2)
+
+    def fake_citation_snowball(
+        seed_identifiers: tuple[str, ...], **kwargs: object
+    ) -> CitationSnowballResult:
+        captured_snowball.update(kwargs)
+        return _snowball_result()
+
+    monkeypatch.setattr(discovery_policy, "execute_discovery_plan", fake_execute_discovery_plan)
+    monkeypatch.setattr(discovery_policy, "citation_snowball", fake_citation_snowball)
+
+    report = _evidence_report([_paper("10.1/a", rank=1)])
+    workflow_result = _workflow_result(
+        evidence_report=report,
+        primary_record_ids=frozenset({"ev-1"}),
+    )
+    policy = FederatedDiscoveryPolicy(
+        ledger_root=tmp_path / "ledger", min_evidence_record_coverage=3
+    )
+    repository = _repository_with_session()
+
+    evaluate_and_run_discovery_augmentation(
+        session_repository=repository,
+        session_id="sess-1",
+        workflow_result=workflow_result,
+        policy=policy,
+        execution_budget=None,
+        research_question_id="rq-abc123",
+    )
+
+    assert captured_discovery["research_question_id"] == "rq-abc123"
+    # Citation-snowball has no research_question_id parameter to thread into
+    # at all -- see discovery_policy.py's own docstring for why this design
+    # deliberately excludes it.
+    assert "research_question_id" not in captured_snowball
+
+
+def test_research_question_id_defaults_to_none_for_existing_callers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured_discovery: dict[str, object] = {}
+
+    def fake_execute_discovery_plan(plan: object, **kwargs: object) -> FederatedDiscoveryResult:
+        captured_discovery.update(kwargs)
+        return _federated_result()
+
+    monkeypatch.setattr(discovery_policy, "execute_discovery_plan", fake_execute_discovery_plan)
+
+    report = _evidence_report([_paper("10.1/a", rank=1)])
+    workflow_result = _workflow_result(
+        evidence_report=report,
+        primary_record_ids=frozenset({"ev-1"}),
+    )
+    policy = FederatedDiscoveryPolicy(
+        ledger_root=tmp_path / "ledger", min_evidence_record_coverage=3
+    )
+    repository = _repository_with_session()
+
+    # No research_question_id supplied -- existing callers of this function
+    # keep working unchanged.
+    evaluate_and_run_discovery_augmentation(
+        session_repository=repository,
+        session_id="sess-1",
+        workflow_result=workflow_result,
+        policy=policy,
+        execution_budget=None,
+    )
+
+    assert captured_discovery["research_question_id"] is None
+
+
 def test_no_doi_seeds_skips_citation_snowball_without_failing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
