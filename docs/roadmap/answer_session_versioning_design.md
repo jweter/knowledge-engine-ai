@@ -44,6 +44,27 @@ a qualifying pending flip), the `AnswerFreshness` read-side projection, and
 a caller that mints a version-*N+1* session -- see "What this does not do"
 below, updated to match.
 
+**2026-08-22 (later still than the DOI-crosswalk session): the
+invalidates-versus-qualifies trigger is now implemented too.**
+`copilot/research_freshness.py` gained `apply_narrative_touching_flips()`,
+which reads one batch of `NarrativeTouchingFlip`s (the crosswalk's own
+output) and does exactly what "Invalidates versus qualifies" below
+specifies: for `retracted`/`withdrawn`, it calls
+`SessionRepository.record_narrative_invalidation()` (guarding against a
+batch with more than one invalidating flip, or a session an earlier
+freshness-check pass already invalidated, by checking
+`session.narrative_invalidated_at` first rather than relying on the
+repository's own once-only guard to raise); for `corrected`/
+`expression_of_concern`, it reports the flip back to the caller
+(`NarrativeFreshnessTriggerResult.qualifying`) without persisting anything,
+since the `AnswerFreshness` projection that would track a durable
+`pending_flips` list still does not exist. 12 new tests (397 total pass);
+full local quality gate clean via `scripts/preflight.py`. Still not
+implemented: the `AnswerFreshness` read-side projection itself, and any
+caller that mints a version-*N+1* session or calls
+`apply_narrative_touching_flips()`/`supersede_session()` for a real
+session -- see "What this does not do" below, updated to match.
+
 This document scopes the answer/session-versioning concept that
 `docs/project-status.yaml`'s `next_continuation` names as a prerequisite for
 AI-FRD-5's remaining work: wiring `copilot/research_freshness.py`'s
@@ -685,18 +706,22 @@ Three honestly-distinguished states, never collapsed into one:
   `crosswalk_publication_status_flips()` can now compute, from a real
   `diff_candidate_snapshots()` output plus a real session's own retrieval
   events and persisted narrative, exactly which flips touch that session's
-  cited claims (`NarrativeTouchingFlip`). **Still not implemented:
-  everything that decides *when* to call the two repository operations
-  above in response to one.** No change to `run_research_question.py` or
-  `orchestrator/close_gate.py`. The invalidates-versus-qualifies split's
-  actual trigger wiring (reading `NarrativeTouchingFlip.flip.flag` and
-  calling `record_narrative_invalidation()` for `retracted`/`withdrawn`, or
-  recording a qualifying pending flip for `corrected`/
-  `expression_of_concern`, without calling it), the `AnswerFreshness`
-  read-side projection, and any caller that mints a version-*N+1* session
-  (setting `answer_version`/`supersedes_session_id` at `create_session` time
-  and then calling `supersede_session()` on the prior version once *N+1*
-  reaches `COMPLETED`) remain proposed only, not implemented.
+  cited claims (`NarrativeTouchingFlip`).
+- **The invalidates-versus-qualifies trigger is implemented (2026-08-22,
+  later still) -- see the status header above.**
+  `copilot/research_freshness.py`'s `apply_narrative_touching_flips()`
+  reads a `NarrativeTouchingFlip` batch and calls
+  `record_narrative_invalidation()` for `retracted`/`withdrawn`, or reports
+  a qualifying pending flip (not persisted) for `corrected`/
+  `expression_of_concern`, without calling it. **Still not implemented:
+  everything that decides *when* to call `apply_narrative_touching_flips()`
+  in the first place, for a real session.** No change to
+  `run_research_question.py` or `orchestrator/close_gate.py`. The
+  `AnswerFreshness` read-side projection, and any caller that mints a
+  version-*N+1* session (setting `answer_version`/`supersedes_session_id`
+  at `create_session` time and then calling `supersede_session()` on the
+  prior version once *N+1* reaches `COMPLETED`) remain proposed only, not
+  implemented.
 - **No SQLite schema migration for `research_question_id`/`answer_version`/
   `supersedes_session_id`/`narrative_invalidated_at`/`source_dois` was
   needed beyond the guarded `ALTER TABLE` additions already shipped**
@@ -729,13 +754,17 @@ criteria (`federated_discovery_orchestration_adoption.md`'s AI-FRD-5
 section):
 
 - *"corrections/retractions can invalidate or qualify prior synthesis"* --
-  this design's crosswalk (implemented 2026-08-22, later still --
-  `crosswalk_publication_status_flips()`) and the repository-layer
-  invalidates/qualifies mechanics (`record_narrative_invalidation()`,
-  implemented earlier the same day) are both now built and tested in
-  isolation. The remaining piece is the trigger that connects them for a
-  real session: reading a detected `NarrativeTouchingFlip.flip.flag` and
-  calling one or the other.
+  this design's crosswalk (`crosswalk_publication_status_flips()`), the
+  repository-layer invalidates/qualifies mechanics
+  (`record_narrative_invalidation()`), and now the trigger that connects
+  them (`apply_narrative_touching_flips()`, implemented 2026-08-22, later
+  still) are all built and tested in isolation. The remaining piece is a
+  caller that runs a real freshness check for a real session -- fetches
+  its events/narrative, calls `assess_rerun_need`/
+  `diff_candidate_snapshots`/`crosswalk_publication_status_flips`, and
+  passes the result to `apply_narrative_touching_flips()` -- which is also
+  the natural place to decide *when* a freshness check runs at all (see
+  "What this does not do" above).
 - *"prior answer text is never silently overwritten as if it had always
   been the updated answer"* -- this design's whole-session versioning,
   append-only retention, and `SUPERSEDED` transition (only after a real
@@ -745,9 +774,17 @@ section):
 
 Both exit criteria remain **not started** in code terms -- every mechanism
 either depends on now exists and is tested standalone, but nothing in
-`run_research_question.py`/`orchestrator/close_gate.py` calls any of it yet.
-A follow-up PR implementing only the invalidates-versus-qualifies trigger
-(reading a `NarrativeTouchingFlip` and calling `record_narrative_invalidation()`
-or recording a qualifying pending flip) is the next small, coherent slice --
-not the `AnswerFreshness` projection or the version-minting caller, which
-depend on the trigger existing first.
+`run_research_question.py`/`orchestrator/close_gate.py` calls any of it
+yet, and no caller has ever invoked `apply_narrative_touching_flips()`
+against a real session. A follow-up PR implementing only the
+`AnswerFreshness` read-side projection (once a real caller exists to
+populate its `pending_flips`/`narrative_invalidated_at`-consuming fields
+meaningfully) or the version-minting caller (mints a version-*N+1* session
+and calls `supersede_session()` on the prior version once *N+1* reaches
+`COMPLETED`) is the next small, coherent slice -- either can proceed
+independently of the other, but both need a real caller wiring
+`assess_rerun_need`/`diff_candidate_snapshots`/
+`crosswalk_publication_status_flips`/`apply_narrative_touching_flips`
+together for an actual session first, and no decision on *when* a
+freshness check runs (a scheduled job, a person, a Web page load) has been
+made yet -- see "What this does not do" above.

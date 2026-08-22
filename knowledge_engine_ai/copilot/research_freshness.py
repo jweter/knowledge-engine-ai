@@ -45,23 +45,39 @@ A later slice (2026-08-22, `docs/roadmap/answer_session_versioning_design.md`'s
 `session_retrieval_dois` helper below -- the detection layer that decides
 *whether* a `PublicationStatusFlip` this module already computes actually
 touches one specific session's own cited narrative, as opposed to a
-discovery lead that session never promoted to a claim. Still deliberately
-out of scope, per that design doc's own "What this does not do": which of
-`record_narrative_invalidation()`/a qualifying `pending_flip` to call for a
-touching flip (the invalidates-versus-qualifies trigger), the
-`AnswerFreshness` read-side projection, and any caller that mints a
-version-*N+1* session. Both new functions are pure, deterministic, and take
-already-fetched data -- no `SessionRepository` call, no `ke` subprocess --
-the same "caller owns the I/O" boundary `assess_rerun_need`/
-`diff_candidate_snapshots` above and `observability.build_session_trace`
-already follow.
+discovery lead that session never promoted to a claim.
+
+A still later slice (2026-08-22, later still) added
+`apply_narrative_touching_flips` below -- the "invalidates versus qualifies"
+trigger the design doc's "What this does not do" named as the next small,
+coherent step: for one batch of already-crosswalked `NarrativeTouchingFlip`s,
+decide which are `retracted`/`withdrawn` (invalidates -- call
+`SessionRepository.record_narrative_invalidation`, at most once per session)
+versus `corrected`/`expression_of_concern` (qualifies -- reported back to the
+caller, not persisted; the `AnswerFreshness` read-side projection that would
+track a durable `pending_flips` list does not exist yet). Still deliberately
+out of scope: the `AnswerFreshness` projection itself, and any caller that
+mints a version-*N+1* session (`SessionRepository.supersede_session` remains
+uncalled by this module). `assess_rerun_need`/`diff_candidate_snapshots`/
+`session_retrieval_dois`/`crosswalk_publication_status_flips` are pure,
+deterministic, and take already-fetched data -- no `SessionRepository` call,
+no `ke` subprocess -- the same "caller owns the I/O" boundary
+`observability.build_session_trace` already follows.
+`apply_narrative_touching_flips` is deliberately the one exception in this
+module: it is the trigger itself, so it reads one session's current state
+and, when warranted, writes to `SessionRepository` -- but it still never
+calls `ke`, never runs the crosswalk itself, and never decides *when* a
+freshness check happens at all, matching this module's existing "reasoning
+lives here, I/O orchestration lives with the caller" split for everything
+upstream of it.
 """
 
 from __future__ import annotations
 
 import dataclasses
+import uuid
 from collections.abc import Mapping, Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 
 from knowledge_engine_ai.ke_client import (
     FederatedCandidateRecord,
@@ -71,6 +87,11 @@ from knowledge_engine_ai.ke_client import (
 )
 from knowledge_engine_ai.orchestrator.verification import CITATION_PATTERN
 from knowledge_engine_ai.sessions.models import ResearchEvent
+from knowledge_engine_ai.sessions.repository import (
+    NarrativeAlreadyInvalidatedError,
+    SessionRepository,
+    UnknownSessionError,
+)
 
 # A conservative, documented, overridable default -- not a claim about how
 # quickly the scholarly literature actually changes. Callers with a
@@ -363,6 +384,175 @@ def crosswalk_publication_status_flips(
     return tuple(touching)
 
 
+_INVALIDATING_FLAGS: frozenset[str] = frozenset({"retracted", "withdrawn"})
+_QUALIFYING_FLAGS: frozenset[str] = frozenset({"corrected", "expression_of_concern"})
+_NARRATIVE_INVALIDATED_NODE = "narrative_invalidated"
+_TRIGGER_EXECUTOR_TYPE = "deterministic_policy"
+
+
+@dataclasses.dataclass(frozen=True)
+class NarrativeFreshnessTriggerResult:
+    """What `apply_narrative_touching_flips` did with one batch of `NarrativeTouchingFlip`s.
+
+    Implements `docs/roadmap/answer_session_versioning_design.md`'s
+    "Invalidates versus qualifies" split: `retracted`/`withdrawn` flips
+    invalidate (a claim resting on that record can no longer be treated as
+    supported by it at all); `corrected`/`expression_of_concern` flips
+    qualify (the claim may still stand, but must carry a visible caveat).
+    Both are version-transition triggers per the design doc; only the
+    invalidating half is durably recorded by this call. `qualifying` is
+    returned for an immediate caller (logging, an ad hoc report) to act on,
+    not persisted -- the `AnswerFreshness` read-side projection that would
+    track a durable `pending_flips` list does not exist yet (see the design
+    doc's own "What this does not do").
+
+    `invalidating`/`qualifying` report every touching flip found in this
+    call's input, regardless of whether `narrative_invalidated_event` ended
+    up set -- `narrative_invalidated_at` is set at most once per session
+    (`SessionRepository.record_narrative_invalidation`'s own guard), so a
+    second invalidating flip in the same batch, or a call against a session
+    an earlier batch already invalidated, is still reported here but
+    recorded nowhere new. `already_invalidated` distinguishes that case
+    (invalidating flips were found, but the session was already
+    invalidated before this call) from "an event was newly appended this
+    call" (`narrative_invalidated_event is not None`) and from "no
+    invalidating flip was present at all" (`invalidating == ()`).
+    """
+
+    invalidating: tuple[NarrativeTouchingFlip, ...]
+    qualifying: tuple[NarrativeTouchingFlip, ...]
+    already_invalidated: bool
+    narrative_invalidated_event: ResearchEvent | None
+
+
+def apply_narrative_touching_flips(
+    session_repository: SessionRepository,
+    touching_flips: Sequence[NarrativeTouchingFlip],
+    *,
+    session_id: str,
+    now: str | None = None,
+) -> NarrativeFreshnessTriggerResult:
+    """Decide invalidates-versus-qualifies for one batch of crosswalked flips, and act on it.
+
+    `crosswalk_publication_status_flips` above already decided *which*
+    flips touch a session's own cited narrative; this function decides what
+    to *do* about each one, per the design doc's "Invalidates versus
+    qualifies" section:
+
+    - `retracted`/`withdrawn` -- calls
+      `SessionRepository.record_narrative_invalidation`, naming the
+      specific `canonical_id`/`doi`/`flag`/cited evidence-record ids in the
+      appended event's `notes`, exactly as
+      "Releaseability reacts to an invalidating flip immediately" specifies.
+      Only the *first* invalidating flip in `touching_flips` is ever
+      recorded -- `narrative_invalidated_at` is set at most once per
+      session by design, and this function checks the session's current
+      state first so a batch containing more than one invalidating flip,
+      or a call against a session an earlier freshness-check pass already
+      invalidated, never raises `NarrativeAlreadyInvalidatedError`. That
+      precheck and the `record_narrative_invalidation` call below are not
+      one atomic transaction, so this function also catches
+      `NarrativeAlreadyInvalidatedError` around the call itself and treats
+      it exactly like the precheck already-invalidated case, in case a
+      concurrent freshness-check pass invalidates the same session in
+      between: the guarantee that this function never raises
+      `NarrativeAlreadyInvalidatedError` holds regardless of interleaving.
+    - `corrected`/`expression_of_concern` -- nothing is persisted; see
+      `NarrativeFreshnessTriggerResult`'s own docstring for why.
+
+    Never touches `session.status` (`record_narrative_invalidation` itself
+    already leaves it untouched, per the design doc) and never calls
+    `supersede_session`, which belongs to a later, separate slice (minting
+    a version-*N+1* session once one reaches `COMPLETED`).
+
+    Does not itself run the crosswalk, fetch a session's events/narrative,
+    or decide *when* a freshness check happens -- `touching_flips` is the
+    caller's own `crosswalk_publication_status_flips()` result, matching
+    this module's "caller owns the I/O" boundary for everything upstream of
+    this function.
+    """
+
+    invalidating = tuple(flip for flip in touching_flips if flip.flip.flag in _INVALIDATING_FLAGS)
+    qualifying = tuple(flip for flip in touching_flips if flip.flip.flag in _QUALIFYING_FLAGS)
+    unrecognized = sorted(
+        {
+            flip.flip.flag
+            for flip in touching_flips
+            if flip.flip.flag not in _INVALIDATING_FLAGS and flip.flip.flag not in _QUALIFYING_FLAGS
+        }
+    )
+    if unrecognized:
+        raise ValueError(
+            f"Unrecognized publication-status flag(s) in touching_flips: {unrecognized!r}; "
+            f"expected one of {sorted(_INVALIDATING_FLAGS | _QUALIFYING_FLAGS)!r}."
+        )
+
+    if not invalidating:
+        return NarrativeFreshnessTriggerResult(
+            invalidating=(),
+            qualifying=qualifying,
+            already_invalidated=False,
+            narrative_invalidated_event=None,
+        )
+
+    session = session_repository.get_session(session_id)
+    if session is None:
+        raise UnknownSessionError(f"No session with session_id {session_id!r}.")
+
+    if session.narrative_invalidated_at is not None:
+        return NarrativeFreshnessTriggerResult(
+            invalidating=invalidating,
+            qualifying=qualifying,
+            already_invalidated=True,
+            narrative_invalidated_event=None,
+        )
+
+    occurred_at = now if now is not None else _now_iso()
+    first = invalidating[0]
+    event = ResearchEvent(
+        event_id=str(uuid.uuid4()),
+        session_id=session_id,
+        timestamp=occurred_at,
+        workflow_node=_NARRATIVE_INVALIDATED_NODE,
+        executor_type=_TRIGGER_EXECUTOR_TYPE,
+        notes=(
+            f"canonical_id={first.flip.canonical_id!r} doi={first.doi!r} "
+            f"flag={first.flip.flag!r} "
+            f"cited_evidence_record_ids={list(first.cited_evidence_record_ids)!r}"
+        ),
+    )
+    try:
+        session_repository.record_narrative_invalidation(event, invalidated_at=occurred_at)
+    except NarrativeAlreadyInvalidatedError:
+        # The `narrative_invalidated_at is None` precheck above and this
+        # call are not one atomic transaction, so a concurrent
+        # freshness-check pass (scheduled or request-driven) can invalidate
+        # the same session in between: this call's own precheck sees
+        # `None`, then loses the race and lands here instead of persisting.
+        # That is exactly the "already invalidated" outcome the precheck
+        # was trying to detect, just discovered a moment later -- treat it
+        # the same way rather than letting the guard's raise escape this
+        # function's own documented "never raises
+        # `NarrativeAlreadyInvalidatedError`" guarantee.
+        return NarrativeFreshnessTriggerResult(
+            invalidating=invalidating,
+            qualifying=qualifying,
+            already_invalidated=True,
+            narrative_invalidated_event=None,
+        )
+
+    return NarrativeFreshnessTriggerResult(
+        invalidating=invalidating,
+        qualifying=qualifying,
+        already_invalidated=False,
+        narrative_invalidated_event=event,
+    )
+
+
+def _now_iso() -> str:
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+
+
 def _any_observation_asserts(candidate: FederatedCandidateRecord, flag: str) -> bool:
     return any(bool(getattr(observation, flag)) for observation in candidate.observations)
 
@@ -387,10 +577,12 @@ def _parse_timestamp(value: str) -> datetime:
 __all__ = [
     "DEFAULT_MAX_AGE_SECONDS",
     "CandidateFreshnessDiff",
+    "NarrativeFreshnessTriggerResult",
     "NarrativeTouchingFlip",
     "PublicationStatusFlip",
     "RerunRecommendation",
     "ResearchFreshnessError",
+    "apply_narrative_touching_flips",
     "assess_rerun_need",
     "crosswalk_publication_status_flips",
     "diff_candidate_snapshots",

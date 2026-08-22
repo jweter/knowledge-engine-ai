@@ -9,6 +9,41 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Invalidates-versus-qualifies trigger (AI-FRD-5 / answer-session-
+  versioning, fourth wiring slice).** `copilot/research_freshness.py` gains
+  `apply_narrative_touching_flips()` -- the trigger that decides what to do
+  with one batch of already-crosswalked `NarrativeTouchingFlip`s, per
+  `docs/roadmap/answer_session_versioning_design.md`'s "Invalidates versus
+  qualifies" section. A `retracted`/`withdrawn` touching flip calls
+  `SessionRepository.record_narrative_invalidation()`, naming the specific
+  `canonical_id`/`doi`/flag/cited evidence-record ids in the appended
+  event's `notes`; only the first invalidating flip in a batch is ever
+  recorded (`narrative_invalidated_at` is set at most once per session by
+  design, so the function checks the session's current state first rather
+  than relying on the repository's guard to raise). A `corrected`/
+  `expression_of_concern` touching flip is returned in the new
+  `NarrativeFreshnessTriggerResult.qualifying` tuple and not persisted --
+  the `AnswerFreshness` read-side projection that would track a durable
+  `pending_flips` list does not exist yet. Never touches `session.status`
+  or calls `supersede_session()`, both of which remain a later slice
+  (minting a version-*N+1* session). The precheck-then-persist window
+  between reading `narrative_invalidated_at` and calling
+  `record_narrative_invalidation()` is not one atomic transaction, so a
+  concurrent freshness-check call (scheduled or request-driven) can
+  invalidate the same session in between; `apply_narrative_touching_flips`
+  now also catches `NarrativeAlreadyInvalidatedError` around that call and
+  treats it the same as the precheck's already-invalidated case, so the
+  function's documented "never raises `NarrativeAlreadyInvalidatedError`"
+  guarantee holds regardless of interleaving. 13 new tests (398 total
+  pass); full local quality gate (ruff format/check, mypy, pytest,
+  pip-audit, git diff --check) clean via `scripts/preflight.py`.
+  `knowledge-engine-web` is unaffected: no change to
+  `run_research_question`'s signature, no new `ke` surface, and Web pins a
+  specific `knowledge-engine-ai` commit.
+  Next continuation, per the design doc's own "What this does not do":
+  the `AnswerFreshness` read-side projection, and a caller that mints a
+  version-*N+1* session and calls this trigger for a real session.
+
 - **DOI crosswalk (AI-FRD-5 / answer-session-versioning, third wiring
   slice).** `copilot/research_freshness.py` gains `session_retrieval_dois()`
   (builds an `evidence_record_id -> doi` mapping from a session's own

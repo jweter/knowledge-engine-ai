@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import sqlite3
 from datetime import UTC, datetime
 
 import pytest
 
 from knowledge_engine_ai.copilot.research_freshness import (
     DEFAULT_MAX_AGE_SECONDS,
+    NarrativeTouchingFlip,
     PublicationStatusFlip,
     ResearchFreshnessError,
+    apply_narrative_touching_flips,
     assess_rerun_need,
     crosswalk_publication_status_flips,
     diff_candidate_snapshots,
@@ -20,7 +23,12 @@ from knowledge_engine_ai.ke_client import (
     FederatedDiscoverHistoryResult,
     SearchCoverageReport,
 )
-from knowledge_engine_ai.sessions.models import ResearchEvent
+from knowledge_engine_ai.sessions.models import ResearchEvent, ResearchSession, SessionStatus
+from knowledge_engine_ai.sessions.repository import (
+    SessionRepository,
+    UnknownSessionError,
+    new_connection,
+)
 
 _NOW = datetime(2026, 8, 21, 12, 0, 0, tzinfo=UTC)
 
@@ -404,3 +412,240 @@ class TestCrosswalkPublicationStatusFlips:
 
         assert len(touching) == 1
         assert touching[0].flip.flag == "corrected"
+
+
+def _touching_flip(
+    flag: str, *, canonical_id: str = "c-1", doi: str = "10.1000/example"
+) -> NarrativeTouchingFlip:
+    return NarrativeTouchingFlip(
+        flip=PublicationStatusFlip(canonical_id=canonical_id, title="A trial", flag=flag),
+        doi=doi,
+        cited_evidence_record_ids=("ev-1",),
+    )
+
+
+def _repository_with_session(
+    status: SessionStatus = SessionStatus.COMPLETED,
+) -> SessionRepository:
+    repository = SessionRepository(new_connection(":memory:"))
+    repository.create_session(
+        ResearchSession(
+            schema_version=1,
+            session_id="session-1",
+            created_at="2026-08-09T00:00:00Z",
+            updated_at="2026-08-09T00:00:00Z",
+            user_question_original="Does semaglutide produce long-term weight loss?",
+            status=status,
+        )
+    )
+    return repository
+
+
+class _RacesAnotherInvalidationOnFirstRead(SessionRepository):
+    """Test double reproducing the precheck/persist race, without threads.
+
+    The first `get_session` call this repository sees (`apply_narrative_
+    touching_flips`'s own `narrative_invalidated_at is None` precheck)
+    triggers a real, independent `record_narrative_invalidation` call
+    first -- simulating a second, concurrent freshness-check call winning
+    the race right after the precheck reads but before the original call's
+    own `record_narrative_invalidation` runs. Every call after that first
+    one behaves exactly like the base repository.
+    """
+
+    def __init__(self, connection: sqlite3.Connection) -> None:
+        super().__init__(connection)
+        self._raced = False
+
+    def get_session(self, session_id: str) -> ResearchSession | None:
+        session = super().get_session(session_id)
+        if not self._raced and session is not None and session.narrative_invalidated_at is None:
+            self._raced = True
+            racing_event = ResearchEvent(
+                event_id="racing-event",
+                session_id=session_id,
+                timestamp="2026-08-22T11:59:59Z",
+                workflow_node="narrative_invalidated",
+                executor_type="deterministic_policy",
+                notes="canonical_id='c-racer' doi='10.1000/racer' flag='retracted' "
+                "cited_evidence_record_ids=['ev-racer']",
+            )
+            super().record_narrative_invalidation(
+                racing_event, invalidated_at="2026-08-22T11:59:59Z"
+            )
+        return session
+
+
+class TestApplyNarrativeTouchingFlips:
+    def test_invalidating_flip_records_narrative_invalidation(self) -> None:
+        repository = _repository_with_session()
+        flip = _touching_flip("retracted")
+
+        result = apply_narrative_touching_flips(
+            repository, (flip,), session_id="session-1", now="2026-08-22T12:00:00Z"
+        )
+
+        assert result.invalidating == (flip,)
+        assert result.qualifying == ()
+        assert result.already_invalidated is False
+        assert result.narrative_invalidated_event is not None
+        assert result.narrative_invalidated_event.workflow_node == "narrative_invalidated"
+
+        fetched = repository.get_session("session-1")
+        assert fetched is not None
+        assert fetched.narrative_invalidated_at == "2026-08-22T12:00:00Z"
+        # status is untouched by design -- see record_narrative_invalidation.
+        assert fetched.status == SessionStatus.COMPLETED
+
+    def test_withdrawn_flip_also_invalidates(self) -> None:
+        repository = _repository_with_session()
+        flip = _touching_flip("withdrawn")
+
+        result = apply_narrative_touching_flips(repository, (flip,), session_id="session-1")
+
+        assert result.invalidating == (flip,)
+        assert result.narrative_invalidated_event is not None
+
+    def test_qualifying_flip_is_reported_but_not_persisted(self) -> None:
+        repository = _repository_with_session()
+        flip = _touching_flip("corrected")
+
+        result = apply_narrative_touching_flips(repository, (flip,), session_id="session-1")
+
+        assert result.invalidating == ()
+        assert result.qualifying == (flip,)
+        assert result.narrative_invalidated_event is None
+        fetched = repository.get_session("session-1")
+        assert fetched is not None
+        assert fetched.narrative_invalidated_at is None
+
+    def test_expression_of_concern_flip_also_qualifies(self) -> None:
+        repository = _repository_with_session()
+        flip = _touching_flip("expression_of_concern")
+
+        result = apply_narrative_touching_flips(repository, (flip,), session_id="session-1")
+
+        assert result.qualifying == (flip,)
+        assert result.invalidating == ()
+
+    def test_mixed_batch_splits_into_both_lists(self) -> None:
+        repository = _repository_with_session()
+        invalidating_flip = _touching_flip("retracted", canonical_id="c-1")
+        qualifying_flip = _touching_flip("corrected", canonical_id="c-2")
+
+        result = apply_narrative_touching_flips(
+            repository, (invalidating_flip, qualifying_flip), session_id="session-1"
+        )
+
+        assert result.invalidating == (invalidating_flip,)
+        assert result.qualifying == (qualifying_flip,)
+        assert result.narrative_invalidated_event is not None
+
+    def test_no_touching_flips_is_a_no_op(self) -> None:
+        repository = _repository_with_session()
+
+        result = apply_narrative_touching_flips(repository, (), session_id="session-1")
+
+        assert result.invalidating == ()
+        assert result.qualifying == ()
+        assert result.already_invalidated is False
+        assert result.narrative_invalidated_event is None
+
+    def test_no_touching_flips_does_not_require_an_existing_session(self) -> None:
+        repository = SessionRepository(new_connection(":memory:"))
+
+        result = apply_narrative_touching_flips(repository, (), session_id="does-not-exist")
+
+        assert result.narrative_invalidated_event is None
+
+    def test_second_invalidating_flip_in_same_batch_does_not_raise(self) -> None:
+        repository = _repository_with_session()
+        first = _touching_flip("retracted", canonical_id="c-1")
+        second = _touching_flip("withdrawn", canonical_id="c-2")
+
+        result = apply_narrative_touching_flips(repository, (first, second), session_id="session-1")
+
+        assert result.invalidating == (first, second)
+        assert result.narrative_invalidated_event is not None
+        # Only the first flip's detail is recorded in the event notes.
+        assert "c-1" in (result.narrative_invalidated_event.notes or "")
+
+    def test_already_invalidated_session_is_not_recorded_again(self) -> None:
+        repository = _repository_with_session()
+        first_flip = _touching_flip("retracted")
+        apply_narrative_touching_flips(repository, (first_flip,), session_id="session-1")
+
+        second_flip = _touching_flip("withdrawn", canonical_id="c-2")
+        result = apply_narrative_touching_flips(repository, (second_flip,), session_id="session-1")
+
+        assert result.already_invalidated is True
+        assert result.narrative_invalidated_event is None
+        assert result.invalidating == (second_flip,)
+
+    def test_concurrent_invalidation_between_precheck_and_persist_is_not_raised(self) -> None:
+        # Regression test: `apply_narrative_touching_flips` reads
+        # `session.narrative_invalidated_at` (the precheck) and later calls
+        # `record_narrative_invalidation` (the persist) as two separate
+        # steps, not one atomic transaction. If a second, concurrent
+        # freshness-check call invalidates the same session in between --
+        # scheduled and request-driven checks racing each other -- this
+        # call's own precheck still sees `None`, but the persist step below
+        # it loses the race and would otherwise surface
+        # `NarrativeAlreadyInvalidatedError`, violating this function's
+        # documented "never raises `NarrativeAlreadyInvalidatedError`"
+        # guarantee.
+        repository = _RacesAnotherInvalidationOnFirstRead(new_connection(":memory:"))
+        repository.create_session(
+            ResearchSession(
+                schema_version=1,
+                session_id="session-1",
+                created_at="2026-08-09T00:00:00Z",
+                updated_at="2026-08-09T00:00:00Z",
+                user_question_original="Does semaglutide produce long-term weight loss?",
+                status=SessionStatus.COMPLETED,
+            )
+        )
+        flip = _touching_flip("retracted")
+
+        result = apply_narrative_touching_flips(
+            repository, (flip,), session_id="session-1", now="2026-08-22T12:00:00Z"
+        )
+
+        assert result.already_invalidated is True
+        assert result.narrative_invalidated_event is None
+        assert result.invalidating == (flip,)
+        # The event the racing call recorded is untouched -- this call did
+        # not overwrite it or append a second one.
+        fetched = repository.get_session("session-1")
+        assert fetched is not None
+        assert fetched.narrative_invalidated_at == "2026-08-22T11:59:59Z"
+
+    def test_unknown_session_with_invalidating_flip_raises(self) -> None:
+        repository = SessionRepository(new_connection(":memory:"))
+        flip = _touching_flip("retracted")
+
+        with pytest.raises(UnknownSessionError):
+            apply_narrative_touching_flips(repository, (flip,), session_id="does-not-exist")
+
+    def test_unrecognized_flag_raises(self) -> None:
+        repository = _repository_with_session()
+        bad_flip = NarrativeTouchingFlip(
+            flip=PublicationStatusFlip(canonical_id="c-1", title="A trial", flag="preprint"),
+            doi="10.1000/example",
+            cited_evidence_record_ids=("ev-1",),
+        )
+
+        with pytest.raises(ValueError, match="Unrecognized"):
+            apply_narrative_touching_flips(repository, (bad_flip,), session_id="session-1")
+
+    def test_default_timestamp_is_used_when_now_not_supplied(self) -> None:
+        repository = _repository_with_session()
+        flip = _touching_flip("retracted")
+
+        result = apply_narrative_touching_flips(repository, (flip,), session_id="session-1")
+
+        assert result.narrative_invalidated_event is not None
+        assert result.narrative_invalidated_event.timestamp
+        fetched = repository.get_session("session-1")
+        assert fetched is not None
+        assert fetched.narrative_invalidated_at == result.narrative_invalidated_event.timestamp
