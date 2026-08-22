@@ -9,6 +9,38 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Answer/session-versioning repository mechanics (AI-FRD-5 /
+  answer-session-versioning, second wiring slice).** `ResearchSession`
+  gains three additive fields: `answer_version` (1-based, monotonic within
+  a `research_question_id` thread), `supersedes_session_id` (the
+  immediately-prior version's `session_id`, if any), and
+  `narrative_invalidated_at` (set at most once, independent of `status`,
+  the moment an invalidating publication-status flip is found to touch a
+  session's own cited narrative -- see
+  `docs/roadmap/answer_session_versioning_design.md`'s "Releaseability
+  reacts to an invalidating flip immediately" section). `sessions/repository.py`
+  gains two new methods implementing the design's version-transition
+  mechanics: `SessionRepository.record_narrative_invalidation()` appends a
+  `narrative_invalidated` `ResearchEvent` and sets the field (raises
+  `NarrativeAlreadyInvalidatedError` if called twice on the same session);
+  `SessionRepository.supersede_session()` appends an `answer_superseded`
+  `ResearchEvent` and moves the session's status to `SessionStatus.SUPERSEDED`
+  (raises the new `SessionNotSupersedableError` unless the session is
+  currently `COMPLETED`). Both are additive, purely local SQLite changes
+  (guarded `ALTER TABLE` migration for pre-existing databases, no
+  `schema_version` bump, old rows load the three new columns as `1`/`None`/
+  `None`) with no effect on any existing caller: nothing in this repository
+  calls either new method yet. 13 new tests (371 total pass); full local
+  quality gate (ruff format/check, mypy, pytest, pip-audit, git diff
+  --check) clean via `scripts/preflight.py`. The DOI crosswalk that would
+  decide *when* to call these (matching a flagged federated-discovery
+  candidate to a session's own cited evidence records) and a caller that
+  mints a version-*N+1* session remain future work -- see
+  `docs/roadmap/answer_session_versioning_design.md`'s updated "What this
+  does not do" section. `knowledge-engine-web` is unaffected: it pins a
+  specific `knowledge-engine-ai` commit and only uses the pre-existing
+  `SessionRepository`/`run_research_question` call shapes, both unchanged.
+
 - **`research_question_id` threading (AI-FRD-5 / answer-session-versioning,
   first wiring slice).** `run_research_question` now accepts an optional
   `research_question_id` keyword parameter and always sets it on the

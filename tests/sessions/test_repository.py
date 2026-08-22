@@ -8,6 +8,8 @@ from knowledge_engine_ai.sessions.models import ResearchEvent, ResearchSession, 
 from knowledge_engine_ai.sessions.repository import (
     DuplicateEventError,
     DuplicateSessionError,
+    NarrativeAlreadyInvalidatedError,
+    SessionNotSupersedableError,
     SessionRepository,
     UnknownSessionError,
     new_connection,
@@ -75,6 +77,154 @@ def test_research_question_id_defaults_to_none(repository: SessionRepository) ->
 
     assert fetched is not None
     assert fetched.research_question_id is None
+
+
+def test_answer_version_defaults_to_one(repository: SessionRepository) -> None:
+    repository.create_session(_session())
+
+    fetched = repository.get_session("session-1")
+
+    assert fetched is not None
+    assert fetched.answer_version == 1
+    assert fetched.supersedes_session_id is None
+    assert fetched.narrative_invalidated_at is None
+
+
+def test_answer_version_and_supersedes_session_id_round_trip(
+    repository: SessionRepository,
+) -> None:
+    repository.create_session(_session(session_id="session-1", status=SessionStatus.COMPLETED))
+    repository.create_session(
+        _session(
+            session_id="session-2",
+            answer_version=2,
+            supersedes_session_id="session-1",
+            research_question_id="rq-abc123",
+        )
+    )
+
+    fetched = repository.get_session("session-2")
+
+    assert fetched is not None
+    assert fetched.answer_version == 2
+    assert fetched.supersedes_session_id == "session-1"
+
+
+def test_record_narrative_invalidation_sets_field_and_appends_event(
+    repository: SessionRepository,
+) -> None:
+    repository.create_session(_session(status=SessionStatus.COMPLETED))
+    event = _event(
+        event_id="invalidation-1",
+        workflow_node="narrative_invalidated",
+        executor_type="deterministic_policy",
+        notes="canonical_id=work-1 doi=10.1/x flag=retracted",
+    )
+
+    repository.record_narrative_invalidation(event, invalidated_at="2026-08-22T12:00:00Z")
+
+    fetched = repository.get_session("session-1")
+    assert fetched is not None
+    assert fetched.narrative_invalidated_at == "2026-08-22T12:00:00Z"
+    # status is left untouched by design -- narrative_invalidated_at is a
+    # parallel signal, not a status value.
+    assert fetched.status == SessionStatus.COMPLETED
+    events = repository.list_events("session-1")
+    assert [event.event_id for event in events] == ["invalidation-1"]
+
+
+def test_record_narrative_invalidation_twice_raises(repository: SessionRepository) -> None:
+    repository.create_session(_session(status=SessionStatus.COMPLETED))
+    repository.record_narrative_invalidation(
+        _event(event_id="invalidation-1", workflow_node="narrative_invalidated"),
+        invalidated_at="2026-08-22T12:00:00Z",
+    )
+
+    with pytest.raises(NarrativeAlreadyInvalidatedError):
+        repository.record_narrative_invalidation(
+            _event(event_id="invalidation-2", workflow_node="narrative_invalidated"),
+            invalidated_at="2026-08-22T13:00:00Z",
+        )
+
+
+def test_record_narrative_invalidation_wrong_workflow_node_raises(
+    repository: SessionRepository,
+) -> None:
+    repository.create_session(_session(status=SessionStatus.COMPLETED))
+
+    with pytest.raises(ValueError, match="narrative_invalidated"):
+        repository.record_narrative_invalidation(
+            _event(workflow_node="corpus_retrieval"), invalidated_at="2026-08-22T12:00:00Z"
+        )
+
+
+def test_record_narrative_invalidation_unknown_session_raises(
+    repository: SessionRepository,
+) -> None:
+    with pytest.raises(UnknownSessionError):
+        repository.record_narrative_invalidation(
+            _event(workflow_node="narrative_invalidated", session_id="does-not-exist"),
+            invalidated_at="2026-08-22T12:00:00Z",
+        )
+
+
+def test_supersede_session_moves_status_and_appends_event(repository: SessionRepository) -> None:
+    repository.create_session(_session(status=SessionStatus.COMPLETED))
+    event = _event(
+        event_id="supersede-1",
+        workflow_node="answer_superseded",
+        executor_type="deterministic_policy",
+        notes="superseded_by=session-2",
+    )
+
+    repository.supersede_session(event, updated_at="2026-08-22T14:00:00Z")
+
+    fetched = repository.get_session("session-1")
+    assert fetched is not None
+    assert fetched.status == SessionStatus.SUPERSEDED
+    assert fetched.updated_at == "2026-08-22T14:00:00Z"
+    events = repository.list_events("session-1")
+    assert [event.event_id for event in events] == ["supersede-1"]
+
+
+def test_supersede_session_requires_completed_status(repository: SessionRepository) -> None:
+    repository.create_session(_session(status=SessionStatus.BLOCKED))
+
+    with pytest.raises(SessionNotSupersedableError):
+        repository.supersede_session(
+            _event(workflow_node="answer_superseded"), updated_at="2026-08-22T14:00:00Z"
+        )
+
+
+def test_supersede_session_twice_raises(repository: SessionRepository) -> None:
+    repository.create_session(_session(status=SessionStatus.COMPLETED))
+    repository.supersede_session(
+        _event(event_id="supersede-1", workflow_node="answer_superseded"),
+        updated_at="2026-08-22T14:00:00Z",
+    )
+
+    with pytest.raises(SessionNotSupersedableError):
+        repository.supersede_session(
+            _event(event_id="supersede-2", workflow_node="answer_superseded"),
+            updated_at="2026-08-22T15:00:00Z",
+        )
+
+
+def test_supersede_session_wrong_workflow_node_raises(repository: SessionRepository) -> None:
+    repository.create_session(_session(status=SessionStatus.COMPLETED))
+
+    with pytest.raises(ValueError, match="answer_superseded"):
+        repository.supersede_session(
+            _event(workflow_node="corpus_retrieval"), updated_at="2026-08-22T14:00:00Z"
+        )
+
+
+def test_supersede_session_unknown_session_raises(repository: SessionRepository) -> None:
+    with pytest.raises(UnknownSessionError):
+        repository.supersede_session(
+            _event(workflow_node="answer_superseded", session_id="does-not-exist"),
+            updated_at="2026-08-22T14:00:00Z",
+        )
 
 
 def test_create_session_twice_raises_duplicate_session_error(
@@ -226,5 +376,60 @@ def test_opening_a_pre_migration_database_adds_the_research_question_id_column(
     repository.create_session(session)
 
     assert repository.get_session("session-1") == session
+
+    migrated_connection.close()
+
+
+def test_opening_a_pre_versioning_database_adds_the_versioning_columns(
+    tmp_path: Path,
+) -> None:
+    """A database created before answer_version/supersedes_session_id/
+
+    narrative_invalidated_at existed must still open, with answer_version
+    defaulting to 1 (matching a thread's first version) for pre-existing
+    rows and the other two columns defaulting to NULL.
+    """
+
+    database_path = f"{tmp_path}/pre_versioning.sqlite3"
+    pre_migration_connection = new_connection(database_path)
+    pre_migration_connection.execute(
+        """
+        CREATE TABLE research_sessions (
+            session_id TEXT PRIMARY KEY,
+            schema_version INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            user_question_original TEXT NOT NULL,
+            status TEXT NOT NULL,
+            normalized_question TEXT,
+            domain_hints TEXT NOT NULL,
+            research_plan_id TEXT,
+            corpus_snapshot_id TEXT,
+            evidence_cutoff_time TEXT,
+            final_status TEXT,
+            research_question_id TEXT
+        )
+        """
+    )
+    pre_migration_connection.execute(
+        """
+        INSERT INTO research_sessions (
+            session_id, schema_version, created_at, updated_at,
+            user_question_original, status, domain_hints
+        ) VALUES ('pre-existing', 1, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z',
+                  'Old question', 'completed', '[]')
+        """
+    )
+    pre_migration_connection.commit()
+    pre_migration_connection.close()
+
+    migrated_connection = new_connection(database_path)
+    repository = SessionRepository(migrated_connection)
+
+    fetched = repository.get_session("pre-existing")
+    assert fetched is not None
+    assert fetched.answer_version == 1
+    assert fetched.supersedes_session_id is None
+    assert fetched.narrative_invalidated_at is None
 
     migrated_connection.close()

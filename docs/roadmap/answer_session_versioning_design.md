@@ -1,8 +1,19 @@
 # Answer / Session Versioning Design
 
 Status: proposed design, 2026-08-22; `research_question_id` threading (one
-sub-section below) implemented the same day. The versioning/supersession
-mechanics this document otherwise describes remain not yet implemented.
+sub-section below) implemented the same day. **2026-08-22 (later same day):
+the repository-layer mechanics are now implemented too** -- `ResearchSession`
+gained the three remaining additive fields (`answer_version`,
+`supersedes_session_id`, `narrative_invalidated_at`), and
+`SessionRepository` gained `record_narrative_invalidation()` (appends the
+`narrative_invalidated` event, sets the field, guarded against being called
+twice) and `supersede_session()` (appends the `answer_superseded` event,
+flips status to `SUPERSEDED`, guarded to require the superseded session was
+`COMPLETED`). Both are standalone and tested (13 new tests), but nothing
+calls them yet: the DOI crosswalk that would decide *when* an invalidating
+or qualifying flip actually touches a session's own cited narrative, and the
+policy for when a freshness check runs at all, remain not yet implemented --
+see "What this does not do" below, updated to match.
 
 This document scopes the answer/session-versioning concept that
 `docs/project-status.yaml`'s `next_continuation` names as a prerequisite for
@@ -615,21 +626,40 @@ Three honestly-distinguished states, never collapsed into one:
 
 ## What this does not do
 
-- **`research_question_id` threading is now implemented (2026-08-22) --
-  see "Where `research_question_id` actually comes from" above.**
-  Everything else in this document remains a proposal only: no change to
-  `sessions/repository.py`'s `attach_research_isa`/close-gate interaction,
+- **`research_question_id` threading is implemented (2026-08-22) -- see
+  "Where `research_question_id` actually comes from" above. The
+  repository-layer mechanics are also now implemented (2026-08-22, later
+  the same day):** `ResearchSession.answer_version` /
+  `.supersedes_session_id` / `.narrative_invalidated_at` exist as additive
+  fields with a guarded `ALTER TABLE` migration
+  (`sessions/repository.py::_migrate_schema`), and
+  `SessionRepository.record_narrative_invalidation()` /
+  `.supersede_session()` implement the `narrative_invalidated` /
+  `answer_superseded` `ResearchEvent`-plus-field-update operations the
+  "Why a whole new session" and "Releaseability reacts to an invalidating
+  flip immediately" sections above describe, each with the guards those
+  sections require (narrative invalidation set at most once; a session can
+  only be superseded from `COMPLETED`). Both are tested in isolation
+  (`tests/sessions/test_repository.py`), not live-verified against a real
+  research question (there is no live external call in this slice -- it is
+  pure SQLite persistence logic, the same category as `attach_research_isa`
+  itself).
+- **Still not implemented: everything that decides *when* to call the two
+  operations above.** No change to `run_research_question.py`,
   `orchestrator/close_gate.py`, or `copilot/research_freshness.py`'s own
-  trigger logic. `answer_version`, `supersedes_session_id`, and
-  `narrative_invalidated_at` (the three remaining additive `ResearchSession`
-  fields), the `answer_superseded`/`narrative_invalidated` `ResearchEvent`s,
-  the DOI crosswalk, the invalidates-versus-qualifies trigger, and
-  `SessionStatus.SUPERSEDED`'s first real use are all proposed, not
-  implemented, not tested, and not live-verified.
-- **No SQLite schema migration.** `research_question_id`/`answer_version`/
-  `supersedes_session_id`/`narrative_invalidated_at` are described as
+  trigger logic. The DOI crosswalk (matching a flagged federated-discovery
+  candidate to a session's own cited `evidence_record_id`s), the
+  invalidates-versus-qualifies split's actual trigger wiring, the
+  `AnswerFreshness` read-side projection, and any caller that mints a
+  version-*N+1* session (setting `answer_version`/`supersedes_session_id`
+  at `create_session` time and then calling `supersede_session()` on the
+  prior version once *N+1* reaches `COMPLETED`) remain proposed only, not
+  implemented.
+- **No SQLite schema migration for `research_question_id`/`answer_version`/
+  `supersedes_session_id`/`narrative_invalidated_at` was needed beyond the
+  guarded `ALTER TABLE` additions already shipped** (`_migrate_schema`) --
   additive columns following the existing `duration_ms`/`source_ids`
-  precedent, but no `ALTER TABLE` exists yet.
+  precedent, with no `schema_version` bump.
 - **No decision on who/what triggers a freshness check** (a scheduled job,
   a person, a Web page load) or how often -- that is
   `discovery_policy.py`-shaped follow-up policy work, deliberately left

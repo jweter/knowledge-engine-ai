@@ -43,7 +43,10 @@ CREATE TABLE IF NOT EXISTS research_sessions (
     corpus_snapshot_id TEXT,
     evidence_cutoff_time TEXT,
     final_status TEXT,
-    research_question_id TEXT
+    research_question_id TEXT,
+    answer_version INTEGER NOT NULL DEFAULT 1,
+    supersedes_session_id TEXT,
+    narrative_invalidated_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS research_events (
@@ -118,6 +121,25 @@ class UnknownISAError(RuntimeError):
     """An ISA-result operation referenced a session with no attached ISA."""
 
 
+class NarrativeAlreadyInvalidatedError(RuntimeError):
+    """``record_narrative_invalidation`` was called on an already-invalidated session.
+
+    ``narrative_invalidated_at`` is set at most once per
+    `docs/roadmap/answer_session_versioning_design.md`'s "set once, the
+    moment an invalidating flip crosswalks to a citation" rule.
+    """
+
+
+class SessionNotSupersedableError(RuntimeError):
+    """``supersede_session`` was called on a session that is not ``COMPLETED``.
+
+    Per the design doc, a session is only ever moved to ``SUPERSEDED`` once
+    its replacement itself reaches ``COMPLETED`` -- and only a session that
+    was itself ``COMPLETED`` (a released answer) is a meaningful subject for
+    supersession in the first place.
+    """
+
+
 class SessionRepository:
     """SQLite-backed store for session, event, and Research ISA state."""
 
@@ -144,6 +166,18 @@ class SessionRepository:
             self._connection.execute(
                 "ALTER TABLE research_sessions ADD COLUMN research_question_id TEXT"
             )
+        if "answer_version" not in existing_columns:
+            self._connection.execute(
+                "ALTER TABLE research_sessions ADD COLUMN answer_version INTEGER NOT NULL DEFAULT 1"
+            )
+        if "supersedes_session_id" not in existing_columns:
+            self._connection.execute(
+                "ALTER TABLE research_sessions ADD COLUMN supersedes_session_id TEXT"
+            )
+        if "narrative_invalidated_at" not in existing_columns:
+            self._connection.execute(
+                "ALTER TABLE research_sessions ADD COLUMN narrative_invalidated_at TEXT"
+            )
 
     def create_session(self, session: ResearchSession) -> None:
         try:
@@ -153,8 +187,9 @@ class SessionRepository:
                     session_id, schema_version, created_at, updated_at,
                     user_question_original, status, normalized_question,
                     domain_hints, research_plan_id, corpus_snapshot_id,
-                    evidence_cutoff_time, final_status, research_question_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    evidence_cutoff_time, final_status, research_question_id,
+                    answer_version, supersedes_session_id, narrative_invalidated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     session.session_id,
@@ -170,6 +205,9 @@ class SessionRepository:
                     session.evidence_cutoff_time,
                     session.final_status,
                     session.research_question_id,
+                    session.answer_version,
+                    session.supersedes_session_id,
+                    session.narrative_invalidated_at,
                 ),
             )
         except sqlite3.IntegrityError as exc:
@@ -196,6 +234,78 @@ class SessionRepository:
         if cursor.rowcount == 0:
             raise UnknownSessionError(f"No session with session_id {session_id!r}.")
         self._connection.commit()
+
+    def record_narrative_invalidation(self, event: ResearchEvent, *, invalidated_at: str) -> None:
+        """Append an ``narrative_invalidated`` event and set the session's flag, once.
+
+        Implements `docs/roadmap/answer_session_versioning_design.md`'s
+        "Releaseability reacts to an invalidating flip immediately" rule: the
+        moment an **invalidating** (``retracted``/``withdrawn``) publication-
+        status flip is found to touch a session's own cited narrative,
+        ``S.narrative_invalidated_at`` is set -- independent of ``status``,
+        which stays exactly as it was (never flipped to ``BLOCKED`` or
+        ``SUPERSEDED`` by this call alone).
+
+        Deliberately does not decide *when* this should be called -- that is
+        the crosswalk/trigger-policy work the design doc's "What this does
+        not do" section names as still open. This method only makes the
+        mechanism itself durable and safe to call.
+        """
+
+        if event.workflow_node != "narrative_invalidated":
+            raise ValueError(
+                "record_narrative_invalidation requires an event with "
+                f"workflow_node='narrative_invalidated', got {event.workflow_node!r}."
+            )
+
+        session = self.get_session(event.session_id)
+        if session is None:
+            raise UnknownSessionError(f"No session with session_id {event.session_id!r}.")
+        if session.narrative_invalidated_at is not None:
+            raise NarrativeAlreadyInvalidatedError(
+                f"Session {event.session_id!r} already has narrative_invalidated_at="
+                f"{session.narrative_invalidated_at!r}; it is set at most once."
+            )
+
+        self.append_event(event)
+        self._connection.execute(
+            "UPDATE research_sessions SET narrative_invalidated_at = ? WHERE session_id = ?",
+            (invalidated_at, event.session_id),
+        )
+        self._connection.commit()
+
+    def supersede_session(self, event: ResearchEvent, *, updated_at: str) -> None:
+        """Append an ``answer_superseded`` event and move the session to ``SUPERSEDED``.
+
+        Per the design doc, this is only ever called once a *replacement*
+        session for the same ``research_question_id`` thread has itself
+        reached ``COMPLETED`` -- ``event.session_id`` here is the *prior*
+        version being superseded, not the new one. Requires the superseded
+        session's current status to be ``COMPLETED``: a session that was
+        never released (``BLOCKED``) is not a meaningful subject for
+        supersession, and a session already ``SUPERSEDED`` cannot be
+        superseded again.
+        """
+
+        if event.workflow_node != "answer_superseded":
+            raise ValueError(
+                "supersede_session requires an event with "
+                f"workflow_node='answer_superseded', got {event.workflow_node!r}."
+            )
+
+        session = self.get_session(event.session_id)
+        if session is None:
+            raise UnknownSessionError(f"No session with session_id {event.session_id!r}.")
+        if session.status is not SessionStatus.COMPLETED:
+            raise SessionNotSupersedableError(
+                f"Session {event.session_id!r} has status {session.status.value!r}; "
+                "only a COMPLETED session can be superseded."
+            )
+
+        self.append_event(event)
+        self.update_session_status(
+            event.session_id, SessionStatus.SUPERSEDED, updated_at=updated_at
+        )
 
     def attach_research_isa(self, session_id: str, isa: ResearchISA) -> None:
         """Attach one immutable task-level definition of done to a session.
@@ -399,6 +509,9 @@ def _session_from_row(row: sqlite3.Row) -> ResearchSession:
         evidence_cutoff_time=row["evidence_cutoff_time"],
         final_status=row["final_status"],
         research_question_id=row["research_question_id"],
+        answer_version=row["answer_version"],
+        supersedes_session_id=row["supersedes_session_id"],
+        narrative_invalidated_at=row["narrative_invalidated_at"],
     )
 
 
@@ -461,6 +574,8 @@ __all__ = [
     "DuplicateEventError",
     "DuplicateISAError",
     "DuplicateSessionError",
+    "NarrativeAlreadyInvalidatedError",
+    "SessionNotSupersedableError",
     "SessionRepository",
     "UnknownISAError",
     "UnknownSessionError",
