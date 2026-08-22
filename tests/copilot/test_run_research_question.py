@@ -674,3 +674,40 @@ def test_discovery_coverage_criterion_fails_on_failed_provider_without_blocking_
     # synthesis may still proceed in degraded mode.
     assert result.close_result.status is SessionStatus.COMPLETED
     assert "discovery_coverage" not in result.close_result.validation.unresolved_required_criteria
+
+
+def test_discovery_coverage_criterion_not_applicable_when_federated_discovery_disabled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def _fail(*args: object, **kwargs: object) -> None:
+        raise AssertionError("Federated discovery is disabled by policy; should not be attempted.")
+
+    monkeypatch.setattr(discovery_policy, "execute_discovery_plan", _fail)
+    monkeypatch.setattr(discovery_policy, "citation_snowball", _citation_snowball_stub)
+    monkeypatch.setattr(subprocess, "run", _fake_run(_payload(evidence_records=[_GROUNDED_RECORD])))
+    repository = _repository()
+    policy = FederatedDiscoveryPolicy(
+        ledger_root=tmp_path / "ledger",
+        min_evidence_record_coverage=5,
+        enable_federated_discovery=False,
+    )
+
+    result = run_research_question(
+        "does semaglutide reduce body weight",
+        session_repository=repository,
+        sources=tmp_path / "s.csv",
+        evidence=tmp_path / "e.jsonl",
+        llm=_FakeLLM(),
+        discovery_policy=policy,
+    )
+
+    criterion_result = next(
+        item
+        for item in repository.latest_criterion_results(result.session_id)
+        if item.criterion_id == "discovery_coverage"
+    )
+    # The coverage gap was real (triggered=True) but federated discovery was
+    # never attempted because policy disabled it -- this must not be
+    # reported as a provider FAILURE, only as not applicable.
+    assert criterion_result.status.value == "not_applicable"
+    assert result.close_result.status is SessionStatus.COMPLETED

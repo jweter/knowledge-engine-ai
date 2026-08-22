@@ -65,7 +65,9 @@ limited, or was unavailable; Core's own `completeness` already excludes
 disabled/skipped providers from this judgment, so AI never re-derives it).
 It is `NOT_APPLICABLE` when discovery was not triggered (coverage was
 already sufficient, or the primary retrieval itself failed and is already
-blocked by `workflow_integrity`) and omitted from the ISA entirely when no
+blocked by `workflow_integrity`), or when it was triggered but federated
+discovery is disabled by policy (never attempted, so there is no provider
+outcome to judge), and omitted from the ISA entirely when no
 `discovery_policy` was supplied at all -- the existing three-criteria path
 is unchanged byte for byte. Being optional means a degraded federated
 search never silently blocks session close (synthesis may still proceed in
@@ -494,6 +496,16 @@ def _discovery_coverage_result(
             _DISCOVERY_COVERAGE_CRITERION_ID,
             CriterionStatus.NOT_APPLICABLE,
             discovery_augmentation.trigger_reason,
+        )
+
+    if not discovery_augmentation.federated_discovery_attempted:
+        return CriterionResult(
+            _DISCOVERY_COVERAGE_CRITERION_ID,
+            CriterionStatus.NOT_APPLICABLE,
+            (
+                "Federated discovery is disabled by policy; this run's coverage gap "
+                "was not addressed via federated providers."
+            ),
         )
 
     federated_result = discovery_augmentation.federated_discovery

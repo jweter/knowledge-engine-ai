@@ -32,6 +32,14 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   See `docs/roadmap/federated_discovery_orchestration_adoption.md`'s
   AI-FRD-2 section for the full account.
 
+  Fix (same slice, pre-review): a coverage gap triggered while
+  `enable_federated_discovery=False` was misreported as `FAILED` (naming a
+  provider that was never attempted) because the criterion could not tell
+  "disabled by policy" apart from "attempted and failed". A new
+  `federated_discovery_attempted` field on `DiscoveryAugmentationResult`
+  distinguishes the two, so this case now correctly reports
+  `NOT_APPLICABLE`.
+
 - **AI-FRD-5 (research freshness / rerun reasoning): a first bounded slice,
   deterministic and unwired.** `copilot/research_freshness.py` adds two pure
   functions over data `ke_client.federated_discover_history()` and

@@ -461,6 +461,12 @@ Exit criteria:
   own recorded `provider_statuses`/`completeness`, never a model claim; it
   is `NOT_APPLICABLE` (not a fabricated `PASSED`) when discovery was not
   triggered this run at all
+- a coverage gap that policy chose not to address is distinguished from a
+  provider that was attempted and failed. **met** (2026-08-22 fix) --
+  `test_discovery_coverage_criterion_not_applicable_when_federated_discovery_disabled`
+  proves a triggered run with `enable_federated_discovery=False` reports
+  `NOT_APPLICABLE`, never a fabricated `FAILED` naming a provider that was
+  never attempted
 
 ### AI-FRD-3 -- Discovery-plan compiler
 
