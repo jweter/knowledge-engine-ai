@@ -714,6 +714,21 @@ retrieval events and persisted narrative) but nothing yet calls
 response to one -- that trigger wiring is the remaining piece of the first
 "not started" exit criterion below.**
 
+**2026-08-22 (later still than that): the invalidates-versus-qualifies
+trigger itself is now implemented.** `copilot/research_freshness.py`'s
+`apply_narrative_touching_flips()` takes one batch of `NarrativeTouchingFlip`s
+and, for each `retracted`/`withdrawn` one, calls
+`record_narrative_invalidation()` (checking the session's current
+`narrative_invalidated_at` first so a batch with more than one invalidating
+flip, or a session an earlier pass already invalidated, never raises); for
+each `corrected`/`expression_of_concern` one, it returns the flip in
+`NarrativeFreshnessTriggerResult.qualifying` without persisting anything.
+12 new tests (397 total pass); full local quality gate clean via
+`scripts/preflight.py`. Still no caller runs this for a real session --
+that requires deciding *when* a freshness check happens at all, which
+remains explicitly undecided product/policy work (see
+`answer_session_versioning_design.md`'s "What this does not do").
+
 Exit criteria:
 
 - new evidence is distinguished from previously seen evidence; **met** --
@@ -721,14 +736,12 @@ Exit criteria:
 - corrections/retractions can invalidate or qualify prior synthesis; **not
   started** -- requires wiring this reasoning into a Research Session, which
   this slice deliberately does not do; the wiring's design is now scoped in
-  `answer_session_versioning_design.md` (this directory). Both prerequisites
-  this needed are now implemented: `research_question_id` threading
-  (2026-08-22 entry above), the repository-layer mechanics, and the DOI
-  crosswalk detection layer (both 2026-08-22, later still). What remains is
-  only the trigger itself -- deciding, for a real session, when to call
-  `crosswalk_publication_status_flips()` and then act on a
-  `NarrativeTouchingFlip` by calling `record_narrative_invalidation()`
-  (invalidates) or recording a qualifying pending flip (qualifies)
+  `answer_session_versioning_design.md` (this directory). Every prerequisite
+  this needed is now implemented in isolation: `research_question_id`
+  threading, the repository-layer mechanics, the DOI crosswalk detection
+  layer, and the invalidates-versus-qualifies trigger itself (all
+  2026-08-22). What remains is only a caller that runs a real freshness
+  check for a real session and decides *when* to run one at all
 - prior answer text is never silently overwritten as if it had always been the
   updated answer. **not started** -- `answer_session_versioning_design.md`
   scopes the versioning concept this reasoning needs to attach to; the
