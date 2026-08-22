@@ -125,7 +125,25 @@ class SessionRepository:
         self._connection = connection
         self._connection.execute("PRAGMA foreign_keys = ON")
         self._connection.executescript(_SCHEMA)
+        self._migrate_schema()
         self._connection.commit()
+
+    def _migrate_schema(self) -> None:
+        """Add columns to pre-existing databases that predate them.
+
+        ``CREATE TABLE IF NOT EXISTS`` in ``_SCHEMA`` is a no-op against a
+        table that already exists, so a column added there is invisible to
+        any database created before that change. Each entry here is an
+        idempotent, guarded ``ALTER TABLE`` for exactly such a column.
+        """
+
+        existing_columns = {
+            row["name"] for row in self._connection.execute("PRAGMA table_info(research_sessions)")
+        }
+        if "research_question_id" not in existing_columns:
+            self._connection.execute(
+                "ALTER TABLE research_sessions ADD COLUMN research_question_id TEXT"
+            )
 
     def create_session(self, session: ResearchSession) -> None:
         try:

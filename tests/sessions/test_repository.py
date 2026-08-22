@@ -182,3 +182,49 @@ def test_workflow_can_stop_and_resume_without_losing_or_duplicating_state(
         resumed_repository.append_event(_event(event_id="e1"))
 
     resumed_connection.close()
+
+
+def test_opening_a_pre_migration_database_adds_the_research_question_id_column(
+    tmp_path: Path,
+) -> None:
+    """A database created before `research_question_id` existed must still open.
+
+    `CREATE TABLE IF NOT EXISTS` in `_SCHEMA` is a no-op against a table that
+    already exists, so a database file created by an older version of this
+    repository (one without `research_question_id` in `research_sessions`)
+    would otherwise fail every `create_session`/`get_session` call with
+    `sqlite3.OperationalError: no column named research_question_id`.
+    """
+
+    database_path = f"{tmp_path}/pre_migration.sqlite3"
+    pre_migration_connection = new_connection(database_path)
+    pre_migration_connection.execute(
+        """
+        CREATE TABLE research_sessions (
+            session_id TEXT PRIMARY KEY,
+            schema_version INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            user_question_original TEXT NOT NULL,
+            status TEXT NOT NULL,
+            normalized_question TEXT,
+            domain_hints TEXT NOT NULL,
+            research_plan_id TEXT,
+            corpus_snapshot_id TEXT,
+            evidence_cutoff_time TEXT,
+            final_status TEXT
+        )
+        """
+    )
+    pre_migration_connection.commit()
+    pre_migration_connection.close()
+
+    migrated_connection = new_connection(database_path)
+    repository = SessionRepository(migrated_connection)
+
+    session = _session(domain_hints=("clinical_medicine",), research_question_id="rq-abc")
+    repository.create_session(session)
+
+    assert repository.get_session("session-1") == session
+
+    migrated_connection.close()
