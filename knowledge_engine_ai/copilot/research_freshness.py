@@ -100,6 +100,31 @@ caller" precedent. It still does not decide *when* a freshness check runs,
 and still does not mint a version-*N+1* session or surface this projection
 to `knowledge-engine-web`, per the design doc's own "What this does not
 do" and "No Web-facing API or UI for `AnswerFreshness`" notes.
+
+A still later slice (2026-08-22, later still) added `mint_next_version`
+below -- the design doc's own "next small, coherent slice" once the
+`AnswerFreshness` projection existed: "a caller that mints a version-*N+1*
+session ... and calls `supersede_session()` on the prior version once
+*N+1* reaches `COMPLETED`" (see the design doc's "Relationship to
+AI-FRD-5's exit criteria" section). Unlike everything else in this module,
+`mint_next_version` is not a pure function over already-fetched data -- it
+is itself the orchestrator for one version transition, the same "this is
+the trigger itself, so it does I/O" exception `apply_narrative_touching_flips`
+already is. It calls `run_research_question` a second time (same question
+text, same `research_question_id` thread, `answer_version=prior + 1`,
+`supersedes_session_id=prior.session_id`) -- version *N+1* is a brand-new
+session with its own full workflow/synthesis/verification/close-gate run,
+never a second synthesis event folded into the prior session, per the
+design doc's "Why a whole new session, not a second event in the same
+session." Only once that new run's own `close_result.status` reaches
+`COMPLETED` does the prior version get superseded
+(`SessionRepository.supersede_session`); a version-*N+1* run that ends
+`BLOCKED` instead leaves the prior version exactly as it was --
+`COMPLETED`, un-superseded -- per "Interaction with session close gates."
+Deliberately does not decide *when* to mint a new version at all (a
+person, a scheduled policy, `ke-ai session-freshness`'s own
+recommendation) -- that remains the still-open product/policy question the
+design doc's "What this does not do" section names.
 """
 
 from __future__ import annotations
@@ -108,13 +133,21 @@ import dataclasses
 import uuid
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
+from pathlib import Path
 
+from knowledge_engine_ai.copilot.discovery_policy import FederatedDiscoveryPolicy
+from knowledge_engine_ai.copilot.run_research_question import (
+    ResearchQuestionResult,
+    run_research_question,
+)
 from knowledge_engine_ai.ke_client import (
     FederatedCandidateRecord,
     FederatedCoverageReportResult,
     FederatedDiscoverHistoryResult,
     SearchCoverageReport,
 )
+from knowledge_engine_ai.llm import LocalLLM
+from knowledge_engine_ai.orchestrator.parallel_retrieval import ExternalDiscoveryCallable
 from knowledge_engine_ai.orchestrator.verification import CITATION_PATTERN
 from knowledge_engine_ai.sessions.models import ResearchEvent, ResearchSession, SessionStatus
 from knowledge_engine_ai.sessions.repository import (
@@ -703,19 +736,169 @@ def build_answer_freshness(
     )
 
 
+class SessionNotCompletedError(ValueError):
+    """`mint_next_version` was called against a session that is not `COMPLETED`.
+
+    Per the design doc's "Interaction with session close gates," only a
+    session that itself reached `COMPLETED` (a released answer) is a
+    meaningful subject for version-*N+1* minting -- the same precondition
+    `SessionRepository.supersede_session` already enforces on the
+    superseded side, checked here up front so a caller does not spend a
+    full retrieval/synthesis run only to have supersession fail at the end.
+    """
+
+
+class MissingResearchQuestionIdError(ValueError):
+    """`mint_next_version` was called against a session with no `research_question_id`.
+
+    Version *N+1* must join the same thread as its predecessor
+    (`ResearchSession.research_question_id`, the join key
+    `SessionRepository.list_sessions_for_research_question` and Core's own
+    `federated_discover_history`/`federated_coverage_report` key on). A
+    session that predates AI-FRD-5's thread-identity threading has no
+    thread to join.
+    """
+
+
+_ANSWER_SUPERSEDED_NODE = "answer_superseded"
+
+
+@dataclasses.dataclass(frozen=True)
+class VersionTransitionResult:
+    """What `mint_next_version` did: a new session, and whether it superseded the prior one.
+
+    `new_result` is the full `ResearchQuestionResult` of the version-*N+1*
+    run -- always produced, since minting a version means actually running
+    the composed pipeline again, not merely reserving an id or a row.
+    `superseded` is `True` only when `new_result.close_result.status is
+    SessionStatus.COMPLETED` and `SessionRepository.supersede_session` was
+    actually called on the prior version; per the design doc's
+    "Interaction with session close gates," a version-*N+1* run that ends
+    `BLOCKED` instead leaves the prior version exactly as it was --
+    `COMPLETED`, un-superseded -- `superseded=False`,
+    `supersede_event=None` -- rather than retroactively invalidating a
+    still-good prior answer because its replacement did not (yet) pan out.
+    """
+
+    new_result: ResearchQuestionResult
+    superseded: bool
+    supersede_event: ResearchEvent | None
+
+
+def mint_next_version(
+    session_repository: SessionRepository,
+    prior_session_id: str,
+    *,
+    sources: Path,
+    evidence: Path,
+    llm: LocalLLM,
+    limit: int = 5,
+    external_discovery: ExternalDiscoveryCallable | None = None,
+    discovery_policy: FederatedDiscoveryPolicy | None = None,
+    ke_executable: str = "ke",
+    timeout_seconds: float | None = None,
+) -> VersionTransitionResult:
+    """Mint a version-*N+1* session for `prior_session_id`'s thread, and supersede on success.
+
+    Implements the design doc's "Why a whole new session, not a second
+    event in the same session" and "Interaction with session close gates":
+    version *N+1* is produced by a second, independent
+    `run_research_question` call -- the prior session's own question text,
+    the same `research_question_id` thread, `answer_version=prior.answer_version
+    + 1`, `supersedes_session_id=prior_session_id` -- never a second
+    synthesis event folded into the prior session. `prior_session_id`'s own
+    session row is never rewritten; it is moved `COMPLETED -> SUPERSEDED`
+    (an explicit `answer_superseded` `ResearchEvent` plus the status flip,
+    via `SessionRepository.supersede_session`) only *after* the new version
+    itself reaches `COMPLETED`. If the new version ends `BLOCKED` instead,
+    the prior version is deliberately left exactly as it was -- `COMPLETED`,
+    un-superseded -- so a degraded re-verification attempt never silently
+    demotes a still-good prior answer; see `VersionTransitionResult`.
+
+    Requires the prior session to be `COMPLETED` (raises
+    `SessionNotCompletedError` otherwise) and to carry a
+    `research_question_id` (raises `MissingResearchQuestionIdError`
+    otherwise). Raises `UnknownSessionError` if `prior_session_id` does not
+    exist.
+
+    Does not itself decide *when* to mint a new version -- that remains the
+    caller's job (a person, `ke-ai session-freshness`'s own
+    `RerunRecommendation`, a future scheduled policy), matching this
+    module's "reasoning/trigger logic lives here, the decision of when to
+    invoke it lives with the caller" boundary throughout.
+    """
+
+    prior = session_repository.get_session(prior_session_id)
+    if prior is None:
+        raise UnknownSessionError(f"No session with session_id {prior_session_id!r}.")
+    if prior.status is not SessionStatus.COMPLETED:
+        raise SessionNotCompletedError(
+            f"Session {prior_session_id!r} has status {prior.status.value!r}; only a "
+            "COMPLETED session is a meaningful subject for version-minting."
+        )
+    if prior.research_question_id is None:
+        raise MissingResearchQuestionIdError(
+            f"Session {prior_session_id!r} has no research_question_id; it predates "
+            "AI-FRD-5's thread-identity threading, so there is no thread for a new "
+            "version to join."
+        )
+
+    new_result = run_research_question(
+        prior.user_question_original,
+        session_repository=session_repository,
+        sources=sources,
+        evidence=evidence,
+        llm=llm,
+        limit=limit,
+        external_discovery=external_discovery,
+        discovery_policy=discovery_policy,
+        research_question_id=prior.research_question_id,
+        answer_version=prior.answer_version + 1,
+        supersedes_session_id=prior_session_id,
+        ke_executable=ke_executable,
+        timeout_seconds=timeout_seconds,
+    )
+
+    if new_result.close_result.status is not SessionStatus.COMPLETED:
+        return VersionTransitionResult(
+            new_result=new_result, superseded=False, supersede_event=None
+        )
+
+    occurred_at = _now_iso()
+    supersede_event = ResearchEvent(
+        event_id=str(uuid.uuid4()),
+        session_id=prior_session_id,
+        timestamp=occurred_at,
+        workflow_node=_ANSWER_SUPERSEDED_NODE,
+        executor_type=_TRIGGER_EXECUTOR_TYPE,
+        notes=(
+            f"superseded_by_session_id={new_result.session_id!r} "
+            f"answer_version={prior.answer_version + 1}"
+        ),
+    )
+    session_repository.supersede_session(supersede_event, updated_at=occurred_at)
+    return VersionTransitionResult(
+        new_result=new_result, superseded=True, supersede_event=supersede_event
+    )
+
+
 __all__ = [
     "DEFAULT_MAX_AGE_SECONDS",
     "AnswerFreshness",
     "CandidateFreshnessDiff",
+    "MissingResearchQuestionIdError",
     "NarrativeFreshnessTriggerResult",
     "NarrativeTouchingFlip",
     "PublicationStatusFlip",
     "RerunRecommendation",
     "ResearchFreshnessError",
+    "SessionNotCompletedError",
+    "VersionTransitionResult",
     "apply_narrative_touching_flips",
     "assess_rerun_need",
     "build_answer_freshness",
     "crosswalk_publication_status_flips",
     "diff_candidate_snapshots",
+    "mint_next_version",
     "session_retrieval_dois",
 ]

@@ -88,6 +88,29 @@ and it does not mint a version-*N+1* session. Still not implemented: the
 `AnswerFreshness` read-side projection, and the version-minting caller --
 see "What this does not do" below, updated to match.
 
+**2026-08-22 (later still than the `AnswerFreshness`-projection session): the
+version-minting caller is now implemented -- this document's own "next
+small, coherent slice" from the "Relationship to AI-FRD-5's exit criteria"
+section below.** `copilot/research_freshness.py` gained `mint_next_version()`:
+given a prior session that is `COMPLETED` and carries a
+`research_question_id`, it calls `run_research_question` a second time
+(same question text, same thread, `answer_version=prior + 1`,
+`supersedes_session_id=prior.session_id`) and, only once that new run's own
+close gate reaches `COMPLETED`, calls `SessionRepository.supersede_session()`
+on the prior version -- exactly "Why a whole new session, not a second event
+in the same session" and "Interaction with session close gates" above
+specify, including the `BLOCKED`-leaves-prior-alone case. `run_research_question`
+itself gained the two additive keyword parameters this requires
+(`answer_version: int = 1`, `supersedes_session_id: str | None = None`),
+the same opt-in shape `research_question_id` already used, so every
+existing caller is unaffected. 7 new tests (425 total pass); full local
+quality gate clean via `scripts/preflight.py`. Still not implemented: any
+caller that invokes `mint_next_version()` for a real session (no CLI
+caller yet -- `ke-ai session-freshness` remains read-only plus its own
+`--apply` for invalidation only), and the still-open policy question of
+who/what decides *when* a version transition should be attempted at all --
+see "What this does not do" below, updated to match.
+
 **2026-08-22 (later still than the `ke-ai session-freshness` session): the
 `AnswerFreshness` read-side projection is now implemented.**
 `copilot/research_freshness.py` gained `AnswerFreshness` and
@@ -778,13 +801,17 @@ Three honestly-distinguished states, never collapsed into one:
   new `SessionRepository.list_sessions_for_research_question()`).
   `ke-ai session-freshness` is its first real caller, in both text and
   `--format json` output.
-  **Still not implemented: everything that decides *when* a freshness
-  check happens automatically for a session (a scheduled job, a person, a
-  Web page load), and any caller that mints a version-*N+1* session**
-  (setting `answer_version`/`supersedes_session_id` at `create_session`
-  time and then calling `supersede_session()` on the prior version once
-  *N+1* reaches `COMPLETED`) -- these remain proposed only, not
-  implemented.
+  **The version-minting caller is implemented (2026-08-22, later still) --
+  see the status header above.** `copilot/research_freshness.py`'s
+  `mint_next_version()` mints a version-*N+1* session (via
+  `run_research_question`'s new `answer_version`/`supersedes_session_id`
+  keyword parameters) and calls `supersede_session()` on the prior version
+  once *N+1* reaches `COMPLETED`, leaving the prior version untouched if
+  *N+1* ends `BLOCKED`. **Still not implemented: everything that decides
+  *when* a freshness check or a version transition happens automatically
+  for a session** (a scheduled job, a person, a Web page load) **and any
+  caller that invokes `mint_next_version()` for a real session** -- no CLI
+  command calls it yet; these remain proposed/open only, not implemented.
 - **No SQLite schema migration for `research_question_id`/`answer_version`/
   `supersedes_session_id`/`narrative_invalidated_at`/`source_dois` was
   needed beyond the guarded `ALTER TABLE` additions already shipped**
@@ -833,8 +860,10 @@ section):
   been the updated answer"* -- this design's whole-session versioning,
   append-only retention, and `SUPERSEDED` transition (only after a real
   replacement reaches `COMPLETED`) is the concrete mechanism for that; the
-  fields and `supersede_session()` are implemented, but no caller yet mints
-  a version-*N+1* session or calls it.
+  fields, `supersede_session()`, and now (2026-08-22, later still)
+  `mint_next_version()` -- the caller that actually mints a version-*N+1*
+  session and calls `supersede_session()` on the prior one once *N+1*
+  reaches `COMPLETED` -- are all implemented and tested.
 
 The first exit criterion now has a real, tested, explicitly-invoked path
 end to end (`ke-ai session-freshness --apply`), and its own consumable
@@ -842,14 +871,16 @@ read side (`AnswerFreshness`, implemented 2026-08-22, later still, with
 `ke-ai session-freshness` as its first caller); it is not yet **met**
 because nothing decides *when* that path runs on its own -- a durable
 caller (e.g. a future Web page, or a scheduled job) still has nothing to
-trigger it automatically. The second exit criterion remains **not
-started** in code terms: `run_research_question.py`/
-`orchestrator/close_gate.py` are unchanged, and no caller mints a
-version-*N+1* session or calls `supersede_session()`. The next small,
-coherent slice is the version-minting caller (mints a version-*N+1*
-session and calls `supersede_session()` on the prior version once *N+1*
-reaches `COMPLETED`) -- see "What this does not do" above's now-narrower
-remaining list. The policy question of *when* a freshness check should
-run automatically (a scheduled job, a person, a Web page load) remains
-open and is not decided by this document -- see "What this does not do"
-above.
+trigger it automatically. The second exit criterion's mechanism is now
+**implemented** (2026-08-22, later still): `run_research_question` accepts
+`answer_version`/`supersedes_session_id`, and `mint_next_version()` composes
+a version-*N+1* run with `supersede_session()` on success. It is not yet
+**met** in the same sense as the first criterion -- no caller invokes
+`mint_next_version()` for a real session yet, so no version transition has
+actually happened outside a test. The next small, coherent slice is a real
+caller for `mint_next_version()` (a CLI command, or wiring it into
+`ke-ai session-freshness`'s own `RerunRecommendation`), once a decision
+exists for *when* to invoke it. The policy question of *when* a freshness
+check or version transition should run automatically (a scheduled job, a
+person, a Web page load) remains open and is not decided by this document
+-- see "What this does not do" above.

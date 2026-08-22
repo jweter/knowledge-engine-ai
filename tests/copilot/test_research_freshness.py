@@ -1,23 +1,31 @@
 from __future__ import annotations
 
+import json
 import sqlite3
+import subprocess
+from collections.abc import Callable
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 
 from knowledge_engine_ai.copilot.research_freshness import (
     DEFAULT_MAX_AGE_SECONDS,
+    MissingResearchQuestionIdError,
     NarrativeTouchingFlip,
     PublicationStatusFlip,
     RerunRecommendation,
     ResearchFreshnessError,
+    SessionNotCompletedError,
     apply_narrative_touching_flips,
     assess_rerun_need,
     build_answer_freshness,
     crosswalk_publication_status_flips,
     diff_candidate_snapshots,
+    mint_next_version,
     session_retrieval_dois,
 )
+from knowledge_engine_ai.copilot.run_research_question import run_research_question
 from knowledge_engine_ai.ke_client import (
     FederatedCandidateObservation,
     FederatedCandidateRecord,
@@ -753,3 +761,238 @@ class TestBuildAnswerFreshness:
         )
 
         assert freshness.superseded_by_session_id is None
+
+
+# --- mint_next_version ---------------------------------------------------
+
+
+def _rrq_payload(*, evidence_records: list[dict[str, object]] | None = None) -> dict[str, object]:
+    return {
+        "schema_version": 1,
+        "question": "q",
+        "sources_path": "sources.csv",
+        "evidence_path": "evidence.jsonl",
+        "evidence_summary": {
+            "total": 1,
+            "draft": 0,
+            "reviewed": 1,
+            "needs_revision": 0,
+            "rejected": 0,
+            "unspecified": 0,
+            "readiness_note": "ready.",
+        },
+        "papers": [
+            {
+                "rank": 1,
+                "paper_id": 1,
+                "title": "T",
+                "authors": "A",
+                "year": "2026",
+                "journal": "J",
+                "doi": "10.1/x",
+                "source_url": "https://example.org",
+                "license_type": "CC BY",
+                "metadata_source": "sources.csv",
+                "retrieval_score": -1.0,
+                "retrieval_snippet": "s",
+                "why_matched": "m",
+                "citation": "c",
+                "evidence_records": (evidence_records if evidence_records is not None else []),
+            }
+        ],
+        "disclaimer": "This report is retrieval plus recorded evidence only.",
+    }
+
+
+_RRQ_GROUNDED_RECORD: dict[str, object] = {
+    "evidence_record_id": "ev-1",
+    "claim_text": "Semaglutide reduced body weight.",
+    "evidence_direction": "supports",
+}
+
+
+class _RRQFakeLLM:
+    def __init__(self, response: str = "Semaglutide reduced body weight [ev-1].") -> None:
+        self.response = response
+
+    def generate(
+        self, prompt: str, *, max_tokens: int = 400, timeout_seconds: float | None = None
+    ) -> str:
+        del prompt, max_tokens, timeout_seconds
+        return self.response
+
+
+class _RRQFakeCompletedProcess:
+    def __init__(self, returncode: int, stdout: str, stderr: str = "") -> None:
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
+
+
+def _rrq_fake_run(payload: dict[str, object]) -> Callable[..., _RRQFakeCompletedProcess]:
+    def _run(command: list[str], **kwargs: object) -> _RRQFakeCompletedProcess:
+        del kwargs
+        if command[1] == "evidence-report":
+            return _RRQFakeCompletedProcess(0, json.dumps(payload))
+        if command[1] == "evidence-intelligence":
+            return _RRQFakeCompletedProcess(1, "", "No graph claim found for this record.")
+        raise AssertionError(f"Unexpected command: {command}")
+
+    return _run
+
+
+def _mint_next_version_repository_with_completed_prior(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[SessionRepository, str, Path, Path]:
+    """A repository holding one COMPLETED, threaded session, plus its sources/evidence paths.
+
+    `run_research_question` is exercised for real (not hand-constructed) so
+    the prior session carries every field a genuine version-1 run would --
+    `research_question_id`, `answer_version=1` -- the same fixture style
+    `test_run_research_question.py` already uses for its own full-pipeline
+    tests.
+    """
+
+    monkeypatch.setattr(
+        subprocess, "run", _rrq_fake_run(_rrq_payload(evidence_records=[_RRQ_GROUNDED_RECORD]))
+    )
+    repository = SessionRepository(new_connection(":memory:"))
+    sources = tmp_path / "s.csv"
+    evidence = tmp_path / "e.jsonl"
+    prior_result = run_research_question(
+        "does semaglutide reduce body weight",
+        session_repository=repository,
+        sources=sources,
+        evidence=evidence,
+        llm=_RRQFakeLLM(),
+    )
+    prior_session = repository.get_session(prior_result.session_id)
+    assert prior_session is not None
+    assert prior_session.status is SessionStatus.COMPLETED
+    return repository, prior_result.session_id, sources, evidence
+
+
+class TestMintNextVersion:
+    def test_completed_new_version_supersedes_the_prior_session(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        repository, prior_session_id, sources, evidence = (
+            _mint_next_version_repository_with_completed_prior(tmp_path, monkeypatch)
+        )
+        prior_session = repository.get_session(prior_session_id)
+        assert prior_session is not None
+
+        result = mint_next_version(
+            repository,
+            prior_session_id,
+            sources=sources,
+            evidence=evidence,
+            llm=_RRQFakeLLM(),
+        )
+
+        assert result.new_result.close_result.status is SessionStatus.COMPLETED
+        assert result.superseded is True
+        assert result.supersede_event is not None
+        assert result.supersede_event.workflow_node == "answer_superseded"
+        assert result.supersede_event.session_id == prior_session_id
+
+        new_session = repository.get_session(result.new_result.session_id)
+        assert new_session is not None
+        assert new_session.answer_version == prior_session.answer_version + 1 == 2
+        assert new_session.supersedes_session_id == prior_session_id
+        assert new_session.research_question_id == prior_session.research_question_id
+
+        refetched_prior = repository.get_session(prior_session_id)
+        assert refetched_prior is not None
+        assert refetched_prior.status is SessionStatus.SUPERSEDED
+
+    def test_blocked_new_version_leaves_prior_completed_and_unsuperseded(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        repository, prior_session_id, sources, evidence = (
+            _mint_next_version_repository_with_completed_prior(tmp_path, monkeypatch)
+        )
+
+        # A hallucinated citation fails citation_integrity, blocking session close.
+        result = mint_next_version(
+            repository,
+            prior_session_id,
+            sources=sources,
+            evidence=evidence,
+            llm=_RRQFakeLLM(response="A fabricated claim [ev-does-not-exist]."),
+        )
+
+        assert result.new_result.close_result.status is SessionStatus.BLOCKED
+        assert result.superseded is False
+        assert result.supersede_event is None
+
+        prior_session = repository.get_session(prior_session_id)
+        assert prior_session is not None
+        assert prior_session.status is SessionStatus.COMPLETED
+
+    def test_raises_when_prior_session_is_not_completed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        del monkeypatch
+        repository = SessionRepository(new_connection(":memory:"))
+        repository.create_session(
+            ResearchSession(
+                schema_version=1,
+                session_id="session-running",
+                created_at="2026-08-09T00:00:00Z",
+                updated_at="2026-08-09T00:00:00Z",
+                user_question_original="does semaglutide reduce body weight",
+                status=SessionStatus.RUNNING,
+                research_question_id="rq-1",
+            )
+        )
+
+        with pytest.raises(SessionNotCompletedError):
+            mint_next_version(
+                repository,
+                "session-running",
+                sources=tmp_path / "s.csv",
+                evidence=tmp_path / "e.jsonl",
+                llm=_RRQFakeLLM(),
+            )
+
+    def test_raises_when_prior_session_has_no_research_question_id(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        del monkeypatch
+        repository = SessionRepository(new_connection(":memory:"))
+        repository.create_session(
+            ResearchSession(
+                schema_version=1,
+                session_id="session-untracked",
+                created_at="2026-08-09T00:00:00Z",
+                updated_at="2026-08-09T00:00:00Z",
+                user_question_original="does semaglutide reduce body weight",
+                status=SessionStatus.COMPLETED,
+                research_question_id=None,
+            )
+        )
+
+        with pytest.raises(MissingResearchQuestionIdError):
+            mint_next_version(
+                repository,
+                "session-untracked",
+                sources=tmp_path / "s.csv",
+                evidence=tmp_path / "e.jsonl",
+                llm=_RRQFakeLLM(),
+            )
+
+    def test_raises_when_prior_session_is_unknown(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        del monkeypatch
+        repository = SessionRepository(new_connection(":memory:"))
+
+        with pytest.raises(UnknownSessionError):
+            mint_next_version(
+                repository,
+                "does-not-exist",
+                sources=tmp_path / "s.csv",
+                evidence=tmp_path / "e.jsonl",
+                llm=_RRQFakeLLM(),
+            )

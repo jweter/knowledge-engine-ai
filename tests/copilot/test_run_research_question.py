@@ -436,6 +436,52 @@ def test_research_question_id_uses_caller_supplied_value_verbatim(
     assert session.research_question_id == "rq-caller-supplied"
 
 
+# --- answer_version/supersedes_session_id threading (answer/session-versioning) ---
+
+
+def test_answer_version_and_supersedes_session_id_default_to_first_version(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(subprocess, "run", _fake_run(_payload(evidence_records=[_GROUNDED_RECORD])))
+    repository = _repository()
+
+    result = run_research_question(
+        "does semaglutide reduce body weight",
+        session_repository=repository,
+        sources=tmp_path / "s.csv",
+        evidence=tmp_path / "e.jsonl",
+        llm=_FakeLLM(),
+    )
+
+    session = repository.get_session(result.session_id)
+    assert session is not None
+    assert session.answer_version == 1
+    assert session.supersedes_session_id is None
+
+
+def test_answer_version_and_supersedes_session_id_are_set_verbatim_when_supplied(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(subprocess, "run", _fake_run(_payload(evidence_records=[_GROUNDED_RECORD])))
+    repository = _repository()
+
+    result = run_research_question(
+        "does semaglutide reduce body weight",
+        session_repository=repository,
+        sources=tmp_path / "s.csv",
+        evidence=tmp_path / "e.jsonl",
+        llm=_FakeLLM(),
+        research_question_id="rq-caller-supplied",
+        answer_version=2,
+        supersedes_session_id="session-prior",
+    )
+
+    session = repository.get_session(result.session_id)
+    assert session is not None
+    assert session.answer_version == 2
+    assert session.supersedes_session_id == "session-prior"
+
+
 # --- AI-FRD-3/AI-FRD-4 wiring (discovery_policy) ------------------------------
 
 
