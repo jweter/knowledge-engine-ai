@@ -77,6 +77,37 @@ class ResearchSession:
     `docs/roadmap/answer_session_versioning_design.md`). `run_research_question`
     always sets it, to a caller-supplied or deterministically-derived value;
     `None` here only for a session created before this field existed.
+
+    `answer_version`, `supersedes_session_id`, and `narrative_invalidated_at`
+    are the remaining three additive fields
+    `docs/roadmap/answer_session_versioning_design.md`'s "What 'version'
+    means" section describes: a version is one whole `ResearchSession`, never
+    a second synthesis event folded into an existing one.
+
+    - `answer_version`: 1-based, monotonic within a `research_question_id`
+      thread. Defaults to `1` (the first version of any thread); a caller
+      minting version *N+1* sets it to the prior version's `answer_version + 1`
+      when constructing the new session.
+    - `supersedes_session_id`: the immediately-prior version's `session_id`,
+      if this session replaces one. `None` for a thread's first version.
+    - `narrative_invalidated_at`: set at most once, via
+      `SessionRepository.record_narrative_invalidation`, the moment an
+      **invalidating** (`retracted`/`withdrawn`) publication-status flip is
+      found to touch this session's own cited narrative -- see
+      "Releaseability reacts to an invalidating flip immediately" in the
+      design doc. `None` means either nothing invalidating has been detected,
+      or (for a session predating this field) the check was never run.
+      Deliberately independent of `status`: a session can be
+      `narrative_invalidated_at`-set while `status` stays `COMPLETED`, per
+      the design doc's two-field releaseability check.
+
+    None of these three fields are written by any code path yet --
+    `SessionRepository.record_narrative_invalidation`/`.supersede_session`
+    exist and are tested, but nothing calls them: the crosswalk that would
+    decide *when* to call them (DOI-matching a flagged federated-discovery
+    candidate against this session's own cited evidence records) and the
+    policy for *when* a freshness check itself runs remain future work, per
+    the design doc's own "What this does not do" section.
     """
 
     schema_version: int
@@ -92,6 +123,9 @@ class ResearchSession:
     evidence_cutoff_time: str | None = None
     final_status: str | None = None
     research_question_id: str | None = None
+    answer_version: int = 1
+    supersedes_session_id: str | None = None
+    narrative_invalidated_at: str | None = None
 
 
 @dataclass(frozen=True)

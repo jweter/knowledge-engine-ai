@@ -2,6 +2,31 @@
 
 Status: adopted AI-layer guidance, 2026-08-15.
 
+**2026-08-22 (later still): the answer/session-versioning repository
+mechanics are implemented -- the second concrete slice of
+`answer_session_versioning_design.md`.** `ResearchSession` gained the three
+remaining additive fields the design names (`answer_version`,
+`supersedes_session_id`, `narrative_invalidated_at`, with a guarded
+`ALTER TABLE` migration for pre-existing databases), and `SessionRepository`
+gained `record_narrative_invalidation()` (appends a `narrative_invalidated`
+event and sets the field, guarded to fire at most once per session) and
+`supersede_session()` (appends an `answer_superseded` event and flips status
+to `SUPERSEDED`, guarded to require the session was `COMPLETED`). 13 new
+tests (371 total pass); full local quality gate (ruff format/check, mypy,
+pytest, pip-audit, git diff --check) clean via `scripts/preflight.py`. This
+is deliberately the "mechanics" half only, matching the design doc's own
+staged-delivery pattern: nothing calls either new method yet. The DOI
+crosswalk (which candidate flip actually touches a session's own cited
+narrative), the invalidates-versus-qualifies trigger wiring, the
+`AnswerFreshness` read-side projection, and a caller that mints a
+version-*N+1* session remain unimplemented -- see the design doc's updated
+"What this does not do" section for the exact remaining scope. Web is
+unaffected: `knowledge-engine-web` pins a specific `knowledge-engine-ai` git
+commit in its `pyproject.toml` and only constructs
+`SessionRepository`/`ResearchSession` through the existing, unchanged
+constructor and `run_research_question` call shape, so this change is inert
+for Web until a future session both bumps that pin and adds a caller.
+
 **2026-08-22 (later same day): `research_question_id` threading implemented
 -- the first concrete wiring slice of `answer_session_versioning_design.md`.**
 `run_research_question` now accepts an optional `research_question_id` and
