@@ -58,6 +58,25 @@ def test_get_session_returns_none_for_unknown_id(repository: SessionRepository) 
     assert repository.get_session("does-not-exist") is None
 
 
+def test_research_question_id_round_trips(repository: SessionRepository) -> None:
+    session = _session(research_question_id="rq-abc123")
+    repository.create_session(session)
+
+    fetched = repository.get_session("session-1")
+
+    assert fetched is not None
+    assert fetched.research_question_id == "rq-abc123"
+
+
+def test_research_question_id_defaults_to_none(repository: SessionRepository) -> None:
+    repository.create_session(_session())
+
+    fetched = repository.get_session("session-1")
+
+    assert fetched is not None
+    assert fetched.research_question_id is None
+
+
 def test_create_session_twice_raises_duplicate_session_error(
     repository: SessionRepository,
 ) -> None:

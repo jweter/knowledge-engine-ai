@@ -1,6 +1,8 @@
 # Answer / Session Versioning Design
 
-Status: proposed design, not yet implemented, 2026-08-22.
+Status: proposed design, 2026-08-22; `research_question_id` threading (one
+sub-section below) implemented the same day. The versioning/supersession
+mechanics this document otherwise describes remain not yet implemented.
 
 This document scopes the answer/session-versioning concept that
 `docs/project-status.yaml`'s `next_continuation` names as a prerequisite for
@@ -87,6 +89,22 @@ session/version chain (what a caller asking "is this answer still fresh"
 reads) -- one shared identity, not two identities that could drift.
 
 ### Where `research_question_id` actually comes from, and how it reaches `federated_discover`
+
+**Implemented 2026-08-22.** `run_research_question` now accepts an
+optional `research_question_id: str | None = None` keyword parameter,
+always sets it on the `ResearchSession` it creates (a caller-supplied
+value used verbatim, or -- when omitted -- one derived deterministically
+via `_derive_research_question_id()`, exactly the
+`f"rq-{hashlib.sha256(...).hexdigest()[:16]}"` shape this section
+specifies), and threads it through `evaluate_and_run_discovery_augmentation`
+-> `_run_federated_discovery` -> `execute_discovery_plan` -> the
+already-existing `ke_client.federated_discover(research_question_id=...)`
+call, only when `discovery_policy` is also supplied. Not threaded into
+citation-snowball, per this section's own point 5. This closes the
+concrete plumbing gap this section describes; the rest of this
+document -- the crosswalk, invalidates/qualifies trigger, `answer_version`/
+`supersedes_session_id`/`narrative_invalidated_at` fields, and
+`SessionStatus.SUPERSEDED`'s first real use -- remains unimplemented.
 
 Setting `ResearchSession.research_question_id` is necessary but not
 sufficient: Core's `federated_discover_history()`/`federated_coverage_report()`
@@ -597,16 +615,17 @@ Three honestly-distinguished states, never collapsed into one:
 
 ## What this does not do
 
-- **No change to `run_research_question.py`, `sessions/models.py`,
-  `sessions/repository.py`, `orchestrator/close_gate.py`,
-  `copilot/discovery_policy.py`, `discovery_plan.py`, or
-  `copilot/research_freshness.py`.** This is a design document only; every
-  field, parameter, method, and event shape above -- including the new
-  `research_question_id` keyword-only parameters threaded through
-  `run_research_question`/`evaluate_and_run_discovery_augmentation`/
-  `_run_federated_discovery`/`execute_discovery_plan`, and the new
-  `narrative_invalidated_at` field/event -- is proposed, not implemented,
-  not tested, and not live-verified.
+- **`research_question_id` threading is now implemented (2026-08-22) --
+  see "Where `research_question_id` actually comes from" above.**
+  Everything else in this document remains a proposal only: no change to
+  `sessions/repository.py`'s `attach_research_isa`/close-gate interaction,
+  `orchestrator/close_gate.py`, or `copilot/research_freshness.py`'s own
+  trigger logic. `answer_version`, `supersedes_session_id`, and
+  `narrative_invalidated_at` (the three remaining additive `ResearchSession`
+  fields), the `answer_superseded`/`narrative_invalidated` `ResearchEvent`s,
+  the DOI crosswalk, the invalidates-versus-qualifies trigger, and
+  `SessionStatus.SUPERSEDED`'s first real use are all proposed, not
+  implemented, not tested, and not live-verified.
 - **No SQLite schema migration.** `research_question_id`/`answer_version`/
   `supersedes_session_id`/`narrative_invalidated_at` are described as
   additive columns following the existing `duration_ms`/`source_ids`

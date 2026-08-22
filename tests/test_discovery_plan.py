@@ -111,6 +111,7 @@ def test_execute_discovery_plan_forwards_fields_and_builds_an_explicit_budget(
         providers: tuple[str, ...] | None,
         openalex_api_key: str | None,
         semantic_scholar_api_key: str | None,
+        research_question_id: str | None = None,
         ke_executable: str,
         execution_budget: ExecutionBudget | None,
     ) -> FederatedDiscoveryResult:
@@ -118,6 +119,7 @@ def test_execute_discovery_plan_forwards_fields_and_builds_an_explicit_budget(
         captured["ledger_root"] = ledger_root
         captured["limit"] = limit
         captured["providers"] = providers
+        captured["research_question_id"] = research_question_id
         captured["ke_executable"] = ke_executable
         captured["execution_budget"] = execution_budget
         return FederatedDiscoveryResult(
@@ -151,8 +153,50 @@ def test_execute_discovery_plan_forwards_fields_and_builds_an_explicit_budget(
     assert captured["ledger_root"] == ledger_root
     assert captured["limit"] == 15
     assert captured["providers"] == ("pubmed", "openalex")
+    assert captured["research_question_id"] is None
     assert captured["ke_executable"] == "ke"
     budget = captured["execution_budget"]
     assert isinstance(budget, ExecutionBudget)
     # The budget was built from the plan's own bound, not left unbounded.
     assert budget.remaining_seconds() <= 30.0
+
+
+def test_execute_discovery_plan_forwards_research_question_id(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_federated_discover(
+        query: str,
+        *,
+        ledger_root: Path,
+        limit: int,
+        providers: tuple[str, ...] | None,
+        openalex_api_key: str | None,
+        semantic_scholar_api_key: str | None,
+        research_question_id: str | None = None,
+        ke_executable: str,
+        execution_budget: ExecutionBudget | None,
+    ) -> FederatedDiscoveryResult:
+        captured["research_question_id"] = research_question_id
+        return FederatedDiscoveryResult(
+            search_run_id="run-xyz",
+            query_text=query,
+            completeness="complete",
+            provider_statuses=(),
+            candidates=(),
+            provider_disagreements=None,
+            search_run_created_at=None,
+        )
+
+    monkeypatch.setattr(discovery_plan, "federated_discover", fake_federated_discover)
+
+    plan = compile_discovery_plan("semaglutide weight loss")
+
+    execute_discovery_plan(
+        plan,
+        ledger_root=tmp_path / "ledger",
+        research_question_id="rq-abc123",
+    )
+
+    assert captured["research_question_id"] == "rq-abc123"

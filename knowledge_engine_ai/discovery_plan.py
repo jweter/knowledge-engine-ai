@@ -151,6 +151,7 @@ def execute_discovery_plan(
     ledger_root: Path,
     openalex_api_key: str | None = None,
     semantic_scholar_api_key: str | None = None,
+    research_question_id: str | None = None,
     ke_executable: str = "ke",
 ) -> FederatedDiscoveryResult:
     """Run a compiled plan through Core's `ke federated-discover` and return its result.
@@ -162,6 +163,14 @@ def execute_discovery_plan(
     `FederatedDiscoveryResult.search_run_id` is Core's own persisted ledger
     ID: Core's `FederatedSearchLedger`, not this function, is the durable,
     replayable record of what actually ran.
+
+    `research_question_id` is call-time run-identity context, not a plan
+    parameter -- deliberately not on `DiscoveryPlan` itself (the same
+    category as `ledger_root` and the provider API keys, per
+    `docs/roadmap/answer_session_versioning_design.md`). Forwarded verbatim
+    to `federated_discover`/Core's `--research-question-id` flag so a later
+    caller can find this run via `federated_discover_history`; omitting it
+    preserves every existing caller's behavior exactly.
     """
 
     return federated_discover(
@@ -171,6 +180,7 @@ def execute_discovery_plan(
         providers=plan.providers,
         openalex_api_key=openalex_api_key,
         semantic_scholar_api_key=semantic_scholar_api_key,
+        research_question_id=research_question_id,
         ke_executable=ke_executable,
         execution_budget=ExecutionBudget.from_timeout(plan.max_execution_seconds),
     )

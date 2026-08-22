@@ -70,6 +70,13 @@ class ResearchSession:
     generates one implicitly, matching the design doc's "Chat
     transcript alone is never execution state" rule: some durable
     identifier the caller controls is required to resume at all.
+
+    `research_question_id` is the thread identity across answer versions of
+    the same tracked question -- the same string `ke_client.federated_discover()`/
+    `federated_discover_history()` already accept and key on (see
+    `docs/roadmap/answer_session_versioning_design.md`). `run_research_question`
+    always sets it, to a caller-supplied or deterministically-derived value;
+    `None` here only for a session created before this field existed.
     """
 
     schema_version: int
@@ -84,6 +91,7 @@ class ResearchSession:
     corpus_snapshot_id: str | None = None
     evidence_cutoff_time: str | None = None
     final_status: str | None = None
+    research_question_id: str | None = None
 
 
 @dataclass(frozen=True)

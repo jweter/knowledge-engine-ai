@@ -370,6 +370,72 @@ def test_session_id_is_generated_and_events_are_durable(
     assert result.discovery is None  # no discovery_policy supplied -- unchanged default path
 
 
+# --- research_question_id threading (answer/session-versioning design) ------
+
+
+def test_research_question_id_is_derived_deterministically_when_omitted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(subprocess, "run", _fake_run(_payload(evidence_records=[_GROUNDED_RECORD])))
+    repository = _repository()
+
+    first = run_research_question(
+        "Does semaglutide reduce body weight?",
+        session_repository=repository,
+        sources=tmp_path / "s.csv",
+        evidence=tmp_path / "e.jsonl",
+        llm=_FakeLLM(),
+    )
+    # Different casing/whitespace, same normalized question -- same thread.
+    second = run_research_question(
+        "  does semaglutide reduce body weight?  ",
+        session_repository=repository,
+        sources=tmp_path / "s.csv",
+        evidence=tmp_path / "e.jsonl",
+        llm=_FakeLLM(),
+    )
+    # A genuinely different question derives a different thread identity.
+    third = run_research_question(
+        "does metformin reduce hba1c",
+        session_repository=repository,
+        sources=tmp_path / "s.csv",
+        evidence=tmp_path / "e.jsonl",
+        llm=_FakeLLM(),
+    )
+
+    first_session = repository.get_session(first.session_id)
+    second_session = repository.get_session(second.session_id)
+    third_session = repository.get_session(third.session_id)
+    assert first_session is not None
+    assert second_session is not None
+    assert third_session is not None
+
+    assert first_session.research_question_id is not None
+    assert first_session.research_question_id.startswith("rq-")
+    assert first_session.research_question_id == second_session.research_question_id
+    assert first_session.research_question_id != third_session.research_question_id
+
+
+def test_research_question_id_uses_caller_supplied_value_verbatim(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(subprocess, "run", _fake_run(_payload(evidence_records=[_GROUNDED_RECORD])))
+    repository = _repository()
+
+    result = run_research_question(
+        "does semaglutide reduce body weight",
+        session_repository=repository,
+        sources=tmp_path / "s.csv",
+        evidence=tmp_path / "e.jsonl",
+        llm=_FakeLLM(),
+        research_question_id="rq-caller-supplied",
+    )
+
+    session = repository.get_session(result.session_id)
+    assert session is not None
+    assert session.research_question_id == "rq-caller-supplied"
+
+
 # --- AI-FRD-3/AI-FRD-4 wiring (discovery_policy) ------------------------------
 
 
@@ -476,6 +542,43 @@ def test_discovery_policy_triggers_on_thin_coverage_and_is_recorded_before_synth
     for event in discovery_events:
         assert event.source_ids == ()
     assert result.trace.evidence_record_ids == ("ev-1",)
+
+
+def test_discovery_step_receives_the_session_research_question_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: dict[str, object] = {}
+
+    def _capturing_execute_discovery_plan(
+        plan: object, **kwargs: object
+    ) -> FederatedDiscoveryResult:
+        captured.update(kwargs)
+        return _federated_discovery_stub(plan, **kwargs)
+
+    monkeypatch.setattr(
+        discovery_policy, "execute_discovery_plan", _capturing_execute_discovery_plan
+    )
+    monkeypatch.setattr(discovery_policy, "citation_snowball", _citation_snowball_stub)
+    monkeypatch.setattr(subprocess, "run", _fake_run(_payload(evidence_records=[_GROUNDED_RECORD])))
+    repository = _repository()
+    policy = FederatedDiscoveryPolicy(
+        ledger_root=tmp_path / "ledger", min_evidence_record_coverage=5
+    )
+
+    result = run_research_question(
+        "does semaglutide reduce body weight",
+        session_repository=repository,
+        sources=tmp_path / "s.csv",
+        evidence=tmp_path / "e.jsonl",
+        llm=_FakeLLM(),
+        discovery_policy=policy,
+        research_question_id="rq-caller-supplied",
+    )
+
+    session = repository.get_session(result.session_id)
+    assert session is not None
+    assert session.research_question_id == "rq-caller-supplied"
+    assert captured["research_question_id"] == "rq-caller-supplied"
 
 
 def test_discovery_policy_does_not_trigger_when_coverage_already_sufficient(

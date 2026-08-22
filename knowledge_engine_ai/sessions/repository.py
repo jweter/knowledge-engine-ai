@@ -42,7 +42,8 @@ CREATE TABLE IF NOT EXISTS research_sessions (
     research_plan_id TEXT,
     corpus_snapshot_id TEXT,
     evidence_cutoff_time TEXT,
-    final_status TEXT
+    final_status TEXT,
+    research_question_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS research_events (
@@ -134,8 +135,8 @@ class SessionRepository:
                     session_id, schema_version, created_at, updated_at,
                     user_question_original, status, normalized_question,
                     domain_hints, research_plan_id, corpus_snapshot_id,
-                    evidence_cutoff_time, final_status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    evidence_cutoff_time, final_status, research_question_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     session.session_id,
@@ -150,6 +151,7 @@ class SessionRepository:
                     session.corpus_snapshot_id,
                     session.evidence_cutoff_time,
                     session.final_status,
+                    session.research_question_id,
                 ),
             )
         except sqlite3.IntegrityError as exc:
@@ -378,6 +380,7 @@ def _session_from_row(row: sqlite3.Row) -> ResearchSession:
         corpus_snapshot_id=row["corpus_snapshot_id"],
         evidence_cutoff_time=row["evidence_cutoff_time"],
         final_status=row["final_status"],
+        research_question_id=row["research_question_id"],
     )
 
 
