@@ -139,6 +139,19 @@ class ResearchEvent:
     BLOCK 10 (non-deterministic research continuation) requirement that
     "chat transcript alone is never execution state" and retries have
     explicit lineage, not implicit chat-order.
+
+    `source_dois` is additive (AI-FRD-5's DOI-crosswalk slice,
+    `docs/roadmap/answer_session_versioning_design.md`'s "the crosswalk"
+    section): for a retrieval-step event, `source_dois[i]` is the DOI of
+    the `RetrievedPaper` that `source_ids[i]`'s evidence record came from
+    (empty string when that paper carries no DOI), in the same order as
+    `source_ids` -- not a separate identity, a same-length parallel to it.
+    Only the two retrieval-step events populate it; every other event's
+    `source_ids` is already empty, so this stays empty there too. Empty for
+    any event persisted before this field existed (old rows parse
+    unchanged, matching the `duration_ms`/`research_question_id`
+    precedent), which a reader must treat as "DOI unknown," never as "this
+    paper genuinely has no DOI."
     """
 
     event_id: str
@@ -156,6 +169,7 @@ class ResearchEvent:
     tool_name: str | None = None
     tool_version: str | None = None
     source_ids: tuple[str, ...] = field(default_factory=tuple)
+    source_dois: tuple[str, ...] = field(default_factory=tuple)
     parent_event_ids: tuple[str, ...] = field(default_factory=tuple)
     retry_of: str | None = None
     notes: str | None = None

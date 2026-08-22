@@ -2,6 +2,44 @@
 
 Status: adopted AI-layer guidance, 2026-08-15.
 
+**2026-08-22 (later still than that): the DOI crosswalk detection layer is
+implemented -- the third concrete slice of `answer_session_versioning_design.md`,
+and the first item of the "next continuation" the repository-mechanics slice
+below left open.** `copilot/research_freshness.py` gains
+`session_retrieval_dois()` and `crosswalk_publication_status_flips()`,
+implementing the design doc's "the crosswalk" section exactly: for each
+`PublicationStatusFlip` a caller already has (from `diff_candidate_snapshots`),
+look up its candidate's DOI in the same `current` snapshot, match it against
+the session's own retrieval-step DOIs, and keep only the matches where at
+least one evidence record sharing that DOI was actually cited in the
+session's persisted narrative (`verification.CITATION_PATTERN`, reused a
+third time, not reimplemented). Both functions are pure and take
+already-fetched data -- no `SessionRepository`/`ke` call inside either one,
+matching `assess_rerun_need`/`diff_candidate_snapshots`'s own "caller owns
+the I/O" shape. This slice also makes the design doc's open sub-decision
+("re-run `ke evidence-report` at check time, or add an additive `doi` field
+alongside the retrieval event's existing `source_ids`"): **additive field,
+not a re-run.** `ResearchEvent` gains `source_dois` (parallel to
+`source_ids`, same order, same additive-field/no-schema-bump pattern as
+`duration_ms`), populated by both retrieval-step events in
+`orchestrator/workflow.py`. Re-running `evidence-report` at check time was
+rejected: retrieval against a corpus that has since changed is not
+guaranteed to reproduce the *original* session's citations -- exactly the
+kind of drift a crosswalk trying to answer "what did *this* session cite"
+must not introduce, and it would add a live subprocess call to what should
+stay a cheap, deterministic freshness check. The additive field costs one
+`ALTER TABLE` column and no new `ke` call. 14 new tests (385 total pass);
+full local quality gate (ruff format/check, mypy, pytest, pip-audit, git
+diff --check) clean via `scripts/preflight.py`. Still not implemented: the
+invalidates-versus-qualifies trigger that actually calls
+`record_narrative_invalidation()`/records a qualifying pending flip for a
+`NarrativeTouchingFlip` this slice can now detect, the `AnswerFreshness`
+read-side projection, and a caller that mints a version-*N+1* session -- see
+the design doc's updated "What this does not do" section. Web is
+unaffected, same reasoning as the entry below: `knowledge-engine-web` pins
+a specific `knowledge-engine-ai` commit and this change adds no signature
+change to any function Web's pin already calls.
+
 **2026-08-22 (later still): the answer/session-versioning repository
 mechanics are implemented -- the second concrete slice of
 `answer_session_versioning_design.md`.** `ResearchSession` gained the three
@@ -663,6 +701,19 @@ versioning/supersession behavior. `answer_version`, `supersedes_session_id`,
 trigger, and `SessionStatus.SUPERSEDED`'s first real use all remain
 unimplemented -- the next continuation below.
 
+**2026-08-22 (later still than that): the repository-layer mechanics
+(`answer_version`/`supersedes_session_id`/`narrative_invalidated_at`,
+`record_narrative_invalidation()`/`supersede_session()`) and the DOI
+crosswalk detection layer (`session_retrieval_dois()`/
+`crosswalk_publication_status_flips()`) are both now implemented -- see the
+two dated entries at the top of this document for the full account of
+each. Detection now exists (a `NarrativeTouchingFlip` can be computed from
+a real `diff_candidate_snapshots()` output plus a real session's own
+retrieval events and persisted narrative) but nothing yet calls
+`record_narrative_invalidation()`/records a qualifying pending flip in
+response to one -- that trigger wiring is the remaining piece of the first
+"not started" exit criterion below.**
+
 Exit criteria:
 
 - new evidence is distinguished from previously seen evidence; **met** --
@@ -670,15 +721,21 @@ Exit criteria:
 - corrections/retractions can invalidate or qualify prior synthesis; **not
   started** -- requires wiring this reasoning into a Research Session, which
   this slice deliberately does not do; the wiring's design is now scoped in
-  `answer_session_versioning_design.md` (this directory), and that design's
-  own `research_question_id`-threading prerequisite is now implemented
-  (2026-08-22 entry above) -- the crosswalk/invalidates-qualifies/
-  `SUPERSEDED` mechanics it depends on remain the open part
+  `answer_session_versioning_design.md` (this directory). Both prerequisites
+  this needed are now implemented: `research_question_id` threading
+  (2026-08-22 entry above), the repository-layer mechanics, and the DOI
+  crosswalk detection layer (both 2026-08-22, later still). What remains is
+  only the trigger itself -- deciding, for a real session, when to call
+  `crosswalk_publication_status_flips()` and then act on a
+  `NarrativeTouchingFlip` by calling `record_narrative_invalidation()`
+  (invalidates) or recording a qualifying pending flip (qualifies)
 - prior answer text is never silently overwritten as if it had always been the
   updated answer. **not started** -- `answer_session_versioning_design.md`
   scopes the versioning concept this reasoning needs to attach to; the
   `answer_version`/`supersedes_session_id`/`narrative_invalidated_at` fields
-  and events it describes are not yet implemented
+  and events are implemented (2026-08-22, later still) and tested in
+  isolation, but no caller yet mints a version-*N+1* session or calls
+  `supersede_session()` on a prior one
 
 ## Improvements beyond the external reference
 

@@ -15,6 +15,35 @@ or qualifying flip actually touches a session's own cited narrative, and the
 policy for when a freshness check runs at all, remain not yet implemented --
 see "What this does not do" below, updated to match.
 
+**2026-08-22 (later still): the DOI crosswalk itself is now implemented --
+"the crosswalk" section below is built exactly as scoped, and this section's
+own open sub-decision is resolved.** `copilot/research_freshness.py` gained
+`session_retrieval_dois()` (builds an `evidence_record_id -> doi` mapping
+from a session's own retrieval-step events) and
+`crosswalk_publication_status_flips()` (the three-step join "the crosswalk"
+section describes, returning a `NarrativeTouchingFlip` for each flip that
+actually touches the session's persisted, cited narrative). The open
+sub-decision that section named -- re-run `ke evidence-report` at check time,
+or add an additive `doi` field alongside the retrieval event's existing
+`source_ids` -- is resolved as the additive field:
+`ResearchEvent.source_dois` (parallel to `source_ids`, same order, same
+additive/no-schema-bump precedent as `duration_ms`), populated by both
+retrieval-step events in `orchestrator/workflow.py`. Re-running was rejected
+because it cannot answer the question this crosswalk actually needs
+answered -- "what did *this* session's own retrieval step see," not "what
+would retrieval see today" -- and a corpus that has changed since the
+session ran (which is exactly the scenario a freshness check exists to
+detect) can silently return different papers on a re-run, which would make
+the crosswalk's own citation-matching unreliable. 14 new tests (385 total
+pass); full local quality gate clean via `scripts/preflight.py`. Both new
+functions are pure -- no `SessionRepository`/`ke` call inside either one --
+matching `assess_rerun_need`/`diff_candidate_snapshots`'s own shape. Still
+not implemented: the invalidates-versus-qualifies trigger that acts on a
+`NarrativeTouchingFlip` (calls `record_narrative_invalidation()` or records
+a qualifying pending flip), the `AnswerFreshness` read-side projection, and
+a caller that mints a version-*N+1* session -- see "What this does not do"
+below, updated to match.
+
 This document scopes the answer/session-versioning concept that
 `docs/project-status.yaml`'s `next_continuation` names as a prerequisite for
 AI-FRD-5's remaining work: wiring `copilot/research_freshness.py`'s
@@ -400,18 +429,24 @@ For each `PublicationStatusFlip` in `diff.newly_flagged`:
    retracted/corrected work was a discovery lead `S` never promoted to a
    cited claim (matching this project's existing "discovery leads, not
    evidence" rule), and the flip stays a freshness signal only.
-3. `S`'s own retrieval-step `RetrievedPaper` list is not currently
-   persisted as a durable, replayable field on any `ResearchEvent` (AI-O9's
-   retrieval events carry `source_ids` -- evidence-record IDs -- but not
-   each record's `doi`). Reconstructing it today means re-running
-   `ke evidence-report` against `S`'s own `corpus_snapshot_id` (already a
-   `ResearchSession` field) rather than reading a persisted value. This is
-   a real, named gap this design does not silently paper over: the
-   wiring PR should either accept the re-run cost (bounded, read-only,
-   `ConsequenceLevel.READ_ONLY` per AI-O1's own table) or add a small
-   additive `doi` field alongside the retrieval step's existing
-   `source_ids`. Either is a small, separate implementation decision left
-   to that PR -- not decided here.
+3. **Resolved 2026-08-22.** `S`'s own retrieval-step `RetrievedPaper` list
+   was not persisted as a durable, replayable field on any `ResearchEvent`
+   (AI-O9's retrieval events carried `source_ids` -- evidence-record IDs --
+   but not each record's `doi`). This is now closed with the additive
+   field, not a re-run: `ResearchEvent.source_dois` (`sessions/models.py`)
+   is a same-length, same-order parallel to `source_ids`, populated by
+   both retrieval-step events in `orchestrator/workflow.py`
+   (`_evidence_record_dois()`). `copilot/research_freshness.py`'s
+   `session_retrieval_dois()` turns a session's own event log into the
+   `evidence_record_id -> doi` mapping this crosswalk needs, and
+   `crosswalk_publication_status_flips()` is the crosswalk itself, steps
+   1-2 above. Re-running `ke evidence-report` against `S`'s
+   `corpus_snapshot_id` was rejected: it answers "what would retrieval see
+   *today*," not "what did *this* session's retrieval step actually see" --
+   and a corpus that changed since `S` ran (the very scenario a freshness
+   check exists to catch) can make a re-run return different papers,
+   undermining the citation match this crosswalk depends on. The additive
+   field costs one guarded `ALTER TABLE` column and no new `ke` call.
 
 ### Invalidates versus qualifies
 
@@ -644,22 +679,31 @@ Three honestly-distinguished states, never collapsed into one:
   research question (there is no live external call in this slice -- it is
   pure SQLite persistence logic, the same category as `attach_research_isa`
   itself).
-- **Still not implemented: everything that decides *when* to call the two
-  operations above.** No change to `run_research_question.py`,
-  `orchestrator/close_gate.py`, or `copilot/research_freshness.py`'s own
-  trigger logic. The DOI crosswalk (matching a flagged federated-discovery
-  candidate to a session's own cited `evidence_record_id`s), the
-  invalidates-versus-qualifies split's actual trigger wiring, the
-  `AnswerFreshness` read-side projection, and any caller that mints a
-  version-*N+1* session (setting `answer_version`/`supersedes_session_id`
-  at `create_session` time and then calling `supersede_session()` on the
-  prior version once *N+1* reaches `COMPLETED`) remain proposed only, not
-  implemented.
+- **The DOI crosswalk is implemented (2026-08-22, later still) -- see the
+  status header above and "the crosswalk" section's own updated point 3.**
+  `copilot/research_freshness.py`'s `session_retrieval_dois()`/
+  `crosswalk_publication_status_flips()` can now compute, from a real
+  `diff_candidate_snapshots()` output plus a real session's own retrieval
+  events and persisted narrative, exactly which flips touch that session's
+  cited claims (`NarrativeTouchingFlip`). **Still not implemented:
+  everything that decides *when* to call the two repository operations
+  above in response to one.** No change to `run_research_question.py` or
+  `orchestrator/close_gate.py`. The invalidates-versus-qualifies split's
+  actual trigger wiring (reading `NarrativeTouchingFlip.flip.flag` and
+  calling `record_narrative_invalidation()` for `retracted`/`withdrawn`, or
+  recording a qualifying pending flip for `corrected`/
+  `expression_of_concern`, without calling it), the `AnswerFreshness`
+  read-side projection, and any caller that mints a version-*N+1* session
+  (setting `answer_version`/`supersedes_session_id` at `create_session` time
+  and then calling `supersede_session()` on the prior version once *N+1*
+  reaches `COMPLETED`) remain proposed only, not implemented.
 - **No SQLite schema migration for `research_question_id`/`answer_version`/
-  `supersedes_session_id`/`narrative_invalidated_at` was needed beyond the
-  guarded `ALTER TABLE` additions already shipped** (`_migrate_schema`) --
-  additive columns following the existing `duration_ms`/`source_ids`
-  precedent, with no `schema_version` bump.
+  `supersedes_session_id`/`narrative_invalidated_at`/`source_dois` was
+  needed beyond the guarded `ALTER TABLE` additions already shipped**
+  (`_migrate_schema`, one entry per column, `research_events.source_dois`
+  included as of 2026-08-22, later still) -- additive columns following the
+  existing `duration_ms`/`source_ids` precedent, with no `schema_version`
+  bump.
 - **No decision on who/what triggers a freshness check** (a scheduled job,
   a person, a Web page load) or how often -- that is
   `discovery_policy.py`-shaped follow-up policy work, deliberately left
@@ -673,9 +717,9 @@ Three honestly-distinguished states, never collapsed into one:
 - **No Web-facing API or UI for `AnswerFreshness`.** That sketch exists to
   make this design's "what a caller sees" answer concrete, not as a
   committed contract for `knowledge-engine-web` to implement against yet.
-- **Does not resolve the `RetrievedPaper.doi` persistence gap** named
-  above under "the crosswalk" -- named as an open implementation choice for
-  the eventual wiring PR, not decided here.
+- **The `RetrievedPaper.doi` persistence gap named above under "the
+  crosswalk" is resolved (2026-08-22, later still): `ResearchEvent.source_dois`,
+  the additive field, not a re-run.** See that section's own updated point 3.
 
 ## Relationship to AI-FRD-5's exit criteria
 
@@ -685,13 +729,25 @@ criteria (`federated_discovery_orchestration_adoption.md`'s AI-FRD-5
 section):
 
 - *"corrections/retractions can invalidate or qualify prior synthesis"* --
-  this design's crosswalk and invalidates/qualifies split is the concrete
-  mechanism a future implementation PR would build.
+  this design's crosswalk (implemented 2026-08-22, later still --
+  `crosswalk_publication_status_flips()`) and the repository-layer
+  invalidates/qualifies mechanics (`record_narrative_invalidation()`,
+  implemented earlier the same day) are both now built and tested in
+  isolation. The remaining piece is the trigger that connects them for a
+  real session: reading a detected `NarrativeTouchingFlip.flip.flag` and
+  calling one or the other.
 - *"prior answer text is never silently overwritten as if it had always
   been the updated answer"* -- this design's whole-session versioning,
   append-only retention, and `SUPERSEDED` transition (only after a real
-  replacement reaches `COMPLETED`) is the concrete mechanism for that.
+  replacement reaches `COMPLETED`) is the concrete mechanism for that; the
+  fields and `supersede_session()` are implemented, but no caller yet mints
+  a version-*N+1* session or calls it.
 
-Both exit criteria remain **not started** in code terms until a follow-up
-PR implements the fields, the crosswalk, and the trigger wiring this
-document describes.
+Both exit criteria remain **not started** in code terms -- every mechanism
+either depends on now exists and is tested standalone, but nothing in
+`run_research_question.py`/`orchestrator/close_gate.py` calls any of it yet.
+A follow-up PR implementing only the invalidates-versus-qualifies trigger
+(reading a `NarrativeTouchingFlip` and calling `record_narrative_invalidation()`
+or recording a qualifying pending flip) is the next small, coherent slice --
+not the `AnswerFreshness` projection or the version-minting caller, which
+depend on the trigger existing first.
