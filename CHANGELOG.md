@@ -9,6 +9,27 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`docs/roadmap/answer_session_versioning_design.md`: scopes the
+  answer/session-versioning concept AI-FRD-5's remaining wiring needs.**
+  Docs-only -- no change to `run_research_question.py`, `sessions/models.py`,
+  `sessions/repository.py`, `orchestrator/close_gate.py`, or
+  `copilot/research_freshness.py`. Defines: a version as one whole
+  `ResearchSession` (never a second synthesis event folded into an existing
+  session), chained by three new additive `ResearchSession` fields
+  (`research_question_id`, `answer_version`, `supersedes_session_id`); how
+  `assess_rerun_need()`/`diff_candidate_snapshots()` map onto a version
+  transition via a DOI crosswalk from a flagged federated-discovery
+  candidate to the `evidence_record_id`s a prior narrative actually cited;
+  an invalidates (`retracted`/`withdrawn`) versus qualifies (`corrected`/
+  `expression_of_concern`) split; and why `SessionStatus.SUPERSEDED`
+  (already defined in the enum, unused anywhere in code before this
+  design) is the right terminal state for a superseded version, set only
+  once its replacement itself reaches `COMPLETED`. See
+  `docs/roadmap/federated_discovery_orchestration_adoption.md`'s matching
+  2026-08-22 entry. AI-FRD-5's own remaining two exit criteria stay **not
+  started** -- this is the scoping step they needed, not the
+  implementation.
+
 - **AI-FRD-2 (coverage-aware Research ISA): first bounded slice.**
   `run_research_question` now attaches a fourth, *optional*
   (`required=False`) `discovery_coverage` Ideal State criterion whenever a

@@ -2,6 +2,23 @@
 
 Status: adopted AI-layer guidance, 2026-08-15.
 
+**2026-08-22: `docs/roadmap/answer_session_versioning_design.md` scopes the
+answer/session-versioning concept AI-FRD-5's remaining wiring needs.**
+Docs-only -- no change to `run_research_question.py`, `sessions/models.py`,
+`sessions/repository.py`, `orchestrator/close_gate.py`, or
+`copilot/research_freshness.py`. See that document for the full design
+(a version is one whole `ResearchSession`, chained by additive
+`research_question_id`/`answer_version`/`supersedes_session_id` fields; a
+DOI crosswalk from a flagged federated-discovery candidate to the
+`evidence_record_id`s a prior narrative actually cited; an invalidates
+(`retracted`/`withdrawn`) versus qualifies (`corrected`/
+`expression_of_concern`) split; and `SessionStatus.SUPERSEDED` -- already
+in the enum, unused anywhere in code before this design -- as the terminal
+state for a superseded version, set only once its replacement itself
+reaches `COMPLETED`). AI-FRD-5's own exit-criteria section below still
+reports both remaining criteria as **not started**: this document is the
+scoping step that criterion needed, not the implementation.
+
 This document records the AI-layer lessons taken from the review of
 `surendranb/find-research-papers-mcp`. The useful behavior is translated into
 Knowledge Engine's own orchestration model. The external MCP server is not a
@@ -586,10 +603,12 @@ Exit criteria:
   `diff_candidate_snapshots()`, live-verified against the real `ke` binary
 - corrections/retractions can invalidate or qualify prior synthesis; **not
   started** -- requires wiring this reasoning into a Research Session, which
-  this slice deliberately does not do
+  this slice deliberately does not do; the wiring's design is now scoped in
+  `answer_session_versioning_design.md` (this directory)
 - prior answer text is never silently overwritten as if it had always been the
-  updated answer. **not started** -- no answer/session versioning exists yet
-  for this reasoning to attach to
+  updated answer. **not started** -- `answer_session_versioning_design.md`
+  scopes the versioning concept this reasoning needs to attach to; the
+  fields/events it describes are not yet implemented
 
 ## Improvements beyond the external reference
 
