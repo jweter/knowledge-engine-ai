@@ -762,6 +762,34 @@ built from state re-read after a possible `--apply` write. 10 new tests
 (418 total pass); full local quality gate clean via `scripts/preflight.py`.
 See `CHANGELOG.md`'s matching entry for the full account.
 
+**2026-08-22 (later still than that): the version-minting caller now
+exists.** `copilot/research_freshness.py` gained `mint_next_version()`,
+the design doc's own "next small, coherent slice": given a prior,
+`COMPLETED`, thread-tracked session, it calls `run_research_question` a
+second time -- the prior's own question text, the same
+`research_question_id` thread, `answer_version=prior.answer_version + 1`,
+`supersedes_session_id=prior.session_id` (both now accepted as additive
+keyword parameters on `run_research_question` itself, defaulting to `1`/
+`None` so every existing caller is unaffected) -- and, only if that new
+run's own close gate reaches `COMPLETED`, calls
+`SessionRepository.supersede_session()` on the prior version. A new run
+that ends `BLOCKED` instead deliberately leaves the prior version exactly
+as it was (`COMPLETED`, un-superseded), per "Interaction with session
+close gates" -- a degraded re-verification attempt never silently demotes
+a still-good prior answer. Raises `SessionNotCompletedError`/
+`MissingResearchQuestionIdError` up front for a prior session that is not
+`COMPLETED` or has no thread identity, rather than burning a full
+retrieval/synthesis run first. Still does not decide *when* to mint a new
+version -- that remains the same open product/policy question named below
+-- and has no CLI caller yet; `ke-ai session-freshness` remains read-only
+(plus its own `--apply` for invalidation) and does not call this function.
+7 new tests (2 in `tests/copilot/test_run_research_question.py` for the
+new `run_research_question` parameters, 5 in
+`tests/copilot/test_research_freshness.py::TestMintNextVersion`), 425
+total pass; full local quality gate (`ruff format --check`, `ruff check`,
+`mypy`, `pytest`, `pip-audit`, `git diff --check`) clean via
+`scripts/preflight.py`.
+
 Exit criteria:
 
 - new evidence is distinguished from previously seen evidence; **met** --
@@ -779,12 +807,18 @@ Exit criteria:
   remains is only the decision of *when* a freshness check runs at all --
   this command makes it possible on demand, not automatic
 - prior answer text is never silently overwritten as if it had always been the
-  updated answer. **not started** -- `answer_session_versioning_design.md`
-  scopes the versioning concept this reasoning needs to attach to; the
-  `answer_version`/`supersedes_session_id`/`narrative_invalidated_at` fields
-  and events are implemented (2026-08-22, later still) and tested in
-  isolation, but no caller yet mints a version-*N+1* session or calls
-  `supersede_session()` on a prior one
+  updated answer. **mechanism implemented (2026-08-22, later still); not yet
+  automatic.** `answer_session_versioning_design.md` scopes the versioning
+  concept this reasoning needs to attach to; the `answer_version`/
+  `supersedes_session_id`/`narrative_invalidated_at` fields and events were
+  implemented earlier this day, and `mint_next_version()` (this entry) is
+  now the caller that actually mints a version-*N+1* session and calls
+  `supersede_session()` on the prior one once the new version reaches
+  `COMPLETED`. What remains: nothing yet calls `mint_next_version()` for a
+  real session, and the same open decision as the criterion above -- *when*
+  a version transition should be attempted at all (a person, a scheduled
+  policy, a future Web page) -- is not decided by this function, which only
+  makes the mechanism itself callable and safe
 
 ## Improvements beyond the external reference
 

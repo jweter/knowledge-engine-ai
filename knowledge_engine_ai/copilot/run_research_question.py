@@ -86,10 +86,22 @@ This closes the concrete plumbing gap that design doc's "Where
 `research_question_id` actually comes from" section named -- Core's
 `federated_discover_history`/`federated_coverage_report` now have something
 to find later for any session whose discovery step actually ran under a
-given thread identity. It adds no versioning/supersession behavior itself
--- `ResearchSession` gains only this one additive field; `answer_version`,
-`supersedes_session_id`, `narrative_invalidated_at`, and the crosswalk/
-rerun-trigger wiring the design doc also scopes remain future work.
+given thread identity.
+
+`answer_version`/`supersedes_session_id` threading (2026-08-22, later still):
+this module also now accepts optional `answer_version` (default `1`) and
+`supersedes_session_id` (default `None`) keyword parameters, set verbatim
+on the `ResearchSession` it creates -- additive, same opt-in shape as
+`research_question_id` itself, so every existing caller that does not pass
+them keeps today's behavior (`answer_version=1`, `supersedes_session_id=None`)
+exactly. This module still never calls `SessionRepository.supersede_session`
+itself -- minting version *N+1* and superseding version *N* once *N+1*
+reaches `COMPLETED` is `copilot.research_freshness.mint_next_version`'s job
+(see that module), which calls this function as its own version-*N+1*
+sub-step rather than duplicating the session-creation/workflow/synthesis/
+close-gate composition here. `narrative_invalidated_at` and the crosswalk/
+rerun-trigger wiring the design doc also scopes remain, as before, owned by
+`copilot.research_freshness`.
 """
 
 from __future__ import annotations
@@ -195,6 +207,8 @@ def run_research_question(
     external_discovery: ExternalDiscoveryCallable | None = None,
     discovery_policy: FederatedDiscoveryPolicy | None = None,
     research_question_id: str | None = None,
+    answer_version: int = 1,
+    supersedes_session_id: str | None = None,
     ke_executable: str = "ke",
     timeout_seconds: float | None = None,
 ) -> ResearchQuestionResult:
@@ -226,6 +240,15 @@ def run_research_question(
     in a multi-tenant setting (see the design doc's "Origin" section). Always
     set on the created `ResearchSession`, and forwarded to the discovery
     step only when `discovery_policy` is also supplied.
+
+    `answer_version`/`supersedes_session_id` are the remaining two
+    answer/session-versioning fields: additive, default to `1`/`None` (a
+    thread's first version, replacing nothing), and set verbatim on the
+    created `ResearchSession` -- this function does no version-numbering or
+    thread-lookup logic itself. A caller minting version *N+1* (typically
+    `copilot.research_freshness.mint_next_version`, not a person calling
+    this function directly) supplies the prior version's
+    `answer_version + 1` and its `session_id`.
     """
 
     execution_budget = (
@@ -243,6 +266,8 @@ def run_research_question(
             user_question_original=question,
             status=SessionStatus.RUNNING,
             research_question_id=resolved_research_question_id,
+            answer_version=answer_version,
+            supersedes_session_id=supersedes_session_id,
         )
     )
 

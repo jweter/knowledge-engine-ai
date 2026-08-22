@@ -9,6 +9,39 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Version-minting caller (AI-FRD-5 / answer-session-versioning).**
+  `docs/roadmap/answer_session_versioning_design.md`'s own "next small,
+  coherent slice" -- a caller that mints a version-*N+1* session and
+  supersedes the prior one -- is now implemented.
+  `run_research_question` gains two additive keyword parameters,
+  `answer_version: int = 1` and `supersedes_session_id: str | None = None`,
+  set verbatim on the `ResearchSession` it creates (same opt-in shape
+  `research_question_id` already uses, so every existing caller is
+  unaffected). `copilot/research_freshness.py` gains `mint_next_version()`:
+  given a prior session that is `COMPLETED` and carries a
+  `research_question_id`, it calls `run_research_question` a second time
+  (the prior's own question text, the same thread,
+  `answer_version=prior.answer_version + 1`,
+  `supersedes_session_id=prior.session_id`) and, only if that new run's own
+  close gate reaches `COMPLETED`, calls
+  `SessionRepository.supersede_session()` on the prior version -- a new
+  run that ends `BLOCKED` instead leaves the prior version exactly as it
+  was (`COMPLETED`, un-superseded), per the design doc's "Interaction with
+  session close gates." Raises `SessionNotCompletedError`/
+  `MissingResearchQuestionIdError` up front for a prior session that is
+  not `COMPLETED` or has no thread identity, rather than running the full
+  pipeline first. 7 new tests (2 in
+  `tests/copilot/test_run_research_question.py`, 5 in
+  `tests/copilot/test_research_freshness.py::TestMintNextVersion`); full
+  local quality gate clean via `scripts/preflight.py` (425 tests total).
+  No `ResearchSession`/`ResearchEvent` schema change beyond the fields
+  already shipped earlier this session, no new `ke` surface --
+  `knowledge-engine-web` is unaffected. Still no caller invokes
+  `mint_next_version()` for a real session (no CLI command calls it yet),
+  and the still-open policy question of who/what decides *when* a version
+  transition should be attempted at all remains undecided -- both are the
+  design doc's own next continuation.
+
 - **`AnswerFreshness` read-side projection (AI-FRD-5 / answer-session-
   versioning).** `docs/roadmap/answer_session_versioning_design.md`'s
   "What a caller (Web, later) sees when asking 'is this answer still
