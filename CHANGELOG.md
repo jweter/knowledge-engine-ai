@@ -26,11 +26,20 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the `AnswerFreshness` read-side projection that would track a durable
   `pending_flips` list does not exist yet. Never touches `session.status`
   or calls `supersede_session()`, both of which remain a later slice
-  (minting a version-*N+1* session). 12 new tests (397 total pass); full
-  local quality gate (ruff format/check, mypy, pytest, pip-audit, git diff
-  --check) clean via `scripts/preflight.py`. `knowledge-engine-web` is
-  unaffected: no change to `run_research_question`'s signature, no new
-  `ke` surface, and Web pins a specific `knowledge-engine-ai` commit.
+  (minting a version-*N+1* session). The precheck-then-persist window
+  between reading `narrative_invalidated_at` and calling
+  `record_narrative_invalidation()` is not one atomic transaction, so a
+  concurrent freshness-check call (scheduled or request-driven) can
+  invalidate the same session in between; `apply_narrative_touching_flips`
+  now also catches `NarrativeAlreadyInvalidatedError` around that call and
+  treats it the same as the precheck's already-invalidated case, so the
+  function's documented "never raises `NarrativeAlreadyInvalidatedError`"
+  guarantee holds regardless of interleaving. 13 new tests (398 total
+  pass); full local quality gate (ruff format/check, mypy, pytest,
+  pip-audit, git diff --check) clean via `scripts/preflight.py`.
+  `knowledge-engine-web` is unaffected: no change to
+  `run_research_question`'s signature, no new `ke` surface, and Web pins a
+  specific `knowledge-engine-ai` commit.
   Next continuation, per the design doc's own "What this does not do":
   the `AnswerFreshness` read-side projection, and a caller that mints a
   version-*N+1* session and calls this trigger for a real session.

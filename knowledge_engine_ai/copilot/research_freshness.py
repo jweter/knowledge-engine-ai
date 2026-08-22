@@ -87,7 +87,11 @@ from knowledge_engine_ai.ke_client import (
 )
 from knowledge_engine_ai.orchestrator.verification import CITATION_PATTERN
 from knowledge_engine_ai.sessions.models import ResearchEvent
-from knowledge_engine_ai.sessions.repository import SessionRepository, UnknownSessionError
+from knowledge_engine_ai.sessions.repository import (
+    NarrativeAlreadyInvalidatedError,
+    SessionRepository,
+    UnknownSessionError,
+)
 
 # A conservative, documented, overridable default -- not a claim about how
 # quickly the scholarly literature actually changes. Callers with a
@@ -445,7 +449,14 @@ def apply_narrative_touching_flips(
       session by design, and this function checks the session's current
       state first so a batch containing more than one invalidating flip,
       or a call against a session an earlier freshness-check pass already
-      invalidated, never raises `NarrativeAlreadyInvalidatedError`.
+      invalidated, never raises `NarrativeAlreadyInvalidatedError`. That
+      precheck and the `record_narrative_invalidation` call below are not
+      one atomic transaction, so this function also catches
+      `NarrativeAlreadyInvalidatedError` around the call itself and treats
+      it exactly like the precheck already-invalidated case, in case a
+      concurrent freshness-check pass invalidates the same session in
+      between: the guarantee that this function never raises
+      `NarrativeAlreadyInvalidatedError` holds regardless of interleaving.
     - `corrected`/`expression_of_concern` -- nothing is persisted; see
       `NarrativeFreshnessTriggerResult`'s own docstring for why.
 
@@ -510,7 +521,25 @@ def apply_narrative_touching_flips(
             f"cited_evidence_record_ids={list(first.cited_evidence_record_ids)!r}"
         ),
     )
-    session_repository.record_narrative_invalidation(event, invalidated_at=occurred_at)
+    try:
+        session_repository.record_narrative_invalidation(event, invalidated_at=occurred_at)
+    except NarrativeAlreadyInvalidatedError:
+        # The `narrative_invalidated_at is None` precheck above and this
+        # call are not one atomic transaction, so a concurrent
+        # freshness-check pass (scheduled or request-driven) can invalidate
+        # the same session in between: this call's own precheck sees
+        # `None`, then loses the race and lands here instead of persisting.
+        # That is exactly the "already invalidated" outcome the precheck
+        # was trying to detect, just discovered a moment later -- treat it
+        # the same way rather than letting the guard's raise escape this
+        # function's own documented "never raises
+        # `NarrativeAlreadyInvalidatedError`" guarantee.
+        return NarrativeFreshnessTriggerResult(
+            invalidating=invalidating,
+            qualifying=qualifying,
+            already_invalidated=True,
+            narrative_invalidated_event=None,
+        )
 
     return NarrativeFreshnessTriggerResult(
         invalidating=invalidating,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 from datetime import UTC, datetime
 
 import pytest
@@ -440,6 +441,41 @@ def _repository_with_session(
     return repository
 
 
+class _RacesAnotherInvalidationOnFirstRead(SessionRepository):
+    """Test double reproducing the precheck/persist race, without threads.
+
+    The first `get_session` call this repository sees (`apply_narrative_
+    touching_flips`'s own `narrative_invalidated_at is None` precheck)
+    triggers a real, independent `record_narrative_invalidation` call
+    first -- simulating a second, concurrent freshness-check call winning
+    the race right after the precheck reads but before the original call's
+    own `record_narrative_invalidation` runs. Every call after that first
+    one behaves exactly like the base repository.
+    """
+
+    def __init__(self, connection: sqlite3.Connection) -> None:
+        super().__init__(connection)
+        self._raced = False
+
+    def get_session(self, session_id: str) -> ResearchSession | None:
+        session = super().get_session(session_id)
+        if not self._raced and session is not None and session.narrative_invalidated_at is None:
+            self._raced = True
+            racing_event = ResearchEvent(
+                event_id="racing-event",
+                session_id=session_id,
+                timestamp="2026-08-22T11:59:59Z",
+                workflow_node="narrative_invalidated",
+                executor_type="deterministic_policy",
+                notes="canonical_id='c-racer' doi='10.1000/racer' flag='retracted' "
+                "cited_evidence_record_ids=['ev-racer']",
+            )
+            super().record_narrative_invalidation(
+                racing_event, invalidated_at="2026-08-22T11:59:59Z"
+            )
+        return session
+
+
 class TestApplyNarrativeTouchingFlips:
     def test_invalidating_flip_records_narrative_invalidation(self) -> None:
         repository = _repository_with_session()
@@ -545,6 +581,44 @@ class TestApplyNarrativeTouchingFlips:
         assert result.already_invalidated is True
         assert result.narrative_invalidated_event is None
         assert result.invalidating == (second_flip,)
+
+    def test_concurrent_invalidation_between_precheck_and_persist_is_not_raised(self) -> None:
+        # Regression test: `apply_narrative_touching_flips` reads
+        # `session.narrative_invalidated_at` (the precheck) and later calls
+        # `record_narrative_invalidation` (the persist) as two separate
+        # steps, not one atomic transaction. If a second, concurrent
+        # freshness-check call invalidates the same session in between --
+        # scheduled and request-driven checks racing each other -- this
+        # call's own precheck still sees `None`, but the persist step below
+        # it loses the race and would otherwise surface
+        # `NarrativeAlreadyInvalidatedError`, violating this function's
+        # documented "never raises `NarrativeAlreadyInvalidatedError`"
+        # guarantee.
+        repository = _RacesAnotherInvalidationOnFirstRead(new_connection(":memory:"))
+        repository.create_session(
+            ResearchSession(
+                schema_version=1,
+                session_id="session-1",
+                created_at="2026-08-09T00:00:00Z",
+                updated_at="2026-08-09T00:00:00Z",
+                user_question_original="Does semaglutide produce long-term weight loss?",
+                status=SessionStatus.COMPLETED,
+            )
+        )
+        flip = _touching_flip("retracted")
+
+        result = apply_narrative_touching_flips(
+            repository, (flip,), session_id="session-1", now="2026-08-22T12:00:00Z"
+        )
+
+        assert result.already_invalidated is True
+        assert result.narrative_invalidated_event is None
+        assert result.invalidating == (flip,)
+        # The event the racing call recorded is untouched -- this call did
+        # not overwrite it or append a second one.
+        fetched = repository.get_session("session-1")
+        assert fetched is not None
+        assert fetched.narrative_invalidated_at == "2026-08-22T11:59:59Z"
 
     def test_unknown_session_with_invalidating_flip_raises(self) -> None:
         repository = SessionRepository(new_connection(":memory:"))
