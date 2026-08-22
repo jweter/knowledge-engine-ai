@@ -65,6 +65,29 @@ caller that mints a version-*N+1* session or calls
 `apply_narrative_touching_flips()`/`supersede_session()` for a real
 session -- see "What this does not do" below, updated to match.
 
+**2026-08-22 (later still than the trigger session): `ke-ai
+session-freshness` is now the first real caller.** It loads a named
+session from `--session-db`, reads its `research_question_id` plus its own
+retrieval/synthesis event log, and runs `assess_rerun_need` ->
+`diff_candidate_snapshots` -> `session_retrieval_dois` ->
+`crosswalk_publication_status_flips` against it -- reporting every
+touching flip split into invalidates/qualifies. Read-only unless `--apply`
+is passed, in which case it also calls `apply_narrative_touching_flips`,
+which persists the first invalidating flip exactly as that function
+already guarantees (idempotent against a session already invalidated by
+an earlier run). 10 new tests
+(`tests/test_cli_session_freshness.py`); full local quality gate clean via
+`scripts/preflight.py`. This closes "a caller that runs a real freshness
+check end to end for a real session" as an explicitly-invoked, on-demand
+command -- the same shape `ke-ai research-freshness`/`ke-ai discover`
+already established for their own reasoning primitives. It deliberately
+does **not** answer "who/what triggers a freshness check and how often" --
+that remains open policy work, this command is simply what runs once
+something (a person, a script, a future scheduler) decides to invoke it --
+and it does not mint a version-*N+1* session. Still not implemented: the
+`AnswerFreshness` read-side projection, and the version-minting caller --
+see "What this does not do" below, updated to match.
+
 This document scopes the answer/session-versioning concept that
 `docs/project-status.yaml`'s `next_continuation` names as a prerequisite for
 AI-FRD-5's remaining work: wiring `copilot/research_freshness.py`'s
@@ -713,15 +736,20 @@ Three honestly-distinguished states, never collapsed into one:
   reads a `NarrativeTouchingFlip` batch and calls
   `record_narrative_invalidation()` for `retracted`/`withdrawn`, or reports
   a qualifying pending flip (not persisted) for `corrected`/
-  `expression_of_concern`, without calling it. **Still not implemented:
-  everything that decides *when* to call `apply_narrative_touching_flips()`
-  in the first place, for a real session.** No change to
-  `run_research_question.py` or `orchestrator/close_gate.py`. The
-  `AnswerFreshness` read-side projection, and any caller that mints a
-  version-*N+1* session (setting `answer_version`/`supersedes_session_id`
-  at `create_session` time and then calling `supersede_session()` on the
-  prior version once *N+1* reaches `COMPLETED`) remain proposed only, not
-  implemented.
+  `expression_of_concern`, without calling it.
+- **A real end-to-end caller for one session now exists (2026-08-22, later
+  still) -- see the status header above.** `ke-ai session-freshness` runs
+  the full chain against a real session and, with `--apply`, persists an
+  invalidating flip. It answers "how would a caller run this chain," not
+  "when should it run" -- see the next bullet. No change to
+  `run_research_question.py` or `orchestrator/close_gate.py`.
+  **Still not implemented: everything that decides *when* a freshness
+  check happens automatically for a session (a scheduled job, a person, a
+  Web page load), the `AnswerFreshness` read-side projection, and any
+  caller that mints a version-*N+1* session** (setting
+  `answer_version`/`supersedes_session_id` at `create_session` time and
+  then calling `supersede_session()` on the prior version once *N+1*
+  reaches `COMPLETED`) -- these remain proposed only, not implemented.
 - **No SQLite schema migration for `research_question_id`/`answer_version`/
   `supersedes_session_id`/`narrative_invalidated_at`/`source_dois` was
   needed beyond the guarded `ALTER TABLE` additions already shipped**
@@ -756,15 +784,16 @@ section):
 - *"corrections/retractions can invalidate or qualify prior synthesis"* --
   this design's crosswalk (`crosswalk_publication_status_flips()`), the
   repository-layer invalidates/qualifies mechanics
-  (`record_narrative_invalidation()`), and now the trigger that connects
-  them (`apply_narrative_touching_flips()`, implemented 2026-08-22, later
-  still) are all built and tested in isolation. The remaining piece is a
-  caller that runs a real freshness check for a real session -- fetches
-  its events/narrative, calls `assess_rerun_need`/
-  `diff_candidate_snapshots`/`crosswalk_publication_status_flips`, and
-  passes the result to `apply_narrative_touching_flips()` -- which is also
-  the natural place to decide *when* a freshness check runs at all (see
-  "What this does not do" above).
+  (`record_narrative_invalidation()`), the trigger that connects them
+  (`apply_narrative_touching_flips()`), and now `ke-ai session-freshness`
+  (implemented 2026-08-22, later still) -- a real caller that fetches a
+  real session's events/narrative, calls `assess_rerun_need`/
+  `diff_candidate_snapshots`/`session_retrieval_dois`/
+  `crosswalk_publication_status_flips`, and (with `--apply`) passes the
+  result to `apply_narrative_touching_flips()` -- are all built and
+  tested. What remains is *when* this caller runs: today it is explicitly
+  invoked, never scheduled or triggered automatically (see "What this does
+  not do" above).
 - *"prior answer text is never silently overwritten as if it had always
   been the updated answer"* -- this design's whole-session versioning,
   append-only retention, and `SUPERSEDED` transition (only after a real
@@ -772,19 +801,20 @@ section):
   fields and `supersede_session()` are implemented, but no caller yet mints
   a version-*N+1* session or calls it.
 
-Both exit criteria remain **not started** in code terms -- every mechanism
-either depends on now exists and is tested standalone, but nothing in
-`run_research_question.py`/`orchestrator/close_gate.py` calls any of it
-yet, and no caller has ever invoked `apply_narrative_touching_flips()`
-against a real session. A follow-up PR implementing only the
-`AnswerFreshness` read-side projection (once a real caller exists to
-populate its `pending_flips`/`narrative_invalidated_at`-consuming fields
-meaningfully) or the version-minting caller (mints a version-*N+1* session
-and calls `supersede_session()` on the prior version once *N+1* reaches
-`COMPLETED`) is the next small, coherent slice -- either can proceed
-independently of the other, but both need a real caller wiring
-`assess_rerun_need`/`diff_candidate_snapshots`/
-`crosswalk_publication_status_flips`/`apply_narrative_touching_flips`
-together for an actual session first, and no decision on *when* a
-freshness check runs (a scheduled job, a person, a Web page load) has been
-made yet -- see "What this does not do" above.
+The first exit criterion now has a real, tested, explicitly-invoked path
+end to end (`ke-ai session-freshness --apply`); it is not yet **met**
+because nothing decides *when* that path runs on its own, and the
+`AnswerFreshness` read-side projection a durable caller (e.g. a future Web
+page) would consume does not exist yet. The second exit criterion remains
+**not started** in code terms: `run_research_question.py`/
+`orchestrator/close_gate.py` are unchanged, and no caller mints a
+version-*N+1* session or calls `supersede_session()`. The next small,
+coherent slice is either the `AnswerFreshness` read-side projection (now
+that `session-freshness` exists to populate its
+`pending_flips`/`narrative_invalidated_at`-consuming fields meaningfully)
+or the version-minting caller (mints a version-*N+1* session and calls
+`supersede_session()` on the prior version once *N+1* reaches
+`COMPLETED`) -- either can proceed independently of the other. The policy
+question of *when* a freshness check should run automatically (a
+scheduled job, a person, a Web page load) remains open and is not decided
+by this document -- see "What this does not do" above.

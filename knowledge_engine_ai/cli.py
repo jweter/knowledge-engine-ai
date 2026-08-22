@@ -35,10 +35,15 @@ from knowledge_engine_ai.copilot.discovery_policy import (
 from knowledge_engine_ai.copilot.research_freshness import (
     DEFAULT_MAX_AGE_SECONDS,
     CandidateFreshnessDiff,
+    NarrativeFreshnessTriggerResult,
+    NarrativeTouchingFlip,
     RerunRecommendation,
     ResearchFreshnessError,
+    apply_narrative_touching_flips,
     assess_rerun_need,
+    crosswalk_publication_status_flips,
     diff_candidate_snapshots,
+    session_retrieval_dois,
 )
 from knowledge_engine_ai.copilot.run_research_question import (
     ResearchQuestionResult,
@@ -46,6 +51,7 @@ from knowledge_engine_ai.copilot.run_research_question import (
 )
 from knowledge_engine_ai.ke_client import (
     CitationSnowballResult,
+    FederatedCoverageReportResult,
     FederatedDiscoveryResult,
     KeCommandError,
     citation_snowball,
@@ -57,6 +63,7 @@ from knowledge_engine_ai.ke_client import (
 from knowledge_engine_ai.llm import DEFAULT_OLLAMA_HOST, LocalLLMError, OllamaLLM
 from knowledge_engine_ai.models import EvidenceReport
 from knowledge_engine_ai.orchestrator.observability import render_session_trace
+from knowledge_engine_ai.sessions.models import ResearchEvent
 from knowledge_engine_ai.sessions.repository import SessionRepository, new_connection
 from knowledge_engine_ai.synthesis import synthesize_answer
 
@@ -276,6 +283,22 @@ MaxAgeSecondsOption = Annotated[
         help=(
             "How old the most recent complete run may be before a rerun is recommended. "
             f"Defaults to {DEFAULT_MAX_AGE_SECONDS:.0f}s (7 days)."
+        ),
+    ),
+]
+SessionIdArgument = Annotated[
+    str,
+    typer.Argument(help="The `session_id` of a durable Research Copilot session."),
+]
+ApplySessionFreshnessOption = Annotated[
+    bool,
+    typer.Option(
+        "--apply",
+        help=(
+            "Persist an invalidating (retracted/withdrawn) touching flip via "
+            "SessionRepository.record_narrative_invalidation(). Off by default: this command "
+            "only reports what it found; nothing is written to --session-db unless this flag "
+            "is passed explicitly."
         ),
     ),
 ]
@@ -984,3 +1007,285 @@ def _print_research_freshness_result(
         "[bold]This is discovery-run reasoning only -- it does not decide whether prior "
         "synthesis should be invalidated or re-run.[/bold]"
     )
+
+
+_INVALIDATING_PUBLICATION_FLAGS = frozenset({"retracted", "withdrawn"})
+
+
+@app.command("session-freshness")
+def session_freshness_command(
+    session_id: SessionIdArgument,
+    ledger_root: FreshnessLedgerRootOption,
+    session_db: SessionDbOption = None,
+    max_age_seconds: MaxAgeSecondsOption = DEFAULT_MAX_AGE_SECONDS,
+    apply: ApplySessionFreshnessOption = False,
+    output_format: FormatOption = "text",
+) -> None:
+    """AI-FRD-5: run a real end-to-end freshness check for one Research Session.
+
+    The first caller of `copilot/research_freshness.py`'s full reasoning
+    chain against a real, durable session rather than a bare
+    `research_question_id`: loads `session_id` from `--session-db`, reads
+    its `research_question_id` and its own retrieval/synthesis event log,
+    then composes `assess_rerun_need` -> (when at least two runs are
+    recorded) `diff_candidate_snapshots` -> `session_retrieval_dois` ->
+    `crosswalk_publication_status_flips` to find which, if any, newly
+    flagged publication-status changes actually touch a claim this
+    session's own persisted narrative cites -- as opposed to a discovery
+    lead the session never promoted to a citation.
+
+    Read-only by default: every touching flip found is reported, split
+    into what would invalidate (`retracted`/`withdrawn`) versus what would
+    qualify (`corrected`/`expression_of_concern`) the narrative, but
+    nothing is written to `--session-db`. Pass `--apply` to also call
+    `apply_narrative_touching_flips`, which persists the first invalidating
+    touching flip (if any) as a `narrative_invalidated` `ResearchEvent` and
+    sets `ResearchSession.narrative_invalidated_at` -- idempotent: a
+    session already invalidated by an earlier `--apply` run, or a batch
+    with more than one invalidating flip, records nothing further.
+
+    Deliberately does not itself decide *when* a freshness check should
+    run (a scheduled job, a person, a Web page load remains an open
+    product/policy question -- see
+    `docs/roadmap/answer_session_versioning_design.md`'s "What this does
+    not do") -- this command is the on-demand, explicitly-invoked case,
+    the same "build the tested primitive, add a standalone CLI caller"
+    precedent `ke-ai research-freshness` and `ke-ai discover` already
+    established. Also does not mint a version-*N+1* session or call
+    `SessionRepository.supersede_session` -- that remains a separate,
+    not-yet-built slice per the design doc's own "next continuation."
+
+    A session baseline that has recorded fewer than two federated-discover
+    runs for its `research_question_id` has nothing to diff yet -- see
+    `RerunRecommendation`'s "never recorded"/"first run" reasons -- so no
+    crosswalk runs and no flip can be reported for it until a second run
+    exists. A session created before `research_question_id` threading
+    existed, or one that never triggered federated discovery at all, has
+    no tracked question to check at all -- this command reports that
+    plainly and exits without error rather than fabricating a check.
+    """
+
+    if output_format not in ("text", "json"):
+        raise typer.BadParameter("--format must be 'text' or 'json'.")
+
+    db_path = session_db or Path(os.environ.get("KE_AI_SESSION_DB_PATH", "research_sessions.db"))
+    session_repository = SessionRepository(new_connection(str(db_path)))
+
+    session = session_repository.get_session(session_id)
+    if session is None:
+        console.print(f"[red]Error:[/red] No session with session_id {session_id!r}.")
+        raise typer.Exit(1)
+
+    if session.research_question_id is None:
+        message = (
+            "This session has no research_question_id (predates AI-FRD-5's threading, or "
+            "federated discovery never ran for it) -- there is no tracked question history "
+            "to check freshness against."
+        )
+        if output_format == "json":
+            sys.stdout.write(
+                json.dumps(
+                    {
+                        "session_id": session_id,
+                        "research_question_id": None,
+                        "checked": False,
+                        "reason": message,
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
+                + "\n"
+            )
+        else:
+            console.print(f"[yellow]{message}[/yellow]")
+        return
+
+    events = session_repository.list_events(session_id)
+    narrative = _latest_narrative(events)
+
+    try:
+        history = federated_discover_history(session.research_question_id, ledger_root=ledger_root)
+    except KeCommandError as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(1) from exc
+
+    try:
+        recommendation = assess_rerun_need(
+            history, now=datetime.now(UTC), max_age_seconds=max_age_seconds
+        )
+    except ResearchFreshnessError as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(1) from exc
+
+    diff: CandidateFreshnessDiff | None = None
+    touching: tuple[NarrativeTouchingFlip, ...] = ()
+    current_snapshot: FederatedCoverageReportResult | None = None
+    if len(history.runs) >= 2:
+        sorted_runs = sorted(history.runs, key=lambda run: run.created_at)
+        previous_run_id = sorted_runs[-2].search_run_id
+        current_run_id = sorted_runs[-1].search_run_id
+        try:
+            previous_snapshot = federated_coverage_report(previous_run_id, ledger_root=ledger_root)
+            current_snapshot = federated_coverage_report(current_run_id, ledger_root=ledger_root)
+        except KeCommandError as exc:
+            console.print(f"[red]Error:[/red] {exc}")
+            raise typer.Exit(1) from exc
+        diff = diff_candidate_snapshots(previous_snapshot, current_snapshot)
+
+        if narrative is not None and diff.newly_flagged:
+            retrieval_dois = session_retrieval_dois(events)
+            touching = crosswalk_publication_status_flips(
+                diff.newly_flagged,
+                current=current_snapshot,
+                retrieval_dois=retrieval_dois,
+                narrative=narrative,
+            )
+
+    trigger_result: NarrativeFreshnessTriggerResult | None = None
+    if apply and touching:
+        trigger_result = apply_narrative_touching_flips(
+            session_repository, touching, session_id=session_id
+        )
+
+    if output_format == "json":
+        payload: dict[str, object] = {
+            "session_id": session_id,
+            "research_question_id": session.research_question_id,
+            "answer_version": session.answer_version,
+            "narrative_invalidated_at_before": session.narrative_invalidated_at,
+            "checked": True,
+            "recommendation": dataclasses.asdict(recommendation),
+            "diff": dataclasses.asdict(diff) if diff is not None else None,
+            "touching_flips": [
+                {
+                    "canonical_id": flip.flip.canonical_id,
+                    "title": flip.flip.title,
+                    "flag": flip.flip.flag,
+                    "invalidates": flip.flip.flag in _INVALIDATING_PUBLICATION_FLAGS,
+                    "doi": flip.doi,
+                    "cited_evidence_record_ids": list(flip.cited_evidence_record_ids),
+                }
+                for flip in touching
+            ],
+            "applied": apply,
+            "trigger_result": (
+                None
+                if trigger_result is None
+                else {
+                    "invalidating_count": len(trigger_result.invalidating),
+                    "qualifying_count": len(trigger_result.qualifying),
+                    "already_invalidated": trigger_result.already_invalidated,
+                    "narrative_invalidated_event_id": (
+                        trigger_result.narrative_invalidated_event.event_id
+                        if trigger_result.narrative_invalidated_event is not None
+                        else None
+                    ),
+                }
+            ),
+        }
+        sys.stdout.write(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n")
+        return
+
+    _print_session_freshness_result(
+        session_id=session_id,
+        research_question_id=session.research_question_id,
+        narrative_present=narrative is not None,
+        recommendation=recommendation,
+        diff=diff,
+        touching=touching,
+        apply=apply,
+        trigger_result=trigger_result,
+    )
+
+
+def _latest_narrative(events: list[ResearchEvent]) -> str | None:
+    """The most recently recorded successful synthesis narrative, if any.
+
+    Mirrors `copilot/run_research_question.py`'s `_SYNTHESIS_NODE`/
+    `validation_status` convention: a synthesis event's `notes` holds the
+    narrative text only when `validation_status == "succeeded"`; a failed
+    synthesis attempt's `notes` holds an error message instead, never
+    narrative text. Iterates from the most recent event backward since a
+    session's event log is append-only and ordered by `sequence_number`.
+    """
+
+    for event in reversed(events):
+        if event.workflow_node == "synthesis" and event.validation_status == "succeeded":
+            return event.notes
+    return None
+
+
+def _print_session_freshness_result(
+    *,
+    session_id: str,
+    research_question_id: str,
+    narrative_present: bool,
+    recommendation: RerunRecommendation,
+    diff: CandidateFreshnessDiff | None,
+    touching: tuple[NarrativeTouchingFlip, ...],
+    apply: bool,
+    trigger_result: NarrativeFreshnessTriggerResult | None,
+) -> None:
+    console.print(f"[bold]Session:[/bold] {session_id}")
+    console.print(f"[bold]Research question:[/bold] {research_question_id}")
+    verdict_color = "yellow" if recommendation.recommended else "green"
+    verdict_text = "rerun recommended" if recommendation.recommended else "no rerun needed"
+    console.print(f"[bold]Verdict:[/bold] [{verdict_color}]{verdict_text}[/{verdict_color}]")
+    console.print(f"  {escape(recommendation.reason)}")
+    console.print()
+
+    if diff is None:
+        console.print("[dim]Fewer than two recorded runs -- no candidate-level diff to show.[/dim]")
+        return
+
+    if not narrative_present:
+        console.print(
+            "[dim]No completed synthesis narrative found for this session -- "
+            "nothing to crosswalk citations against.[/dim]"
+        )
+        return
+
+    if not touching:
+        console.print("[bold]Flips touching this session's cited narrative:[/bold] none")
+    else:
+        console.print(
+            f"[bold]Flips touching this session's cited narrative:[/bold] {len(touching)}"
+        )
+        for flip in touching:
+            invalidates = flip.flip.flag in _INVALIDATING_PUBLICATION_FLAGS
+            kind = "invalidates" if invalidates else "qualifies"
+            color = "red" if invalidates else "yellow"
+            console.print(
+                f"  [{color}]{escape(flip.flip.title)} -- {flip.flip.flag} ({kind})[/{color}]"
+            )
+            console.print(f"    DOI {flip.doi} -- cited as {list(flip.cited_evidence_record_ids)}")
+
+    console.print()
+    if not apply:
+        if touching:
+            console.print(
+                "[dim]Run with --apply to persist an invalidating flip via "
+                "record_narrative_invalidation(). Nothing was written this run.[/dim]"
+            )
+        return
+
+    if trigger_result is None:
+        console.print("[dim]--apply had nothing to persist (no touching flips found).[/dim]")
+        return
+
+    if trigger_result.already_invalidated:
+        console.print(
+            "[dim]This session's narrative was already marked invalidated by an earlier "
+            "check -- nothing new was written.[/dim]"
+        )
+    elif trigger_result.narrative_invalidated_event is not None:
+        console.print(
+            f"[bold red]narrative_invalidated_at recorded[/bold red] "
+            f"(event {trigger_result.narrative_invalidated_event.event_id})."
+        )
+    if trigger_result.qualifying:
+        console.print(
+            f"[yellow]{len(trigger_result.qualifying)} qualifying flip(s) found -- not "
+            "persisted; the AnswerFreshness projection to track pending qualifications "
+            "durably does not exist yet.[/yellow]"
+        )
