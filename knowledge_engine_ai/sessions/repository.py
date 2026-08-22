@@ -233,6 +233,36 @@ class SessionRepository:
             return None
         return _session_from_row(row)
 
+    def list_sessions_for_research_question(
+        self, research_question_id: str
+    ) -> list[ResearchSession]:
+        """Every session in one `research_question_id` thread, oldest `answer_version` first.
+
+        Supports the `AnswerFreshness` read-side projection's
+        `superseded_by_session_id` field
+        (`copilot/research_freshness.py`): `ResearchSession` only stores a
+        version's *own* `supersedes_session_id` (the version it replaces),
+        never a forward pointer to whatever replaced it, so finding "what
+        superseded this session, if anything" requires looking at every
+        other session in the same thread and checking which one, if any,
+        names this session as its `supersedes_session_id` -- exactly what
+        this method's result lets a caller do without inventing a second
+        mutable pointer field that could drift from the one already
+        written at `create_session` time.
+
+        Returns an empty list for an unknown or never-used
+        `research_question_id`, the same "absent is not an error" posture
+        `get_session` returning `None` already establishes -- this is a
+        listing, not a lookup with an expected single result.
+        """
+
+        rows = self._connection.execute(
+            "SELECT * FROM research_sessions WHERE research_question_id = ? "
+            "ORDER BY answer_version ASC, created_at ASC",
+            (research_question_id,),
+        ).fetchall()
+        return [_session_from_row(row) for row in rows]
+
     def update_session_status(
         self, session_id: str, status: SessionStatus, *, updated_at: str
     ) -> None:

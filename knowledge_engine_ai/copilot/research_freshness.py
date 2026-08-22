@@ -70,6 +70,36 @@ calls `ke`, never runs the crosswalk itself, and never decides *when* a
 freshness check happens at all, matching this module's existing "reasoning
 lives here, I/O orchestration lives with the caller" split for everything
 upstream of it.
+
+A still later slice (2026-08-22, later still) added the `AnswerFreshness`
+read-side projection the design doc's "What a caller (Web, later) sees
+when asking 'is this answer still fresh'" section sketches, and
+`build_answer_freshness` below, which assembles it. Same "caller owns the
+I/O" boundary as everything above: it takes an already-fetched `session`,
+an already-computed `rerun_recommended` (`assess_rerun_need`'s result, or
+`None` when no `research_question_id` was ever tracked), the already-
+crosswalked `pending_flips` for this session (typically
+`crosswalk_publication_status_flips`'s own result -- both invalidating and
+qualifying flips found for this session, regardless of whether an
+invalidating one has already been persisted via
+`apply_narrative_touching_flips`), and the other sessions in this
+session's own `research_question_id` thread (typically
+`SessionRepository.list_sessions_for_research_question`'s result) to
+derive `superseded_by_session_id` -- a forward pointer no single session
+row stores itself, since only the *replacing* session's own
+`supersedes_session_id` field is ever written, per
+`list_sessions_for_research_question`'s own docstring. `pending_flips` is
+typed here as `NarrativeTouchingFlip` rather than the design sketch's bare
+`PublicationStatusFlip`, keeping the `doi`/`cited_evidence_record_ids`
+context a caller needs to render *why* a flip is pending, not just that
+one exists. `cli.py`'s `session-freshness` command now builds and reports
+one, from the same session/recommendation/touching-flips values it already
+computes for its own pre-existing output -- the first real caller,
+matching this module's "build the tested primitive, add a standalone CLI
+caller" precedent. It still does not decide *when* a freshness check runs,
+and still does not mint a version-*N+1* session or surface this projection
+to `knowledge-engine-web`, per the design doc's own "What this does not
+do" and "No Web-facing API or UI for `AnswerFreshness`" notes.
 """
 
 from __future__ import annotations
@@ -86,7 +116,7 @@ from knowledge_engine_ai.ke_client import (
     SearchCoverageReport,
 )
 from knowledge_engine_ai.orchestrator.verification import CITATION_PATTERN
-from knowledge_engine_ai.sessions.models import ResearchEvent
+from knowledge_engine_ai.sessions.models import ResearchEvent, ResearchSession, SessionStatus
 from knowledge_engine_ai.sessions.repository import (
     NarrativeAlreadyInvalidatedError,
     SessionRepository,
@@ -574,8 +604,108 @@ def _parse_timestamp(value: str) -> datetime:
         ) from exc
 
 
+@dataclasses.dataclass(frozen=True)
+class AnswerFreshness:
+    """What a caller sees when asking "is this session's answer still fresh."
+
+    Implements the sketch in
+    `docs/roadmap/answer_session_versioning_design.md`'s "What a caller
+    (Web, later) sees when asking 'is this answer still fresh'" section,
+    with `pending_flips` typed as `NarrativeTouchingFlip` rather than the
+    sketch's bare `PublicationStatusFlip` (see this module's docstring for
+    why). A pure value object -- see `build_answer_freshness` for how one
+    is assembled; nothing on this class queries anything itself.
+    """
+
+    session_id: str
+    research_question_id: str | None
+    answer_version: int
+    status: SessionStatus
+    supersedes_session_id: str | None
+    superseded_by_session_id: str | None
+    narrative_invalidated_at: str | None
+    rerun_recommended: RerunRecommendation | None
+    pending_flips: tuple[NarrativeTouchingFlip, ...]
+
+    @property
+    def releaseable(self) -> bool:
+        """Mirrors the design doc's two-field check: `COMPLETED` and not since invalidated.
+
+        Deliberately does not consult `pending_flips`: a *qualifying*
+        pending flip leaves `releaseable` `True` (the narrative may still
+        be shown, with the caveat `pending_flips` itself names), per the
+        design doc's "Flagged, rerun recommended" state -- only an
+        *invalidating* flip changes releaseability, and it does so by
+        setting `narrative_invalidated_at` (via
+        `apply_narrative_touching_flips`/
+        `SessionRepository.record_narrative_invalidation`), not by this
+        property inspecting flags itself.
+        """
+
+        return self.status is SessionStatus.COMPLETED and self.narrative_invalidated_at is None
+
+
+def build_answer_freshness(
+    session: ResearchSession,
+    *,
+    rerun_recommended: RerunRecommendation | None,
+    pending_flips: tuple[NarrativeTouchingFlip, ...] = (),
+    other_sessions_in_thread: Sequence[ResearchSession] = (),
+) -> AnswerFreshness:
+    """Assemble one `AnswerFreshness` from already-fetched data.
+
+    Pure read-side projection, the same "caller owns the repository call"
+    boundary `observability.build_session_trace` already follows: this
+    function does not call `SessionRepository` or `ke_client` itself.
+
+    - `rerun_recommended` is typically `assess_rerun_need`'s result for
+      `session.research_question_id`'s run history, or `None` when the
+      session has no tracked question at all (mirrors `cli.py`'s own
+      "no research_question_id -> nothing to check" case).
+    - `pending_flips` is typically `crosswalk_publication_status_flips`'s
+      result for this session -- every touching flip found, invalidating
+      or qualifying alike, regardless of whether an invalidating one has
+      already been persisted to `session.narrative_invalidated_at`. A
+      flip already resolved by a newer, `COMPLETED` version-*N+1* session
+      is still "pending" here in the sense that this call has no way to
+      know that on its own; a caller that mints version-*N+1* sessions
+      (not yet built) would be the one to stop passing an already-resolved
+      flip forward.
+    - `other_sessions_in_thread` is typically
+      `SessionRepository.list_sessions_for_research_question`'s result
+      (any subset containing `session` itself is harmless -- it is simply
+      never a match for "supersedes *this* session"). Used only to derive
+      `superseded_by_session_id`: the first other session, if any, whose
+      own `supersedes_session_id` equals `session.session_id`. At most one
+      is expected to match in practice (a thread's version-*N+1* session is
+      unique), but this does not itself validate that invariant.
+    """
+
+    superseded_by_session_id = next(
+        (
+            other.session_id
+            for other in other_sessions_in_thread
+            if other.session_id != session.session_id
+            and other.supersedes_session_id == session.session_id
+        ),
+        None,
+    )
+    return AnswerFreshness(
+        session_id=session.session_id,
+        research_question_id=session.research_question_id,
+        answer_version=session.answer_version,
+        status=session.status,
+        supersedes_session_id=session.supersedes_session_id,
+        superseded_by_session_id=superseded_by_session_id,
+        narrative_invalidated_at=session.narrative_invalidated_at,
+        rerun_recommended=rerun_recommended,
+        pending_flips=pending_flips,
+    )
+
+
 __all__ = [
     "DEFAULT_MAX_AGE_SECONDS",
+    "AnswerFreshness",
     "CandidateFreshnessDiff",
     "NarrativeFreshnessTriggerResult",
     "NarrativeTouchingFlip",
@@ -584,6 +714,7 @@ __all__ = [
     "ResearchFreshnessError",
     "apply_narrative_touching_flips",
     "assess_rerun_need",
+    "build_answer_freshness",
     "crosswalk_publication_status_flips",
     "diff_candidate_snapshots",
     "session_retrieval_dois",

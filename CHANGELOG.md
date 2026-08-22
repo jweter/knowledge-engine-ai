@@ -9,6 +9,44 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`AnswerFreshness` read-side projection (AI-FRD-5 / answer-session-
+  versioning).** `docs/roadmap/answer_session_versioning_design.md`'s
+  "What a caller (Web, later) sees when asking 'is this answer still
+  fresh'" sketch is now implemented: `copilot/research_freshness.py` gains
+  `AnswerFreshness` (`session_id`, `research_question_id`, `answer_version`,
+  `status`, `supersedes_session_id`, `superseded_by_session_id`,
+  `narrative_invalidated_at`, `rerun_recommended`, `pending_flips`, and a
+  `releaseable` property mirroring the design doc's two-field
+  `COMPLETED`-and-not-invalidated check) and `build_answer_freshness()`, a
+  pure read-side projection over already-fetched data -- the same "caller
+  owns the I/O" boundary `observability.build_session_trace` already
+  follows. `pending_flips` is typed as `NarrativeTouchingFlip` rather than
+  the design sketch's bare `PublicationStatusFlip`, keeping the
+  `doi`/`cited_evidence_record_ids` context a caller needs to explain *why*
+  a flip is pending. `superseded_by_session_id` is derived, not stored: no
+  session row points forward to whatever replaced it, so
+  `SessionRepository` gains `list_sessions_for_research_question()` to list
+  every session in one `research_question_id` thread, and
+  `build_answer_freshness` scans that list for a session naming this one as
+  its `supersedes_session_id`. `ke-ai session-freshness` is this
+  projection's first real caller: its text and `--format json` output now
+  include an "Answer freshness" section (`answer_version`, `status`,
+  `releaseable`, `pending_flips` count, and `narrative_invalidated_at`/
+  `superseded_by_session_id` when set), built from the session state
+  re-read *after* a possible `--apply` write so it reflects the
+  post-invalidation state, not the value read before this run started. 10
+  new tests (7 in `tests/copilot/test_research_freshness.py`, 2 in
+  `tests/sessions/test_repository.py`, 1 in
+  `tests/test_cli_session_freshness.py`, plus strengthened assertions in 3
+  pre-existing tests in that last file); full local quality gate clean via
+  `scripts/preflight.py` (418 tests total). No change to any existing function's signature, no
+  `ResearchSession`/`ResearchEvent` schema change, no new `ke` surface --
+  `knowledge-engine-web` is unaffected. Still does not mint a
+  version-*N+1* session or call `supersede_session()`, and still does not
+  decide *when* a freshness check runs automatically -- both remain the
+  design doc's own next continuation, along with the still-open
+  who/what/how-often policy question.
+
 - **`ke-ai session-freshness` (AI-FRD-5 / answer-session-versioning, first
   real end-to-end caller).** Every mechanism AI-FRD-5's remaining exit
   criteria need -- `assess_rerun_need`, `diff_candidate_snapshots`,

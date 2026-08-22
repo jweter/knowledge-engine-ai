@@ -110,6 +110,44 @@ def test_answer_version_and_supersedes_session_id_round_trip(
     assert fetched.supersedes_session_id == "session-1"
 
 
+def test_list_sessions_for_research_question_returns_thread_ordered_by_version(
+    repository: SessionRepository,
+) -> None:
+    repository.create_session(
+        _session(
+            session_id="session-2",
+            answer_version=2,
+            supersedes_session_id="session-1",
+            research_question_id="rq-abc123",
+            created_at="2026-08-10T00:00:00Z",
+        )
+    )
+    repository.create_session(
+        _session(
+            session_id="session-1",
+            answer_version=1,
+            research_question_id="rq-abc123",
+            status=SessionStatus.SUPERSEDED,
+            created_at="2026-08-09T00:00:00Z",
+        )
+    )
+    repository.create_session(
+        _session(session_id="session-other", research_question_id="rq-unrelated")
+    )
+
+    thread = repository.list_sessions_for_research_question("rq-abc123")
+
+    assert [session.session_id for session in thread] == ["session-1", "session-2"]
+
+
+def test_list_sessions_for_research_question_unknown_id_returns_empty(
+    repository: SessionRepository,
+) -> None:
+    repository.create_session(_session(research_question_id="rq-abc123"))
+
+    assert repository.list_sessions_for_research_question("rq-does-not-exist") == []
+
+
 def test_record_narrative_invalidation_sets_field_and_appends_event(
     repository: SessionRepository,
 ) -> None:
