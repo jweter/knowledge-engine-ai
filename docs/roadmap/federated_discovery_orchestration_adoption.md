@@ -28,6 +28,17 @@ provider choices.
 The matching Core plan is
 `knowledge-engine-core/docs/roadmap/federated_research_discovery_adoption.md`.
 
+**2026-08-22: AI-FRD-2's provider-coverage criterion implemented as a first
+bounded slice.** `run_research_question` attaches an optional
+(`required=False`) `discovery_coverage` ISA criterion whenever a caller
+supplies `discovery_policy`, evaluated from the same
+`DiscoveryAugmentationResult` AI-FRD-3/AI-FRD-4's wiring already produces
+and Core's own `completeness` field -- never a model claim, never a
+re-derivation of provider success/failure. See AI-FRD-2's own section below
+for the full account; contradiction-search/citation-integrity criteria
+already exist independently, and a correction/retraction close-gate
+criterion remains future work pending AI-FRD-5's session wiring.
+
 **2026-08-21: AI-FRD-5's rerun/diff reasoning implemented as a first bounded,
 tested, standalone slice.** `copilot/research_freshness.py`'s
 `assess_rerun_need()`/`diff_candidate_snapshots()` and the new
@@ -433,12 +444,46 @@ Exit criteria:
 Add deterministic close-gate criteria for provider coverage, contradiction
 search, citation integrity, and correction/retraction checks where relevant.
 
+**Status: first bounded slice implemented -- provider-coverage criterion
+only.** `run_research_question` attaches a fourth, optional
+(`required=False`) `discovery_coverage` `IdealStateCriterion` to the ISA
+whenever a caller supplies `discovery_policy` (omitted entirely otherwise,
+leaving the pre-existing three-criteria path unchanged). It is evaluated
+from the same `DiscoveryAugmentationResult` AI-FRD-3/AI-FRD-4's wiring
+already produces, reusing Core's own `completeness` field (already derived
+only from attempted providers, excluding disabled/skipped ones) rather than
+re-deriving provider success/failure locally. Contradiction-search,
+citation-integrity, and correction/retraction close-gate criteria are out
+of scope for this slice: contradiction review and citation integrity
+already have their own ISA criteria (`contradiction_review`,
+`citation_integrity`, both pre-existing); a correction/retraction close-gate
+criterion needs AI-FRD-5's rerun/diff reasoning wired into a session first
+(see AI-FRD-5's own "not yet started" exit criteria below) and remains
+future work.
+
 Exit criteria:
 
 - deliberately failed provider fixture blocks a "complete coverage" claim;
+  **met** -- `test_discovery_coverage_criterion_fails_on_failed_provider_without_blocking_close`
+  proves a rate-limited provider in a triggered discovery run reports the
+  `discovery_coverage` criterion `FAILED`, naming the specific provider and
+  Core's own recorded reason, never silently `PASSED`
 - synthesis can still proceed in degraded mode when policy permits, but the
-  limitation is explicit;
-- close gate never passes merely because the model says it searched broadly.
+  limitation is explicit; **met** -- the criterion is `required=False`, so a
+  `FAILED` `discovery_coverage` result never blocks `close_result.status`
+  from reaching `COMPLETED`, while still being visible on the session's own
+  ISA validation
+- close gate never passes merely because the model says it searched
+  broadly. **met** -- the criterion is a deterministic function of Core's
+  own recorded `provider_statuses`/`completeness`, never a model claim; it
+  is `NOT_APPLICABLE` (not a fabricated `PASSED`) when discovery was not
+  triggered this run at all
+- a coverage gap that policy chose not to address is distinguished from a
+  provider that was attempted and failed. **met** (2026-08-22 fix) --
+  `test_discovery_coverage_criterion_not_applicable_when_federated_discovery_disabled`
+  proves a triggered run with `enable_federated_discovery=False` reports
+  `NOT_APPLICABLE`, never a fabricated `FAILED` naming a provider that was
+  never attempted
 
 ### AI-FRD-3 -- Discovery-plan compiler
 

@@ -193,6 +193,7 @@ class DiscoveryAugmentationResult:
     evidence_record_coverage: int
     federated_discovery: FederatedDiscoveryResult | None = None
     federated_discovery_error: str | None = None
+    federated_discovery_attempted: bool = False
     citation_snowball_seed_dois: tuple[str, ...] = field(default_factory=tuple)
     citation_snowball: CitationSnowballResult | None = None
     citation_snowball_error: str | None = None
@@ -284,6 +285,7 @@ def evaluate_and_run_discovery_augmentation(
         evidence_record_coverage=coverage,
         federated_discovery=federated_result,
         federated_discovery_error=federated_error,
+        federated_discovery_attempted=policy.enable_federated_discovery,
         citation_snowball_seed_dois=seed_dois,
         citation_snowball=snowball_result,
         citation_snowball_error=snowball_error,
