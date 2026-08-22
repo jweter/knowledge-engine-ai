@@ -729,19 +729,39 @@ that requires deciding *when* a freshness check happens at all, which
 remains explicitly undecided product/policy work (see
 `answer_session_versioning_design.md`'s "What this does not do").
 
+**2026-08-22 (later still than that): `ke-ai session-freshness` is the first
+real caller of the full chain against an actual Research Session.** It
+loads a named session, reads its `research_question_id` and its own
+retrieval/synthesis event log, and composes
+`assess_rerun_need` -> `diff_candidate_snapshots` -> `session_retrieval_dois`
+-> `crosswalk_publication_status_flips` to report exactly which flips, if
+any, touch a claim that session actually cited -- split into invalidating
+versus qualifying. Read-only by default; `--apply` also calls
+`apply_narrative_touching_flips` to persist an invalidating flip. This is
+the on-demand, explicitly-invoked case, matching `ke-ai research-freshness`/
+`ke-ai discover`'s own "standalone CLI caller" precedent -- it does not
+itself decide *when* a freshness check should run (a scheduled job, a
+person, a Web page load), which remains open product/policy work, and it
+does not mint a version-*N+1* session. 10 new tests
+(`tests/test_cli_session_freshness.py`); full local quality gate clean via
+`scripts/preflight.py`. See `CHANGELOG.md`'s matching entry for the full
+account.
+
 Exit criteria:
 
 - new evidence is distinguished from previously seen evidence; **met** --
   `diff_candidate_snapshots()`, live-verified against the real `ke` binary
-- corrections/retractions can invalidate or qualify prior synthesis; **not
-  started** -- requires wiring this reasoning into a Research Session, which
-  this slice deliberately does not do; the wiring's design is now scoped in
-  `answer_session_versioning_design.md` (this directory). Every prerequisite
-  this needed is now implemented in isolation: `research_question_id`
-  threading, the repository-layer mechanics, the DOI crosswalk detection
-  layer, and the invalidates-versus-qualifies trigger itself (all
-  2026-08-22). What remains is only a caller that runs a real freshness
-  check for a real session and decides *when* to run one at all
+- corrections/retractions can invalidate or qualify prior synthesis;
+  **reasoning and a real caller both exist; not yet automatic.** Every
+  mechanism is now built and exercised end to end against a real session by
+  `ke-ai session-freshness --apply`: `research_question_id` threading, the
+  repository-layer mechanics, the DOI crosswalk detection layer, the
+  invalidates-versus-qualifies trigger, and now a caller that runs all of
+  it and persists an invalidating flip on request (all 2026-08-22). What
+  remains is only the decision of *when* a freshness check runs at all
+  (this command makes it possible on demand, not automatic) and the
+  `AnswerFreshness` read-side projection for a caller to consume the result
+  durably
 - prior answer text is never silently overwritten as if it had always been the
   updated answer. **not started** -- `answer_session_versioning_design.md`
   scopes the versioning concept this reasoning needs to attach to; the

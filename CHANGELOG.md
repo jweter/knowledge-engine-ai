@@ -9,6 +9,50 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`ke-ai session-freshness` (AI-FRD-5 / answer-session-versioning, first
+  real end-to-end caller).** Every mechanism AI-FRD-5's remaining exit
+  criteria need -- `assess_rerun_need`, `diff_candidate_snapshots`,
+  `session_retrieval_dois`, `crosswalk_publication_status_flips`, and
+  `apply_narrative_touching_flips` -- existed and was tested in isolation,
+  but nothing in this repository had ever called the full chain against a
+  real, durable `ResearchSession`. `cli.py` gains `session-freshness
+  SESSION_ID --ledger-root DIR [--session-db PATH] [--apply]
+  [--max-age-seconds N] [--format text|json]`: it loads the named session,
+  reads its `research_question_id` and its own retrieval/synthesis event
+  log, and composes the same chain `ke-ai research-freshness` already
+  exercises for a bare `research_question_id`, plus the two newer session-
+  aware steps -- `session_retrieval_dois()` over the session's own events,
+  then `crosswalk_publication_status_flips()` against the diff's
+  `newly_flagged` candidates and the session's persisted narrative -- to
+  report exactly which flips, if any, actually touch a claim this session
+  cited, split into what would invalidate (`retracted`/`withdrawn`) versus
+  qualify (`corrected`/`expression_of_concern`) it. Read-only by default:
+  every touching flip is reported but nothing is written to `--session-db`
+  unless `--apply` is passed, in which case `apply_narrative_touching_flips`
+  persists the first invalidating flip (idempotently -- a second `--apply`
+  run against an already-invalidated session reports that plainly and
+  writes nothing further) exactly as that function already guarantees.
+  Deliberately does not decide *when* a freshness check should run (still
+  an open product/policy question per the design doc's own "What this does
+  not do") or mint a version-*N+1* session (`supersede_session()` remains
+  uncalled) -- this is the on-demand, explicitly-invoked case, the same
+  "build the tested primitive, add a standalone CLI caller" precedent
+  `ke-ai research-freshness`/`ke-ai discover` already established, not an
+  automatic trigger. 10 new tests
+  (`tests/test_cli_session_freshness.py`); full local quality gate (ruff
+  format/check, mypy, pytest, pip-audit, git diff --check) clean via
+  `scripts/preflight.py`. No change to any existing function's signature,
+  no new `ke` surface, no `ResearchSession`/`ResearchEvent` schema change --
+  `knowledge-engine-web` is unaffected (it pins a specific
+  `knowledge-engine-ai` commit and never calls this module directly).
+  Next continuation, per the design doc's "Relationship to AI-FRD-5's exit
+  criteria": the `AnswerFreshness` read-side projection (now that a real
+  caller exists to populate its `pending_flips`/`narrative_invalidated_at`-
+  consuming fields meaningfully), and a caller that mints a version-*N+1*
+  session and calls `supersede_session()` on the prior version once it
+  reaches `COMPLETED` -- plus the still-open policy question of who/what
+  invokes `session-freshness` and how often.
+
 - **Invalidates-versus-qualifies trigger (AI-FRD-5 / answer-session-
   versioning, fourth wiring slice).** `copilot/research_freshness.py` gains
   `apply_narrative_touching_flips()` -- the trigger that decides what to do
