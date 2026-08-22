@@ -88,6 +88,32 @@ and it does not mint a version-*N+1* session. Still not implemented: the
 `AnswerFreshness` read-side projection, and the version-minting caller --
 see "What this does not do" below, updated to match.
 
+**2026-08-22 (later still than the `ke-ai session-freshness` session): the
+`AnswerFreshness` read-side projection is now implemented.**
+`copilot/research_freshness.py` gained `AnswerFreshness` and
+`build_answer_freshness()`, exactly as "What a caller (Web, later) sees
+when asking 'is this answer still fresh'" sketches below, with one
+deliberate deviation: `pending_flips` is typed as `NarrativeTouchingFlip`
+(the crosswalk's own richer result) rather than the sketch's bare
+`PublicationStatusFlip`, so a caller can explain *why* a flip is pending
+(its DOI and which cited evidence records it touches), not just that one
+exists. `superseded_by_session_id` needed a new read path --
+`SessionRepository.list_sessions_for_research_question()` -- since no
+session row stores a forward pointer to whatever replaced it; only the
+replacing session's own `supersedes_session_id` is ever written.
+`ke-ai session-freshness` is this projection's first real caller: its
+text and `--format json` output now include an "Answer freshness" section
+built from the session state re-read after a possible `--apply` write, so
+`releaseable`/`narrative_invalidated_at` reflect the post-invalidation
+state rather than what was read before that run started. 10 new tests
+(418 total pass); full local quality gate clean via
+`scripts/preflight.py`. Still not implemented: any caller that mints a
+version-*N+1* session (sets `answer_version`/`supersedes_session_id` at
+`create_session` time, calls `supersede_session()` once *N+1* reaches
+`COMPLETED`), and the still-open policy question of who/what triggers a
+freshness check and how often -- see "What this does not do" below,
+updated to match.
+
 This document scopes the answer/session-versioning concept that
 `docs/project-status.yaml`'s `next_continuation` names as a prerequisite for
 AI-FRD-5's remaining work: wiring `copilot/research_freshness.py`'s
@@ -743,13 +769,22 @@ Three honestly-distinguished states, never collapsed into one:
   invalidating flip. It answers "how would a caller run this chain," not
   "when should it run" -- see the next bullet. No change to
   `run_research_question.py` or `orchestrator/close_gate.py`.
+  **The `AnswerFreshness` read-side projection is implemented (2026-08-22,
+  later still) -- see the status header above.**
+  `copilot/research_freshness.py`'s `build_answer_freshness()` assembles it
+  from an already-fetched session, an already-computed
+  `RerunRecommendation`, already-crosswalked `NarrativeTouchingFlip`s, and
+  the other sessions in the same `research_question_id` thread (via the
+  new `SessionRepository.list_sessions_for_research_question()`).
+  `ke-ai session-freshness` is its first real caller, in both text and
+  `--format json` output.
   **Still not implemented: everything that decides *when* a freshness
   check happens automatically for a session (a scheduled job, a person, a
-  Web page load), the `AnswerFreshness` read-side projection, and any
-  caller that mints a version-*N+1* session** (setting
-  `answer_version`/`supersedes_session_id` at `create_session` time and
-  then calling `supersede_session()` on the prior version once *N+1*
-  reaches `COMPLETED`) -- these remain proposed only, not implemented.
+  Web page load), and any caller that mints a version-*N+1* session**
+  (setting `answer_version`/`supersedes_session_id` at `create_session`
+  time and then calling `supersede_session()` on the prior version once
+  *N+1* reaches `COMPLETED`) -- these remain proposed only, not
+  implemented.
 - **No SQLite schema migration for `research_question_id`/`answer_version`/
   `supersedes_session_id`/`narrative_invalidated_at`/`source_dois` was
   needed beyond the guarded `ALTER TABLE` additions already shipped**
@@ -802,19 +837,19 @@ section):
   a version-*N+1* session or calls it.
 
 The first exit criterion now has a real, tested, explicitly-invoked path
-end to end (`ke-ai session-freshness --apply`); it is not yet **met**
-because nothing decides *when* that path runs on its own, and the
-`AnswerFreshness` read-side projection a durable caller (e.g. a future Web
-page) would consume does not exist yet. The second exit criterion remains
-**not started** in code terms: `run_research_question.py`/
+end to end (`ke-ai session-freshness --apply`), and its own consumable
+read side (`AnswerFreshness`, implemented 2026-08-22, later still, with
+`ke-ai session-freshness` as its first caller); it is not yet **met**
+because nothing decides *when* that path runs on its own -- a durable
+caller (e.g. a future Web page, or a scheduled job) still has nothing to
+trigger it automatically. The second exit criterion remains **not
+started** in code terms: `run_research_question.py`/
 `orchestrator/close_gate.py` are unchanged, and no caller mints a
 version-*N+1* session or calls `supersede_session()`. The next small,
-coherent slice is either the `AnswerFreshness` read-side projection (now
-that `session-freshness` exists to populate its
-`pending_flips`/`narrative_invalidated_at`-consuming fields meaningfully)
-or the version-minting caller (mints a version-*N+1* session and calls
-`supersede_session()` on the prior version once *N+1* reaches
-`COMPLETED`) -- either can proceed independently of the other. The policy
-question of *when* a freshness check should run automatically (a
-scheduled job, a person, a Web page load) remains open and is not decided
-by this document -- see "What this does not do" above.
+coherent slice is the version-minting caller (mints a version-*N+1*
+session and calls `supersede_session()` on the prior version once *N+1*
+reaches `COMPLETED`) -- see "What this does not do" above's now-narrower
+remaining list. The policy question of *when* a freshness check should
+run automatically (a scheduled job, a person, a Web page load) remains
+open and is not decided by this document -- see "What this does not do"
+above.

@@ -202,6 +202,7 @@ def test_session_freshness_no_diff_with_a_single_recorded_run(
     body = _unwrapped(result.output)
     assert "no rerun needed" in body
     assert "Fewer than two recorded runs" in body
+    assert "Answer freshness: version 1, status=completed, releaseable=yes" in body
 
 
 def test_session_freshness_reports_invalidating_flip_without_persisting(
@@ -274,6 +275,11 @@ def test_session_freshness_apply_persists_invalidation(
 
     assert result.exit_code == 0, result.output
     assert "narrative_invalidated_at recorded" in result.output
+    # The Answer freshness section reflects the *post*-apply state, not the
+    # value read before `apply_narrative_touching_flips` ran.
+    body = _unwrapped(result.output)
+    assert "releaseable=no" in body
+    assert "narrative_invalidated_at:" in body
 
     repository = SessionRepository(new_connection(db_path))
     fetched = repository.get_session("session-1")
@@ -286,6 +292,7 @@ def test_session_freshness_apply_persists_invalidation(
     )
     assert result_again.exit_code == 0, result_again.output
     assert "already marked invalidated" in result_again.output
+    assert "releaseable=no" in _unwrapped(result_again.output)
 
 
 def test_session_freshness_qualifying_flip_is_never_persisted_even_with_apply(
@@ -375,6 +382,46 @@ def test_session_freshness_json_output(tmp_path: Path, monkeypatch: pytest.Monke
     assert payload["checked"] is True
     assert payload["diff"] is None
     assert payload["applied"] is False
+    assert payload["answer_freshness"] == {
+        "status": "completed",
+        "supersedes_session_id": None,
+        "superseded_by_session_id": None,
+        "narrative_invalidated_at": None,
+        "releaseable": True,
+        "pending_flip_count": 0,
+    }
+
+
+def test_session_freshness_answer_freshness_finds_superseded_by_session_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db_path = str(tmp_path / "sessions.db")
+    _seed_session(db_path, session_id="session-1", research_question_id="q-1")
+    repository = SessionRepository(new_connection(db_path))
+    repository.create_session(
+        ResearchSession(
+            schema_version=1,
+            session_id="session-2",
+            created_at="2026-08-15T00:00:00Z",
+            updated_at="2026-08-15T00:00:00Z",
+            user_question_original="Does semaglutide produce long-term weight loss?",
+            status=SessionStatus.COMPLETED,
+            research_question_id="q-1",
+            answer_version=2,
+            supersedes_session_id="session-1",
+        )
+    )
+    monkeypatch.setattr(
+        cli, "federated_discover_history", lambda rqid, **kwargs: _history(_coverage())
+    )
+
+    result = _invoke(
+        ["session-1", "--ledger-root", "/tmp/ledger", "--session-db", db_path, "--format", "json"]
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["answer_freshness"]["superseded_by_session_id"] == "session-2"
 
 
 def test_session_freshness_reports_ke_command_errors(

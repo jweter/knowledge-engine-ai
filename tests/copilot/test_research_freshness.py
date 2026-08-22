@@ -9,9 +9,11 @@ from knowledge_engine_ai.copilot.research_freshness import (
     DEFAULT_MAX_AGE_SECONDS,
     NarrativeTouchingFlip,
     PublicationStatusFlip,
+    RerunRecommendation,
     ResearchFreshnessError,
     apply_narrative_touching_flips,
     assess_rerun_need,
+    build_answer_freshness,
     crosswalk_publication_status_flips,
     diff_candidate_snapshots,
     session_retrieval_dois,
@@ -649,3 +651,105 @@ class TestApplyNarrativeTouchingFlips:
         fetched = repository.get_session("session-1")
         assert fetched is not None
         assert fetched.narrative_invalidated_at == result.narrative_invalidated_event.timestamp
+
+
+def _plain_session(**overrides: object) -> ResearchSession:
+    fields: dict[str, object] = {
+        "schema_version": 1,
+        "session_id": "session-1",
+        "created_at": "2026-08-09T00:00:00Z",
+        "updated_at": "2026-08-09T00:00:00Z",
+        "user_question_original": "Does semaglutide produce long-term weight loss?",
+        "status": SessionStatus.COMPLETED,
+        "research_question_id": "rq-abc123",
+    }
+    fields.update(overrides)
+    return ResearchSession(**fields)  # type: ignore[arg-type]
+
+
+def _no_rerun_recommendation() -> RerunRecommendation:
+    return RerunRecommendation(
+        recommended=False,
+        reason="fresh enough",
+        last_run=_coverage(),
+        age_seconds=10.0,
+    )
+
+
+class TestBuildAnswerFreshness:
+    def test_completed_session_with_no_flips_is_releaseable(self) -> None:
+        session = _plain_session()
+
+        freshness = build_answer_freshness(session, rerun_recommended=_no_rerun_recommendation())
+
+        assert freshness.session_id == "session-1"
+        assert freshness.research_question_id == "rq-abc123"
+        assert freshness.answer_version == 1
+        assert freshness.status is SessionStatus.COMPLETED
+        assert freshness.supersedes_session_id is None
+        assert freshness.superseded_by_session_id is None
+        assert freshness.narrative_invalidated_at is None
+        assert freshness.pending_flips == ()
+        assert freshness.releaseable is True
+
+    def test_narrative_invalidated_session_is_not_releaseable(self) -> None:
+        session = _plain_session(narrative_invalidated_at="2026-08-22T12:00:00Z")
+
+        freshness = build_answer_freshness(session, rerun_recommended=_no_rerun_recommendation())
+
+        assert freshness.narrative_invalidated_at == "2026-08-22T12:00:00Z"
+        assert freshness.releaseable is False
+
+    def test_non_completed_status_is_not_releaseable(self) -> None:
+        session = _plain_session(status=SessionStatus.RUNNING)
+
+        freshness = build_answer_freshness(session, rerun_recommended=_no_rerun_recommendation())
+
+        assert freshness.releaseable is False
+
+    def test_qualifying_pending_flip_leaves_releaseable_true(self) -> None:
+        session = _plain_session()
+        qualifying = _touching_flip("corrected")
+
+        freshness = build_answer_freshness(
+            session,
+            rerun_recommended=_no_rerun_recommendation(),
+            pending_flips=(qualifying,),
+        )
+
+        assert freshness.pending_flips == (qualifying,)
+        assert freshness.releaseable is True
+
+    def test_rerun_recommended_is_none_when_no_question_tracked(self) -> None:
+        session = _plain_session(research_question_id=None)
+
+        freshness = build_answer_freshness(session, rerun_recommended=None)
+
+        assert freshness.research_question_id is None
+        assert freshness.rerun_recommended is None
+
+    def test_superseded_by_session_id_found_from_thread(self) -> None:
+        session_v1 = _plain_session(session_id="session-1", status=SessionStatus.SUPERSEDED)
+        session_v2 = _plain_session(
+            session_id="session-2", answer_version=2, supersedes_session_id="session-1"
+        )
+
+        freshness = build_answer_freshness(
+            session_v1,
+            rerun_recommended=_no_rerun_recommendation(),
+            other_sessions_in_thread=(session_v1, session_v2),
+        )
+
+        assert freshness.superseded_by_session_id == "session-2"
+
+    def test_superseded_by_session_id_none_when_nothing_replaces_it(self) -> None:
+        session_v1 = _plain_session(session_id="session-1")
+        unrelated = _plain_session(session_id="session-99", supersedes_session_id="session-42")
+
+        freshness = build_answer_freshness(
+            session_v1,
+            rerun_recommended=_no_rerun_recommendation(),
+            other_sessions_in_thread=(session_v1, unrelated),
+        )
+
+        assert freshness.superseded_by_session_id is None

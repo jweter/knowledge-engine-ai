@@ -747,21 +747,37 @@ does not mint a version-*N+1* session. 10 new tests
 `scripts/preflight.py`. See `CHANGELOG.md`'s matching entry for the full
 account.
 
+**2026-08-22 (later still than that): the `AnswerFreshness` read-side
+projection is now implemented.** `copilot/research_freshness.py` gained
+`AnswerFreshness` (`session_id`, `research_question_id`, `answer_version`,
+`status`, `supersedes_session_id`, `superseded_by_session_id`,
+`narrative_invalidated_at`, `rerun_recommended`, `pending_flips`, and a
+`releaseable` property) and `build_answer_freshness()`, a pure projection
+over already-fetched data. `SessionRepository` gained
+`list_sessions_for_research_question()` so `superseded_by_session_id` can
+be derived (no session row stores a forward pointer to whatever replaced
+it). `ke-ai session-freshness` is the projection's first real caller: its
+text and `--format json` output now include an "Answer freshness" section,
+built from state re-read after a possible `--apply` write. 10 new tests
+(418 total pass); full local quality gate clean via `scripts/preflight.py`.
+See `CHANGELOG.md`'s matching entry for the full account.
+
 Exit criteria:
 
 - new evidence is distinguished from previously seen evidence; **met** --
   `diff_candidate_snapshots()`, live-verified against the real `ke` binary
 - corrections/retractions can invalidate or qualify prior synthesis;
-  **reasoning and a real caller both exist; not yet automatic.** Every
-  mechanism is now built and exercised end to end against a real session by
-  `ke-ai session-freshness --apply`: `research_question_id` threading, the
-  repository-layer mechanics, the DOI crosswalk detection layer, the
-  invalidates-versus-qualifies trigger, and now a caller that runs all of
-  it and persists an invalidating flip on request (all 2026-08-22). What
-  remains is only the decision of *when* a freshness check runs at all
-  (this command makes it possible on demand, not automatic) and the
-  `AnswerFreshness` read-side projection for a caller to consume the result
-  durably
+  **reasoning, a real caller, and its read-side projection all exist; not
+  yet automatic.** Every mechanism is now built and exercised end to end
+  against a real session by `ke-ai session-freshness --apply`:
+  `research_question_id` threading, the repository-layer mechanics, the
+  DOI crosswalk detection layer, the invalidates-versus-qualifies trigger,
+  a caller that runs all of it and persists an invalidating flip on
+  request, and now the `AnswerFreshness` projection that surfaces the
+  result (`releaseable`, `pending_flips`, `superseded_by_session_id`) for
+  a caller to consume without re-deriving it (all 2026-08-22). What
+  remains is only the decision of *when* a freshness check runs at all --
+  this command makes it possible on demand, not automatic
 - prior answer text is never silently overwritten as if it had always been the
   updated answer. **not started** -- `answer_session_versioning_design.md`
   scopes the versioning concept this reasoning needs to attach to; the
