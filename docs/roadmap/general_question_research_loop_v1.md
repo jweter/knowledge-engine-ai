@@ -237,11 +237,18 @@ The existing `research_question_id`, answer version, federated search history, a
 - [x] Core command/API contract accepts one persisted search run and bounded
   selected candidates -- `ke general-question-acquisition-plan` (Core's
   CORE-GQR-1/GQR-2, `docs/core_interface_contract.md`) shipped this on
-  Core's `main`, and this repository's `ke_client.py` now has
-  `general_question_acquisition_plan()`, the first AI-side wrapper that
-  reaches it. Nothing yet decides *when* to call it or wires it into
-  `run_research_question`'s own orchestration -- see this milestone's
-  own next continuation below.
+  Core's `main`, and this repository's `ke_client.py` has
+  `general_question_acquisition_plan()`, the AI-side wrapper that reaches
+  it. `copilot/discovery_policy.py`'s `FederatedDiscoveryPolicy` now also
+  has an opt-in `enable_acquisition_plan` toggle (default `False`) that
+  decides *when* to call it (right after a triggered federated-discovery
+  run returns its own candidates) and *which* candidates to call it with
+  (that run's own deduplicated candidate IDs, capped and bounded by
+  policy). This closes the "nothing decides when/which candidates" gap
+  this section previously named. Still not wired: no caller has opted a
+  real session into `enable_acquisition_plan=True` yet, and there is
+  nothing downstream that acts on an `eligible_full_text` disposition --
+  see the two items below, both still Core's own future work.
 - [x] resolve candidate identity and existing-paper reuse -- Core's
   planner reports `already_indexed` (with the matching `Paper.id`) via
   DOI/PMID/arXiv identity before any budget logic runs; the wrapper above

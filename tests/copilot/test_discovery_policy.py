@@ -15,6 +15,7 @@ from knowledge_engine_ai.ke_client import (
     CitationSnowballResult,
     FederatedCandidateSummary,
     FederatedDiscoveryResult,
+    GeneralQuestionAcquisitionPlanResult,
     KeCommandError,
 )
 from knowledge_engine_ai.models import EvidenceReport, EvidenceSummary, RetrievedPaper
@@ -132,6 +133,26 @@ def _federated_result(candidate_count: int = 1) -> FederatedDiscoveryResult:
     )
 
 
+def _acquisition_plan_result(
+    search_run_id: str = "run-xyz", research_question_id: str = "rq-abc123"
+) -> GeneralQuestionAcquisitionPlanResult:
+    return GeneralQuestionAcquisitionPlanResult(
+        schema_version=1,
+        search_run_id=search_run_id,
+        research_question_id=research_question_id,
+        query_text="q",
+        requested_candidate_count=1,
+        resolved_candidate_count=1,
+        already_indexed_count=0,
+        full_text_selected_count=1,
+        metadata_only_count=0,
+        skipped_budget_count=0,
+        missing_candidate_count=0,
+        provider_failures=(),
+        items=(),
+    )
+
+
 def _snowball_result(candidate_count: int = 1) -> CitationSnowballResult:
     return CitationSnowballResult(
         snowball_run_id="snowball-abc",
@@ -183,6 +204,40 @@ def test_policy_accepts_conservative_defaults(tmp_path: Path) -> None:
     )
     assert policy.enable_federated_discovery is True
     assert policy.enable_citation_snowball is True
+    # Issue #69 Stage 4: off by default, unlike the two toggles above --
+    # see FederatedDiscoveryPolicy's own docstring for why.
+    assert policy.enable_acquisition_plan is False
+    assert (
+        policy.acquisition_plan_max_candidates
+        == discovery_policy.DEFAULT_ACQUISITION_PLAN_MAX_CANDIDATES
+    )
+
+
+@pytest.mark.parametrize("max_candidates", [0, 101])
+def test_policy_rejects_an_out_of_range_acquisition_plan_max_candidates(
+    tmp_path: Path, max_candidates: int
+) -> None:
+    with pytest.raises(DiscoveryPolicyError, match="acquisition_plan_max_candidates"):
+        FederatedDiscoveryPolicy(
+            ledger_root=tmp_path, acquisition_plan_max_candidates=max_candidates
+        )
+
+
+def test_policy_rejects_acquisition_plan_full_text_above_max_candidates(tmp_path: Path) -> None:
+    with pytest.raises(DiscoveryPolicyError, match="acquisition_plan_max_full_text_acquisitions"):
+        FederatedDiscoveryPolicy(
+            ledger_root=tmp_path,
+            acquisition_plan_max_candidates=5,
+            acquisition_plan_max_full_text_acquisitions=6,
+        )
+
+
+@pytest.mark.parametrize("seconds", [0, -5, 121])
+def test_policy_rejects_an_invalid_acquisition_plan_max_elapsed_seconds(
+    tmp_path: Path, seconds: int
+) -> None:
+    with pytest.raises(DiscoveryPolicyError, match="acquisition_plan_max_elapsed_seconds"):
+        FederatedDiscoveryPolicy(ledger_root=tmp_path, acquisition_plan_max_elapsed_seconds=seconds)
 
 
 # --- Trigger evaluation -------------------------------------------------------
@@ -533,3 +588,266 @@ def test_exhausted_shared_execution_budget_is_recorded_not_raised(
     assert result.federated_discovery is None
     assert result.federated_discovery_error is not None
     assert "execution time limit" in result.federated_discovery_error
+
+
+# --- Acquisition plan (issue #69 Stage 4) -------------------------------------
+
+
+def test_acquisition_plan_not_attempted_when_disabled_by_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def _fail(*args: object, **kwargs: object) -> None:
+        raise AssertionError("Should not request an acquisition plan when disabled by policy.")
+
+    def fake_execute_discovery_plan(plan: object, **kwargs: object) -> FederatedDiscoveryResult:
+        return _federated_result(candidate_count=2)
+
+    monkeypatch.setattr(discovery_policy, "execute_discovery_plan", fake_execute_discovery_plan)
+    monkeypatch.setattr(discovery_policy, "citation_snowball", _fail)
+    monkeypatch.setattr(discovery_policy, "general_question_acquisition_plan", _fail)
+
+    report = _evidence_report([_paper("10.1/a")])
+    workflow_result = _workflow_result(evidence_report=report, primary_record_ids=frozenset())
+    policy = FederatedDiscoveryPolicy(
+        ledger_root=tmp_path,
+        min_evidence_record_coverage=3,
+        enable_citation_snowball=False,
+    )
+    repository = _repository_with_session()
+
+    result = evaluate_and_run_discovery_augmentation(
+        session_repository=repository,
+        session_id="sess-1",
+        workflow_result=workflow_result,
+        policy=policy,
+        execution_budget=None,
+        research_question_id="rq-abc123",
+    )
+
+    assert result.acquisition_plan is None
+    assert result.acquisition_plan_attempted is False
+    assert result.acquisition_plan_skipped_reason == (
+        "Acquisition-plan requests are disabled by policy."
+    )
+    assert "acquisition_plan" not in [e.workflow_node for e in repository.list_events("sess-1")]
+
+
+def test_acquisition_plan_skipped_without_federated_discovery_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def _fail(*args: object, **kwargs: object) -> None:
+        raise AssertionError("Should not request an acquisition plan with no federated result.")
+
+    def fake_execute_discovery_plan(plan: object, **kwargs: object) -> FederatedDiscoveryResult:
+        raise KeCommandError("ke federated-discover exited 1: sanitized message")
+
+    monkeypatch.setattr(discovery_policy, "execute_discovery_plan", fake_execute_discovery_plan)
+    monkeypatch.setattr(discovery_policy, "citation_snowball", _fail)
+    monkeypatch.setattr(discovery_policy, "general_question_acquisition_plan", _fail)
+
+    report = _evidence_report([_paper("10.1/a")])
+    workflow_result = _workflow_result(evidence_report=report, primary_record_ids=frozenset())
+    policy = FederatedDiscoveryPolicy(
+        ledger_root=tmp_path,
+        min_evidence_record_coverage=3,
+        enable_acquisition_plan=True,
+        enable_citation_snowball=False,
+    )
+    repository = _repository_with_session()
+
+    result = evaluate_and_run_discovery_augmentation(
+        session_repository=repository,
+        session_id="sess-1",
+        workflow_result=workflow_result,
+        policy=policy,
+        execution_budget=None,
+        research_question_id="rq-abc123",
+    )
+
+    assert result.acquisition_plan is None
+    assert result.acquisition_plan_attempted is False
+    assert "nothing to request an acquisition plan against" in (
+        result.acquisition_plan_skipped_reason or ""
+    )
+
+
+def test_acquisition_plan_skipped_with_no_candidates(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def _fail(*args: object, **kwargs: object) -> None:
+        raise AssertionError("Should not request an acquisition plan with no candidates.")
+
+    def fake_execute_discovery_plan(plan: object, **kwargs: object) -> FederatedDiscoveryResult:
+        return _federated_result(candidate_count=0)
+
+    monkeypatch.setattr(discovery_policy, "execute_discovery_plan", fake_execute_discovery_plan)
+    monkeypatch.setattr(discovery_policy, "citation_snowball", _fail)
+    monkeypatch.setattr(discovery_policy, "general_question_acquisition_plan", _fail)
+
+    report = _evidence_report([_paper("10.1/a")])
+    workflow_result = _workflow_result(evidence_report=report, primary_record_ids=frozenset())
+    policy = FederatedDiscoveryPolicy(
+        ledger_root=tmp_path,
+        min_evidence_record_coverage=3,
+        enable_acquisition_plan=True,
+        enable_citation_snowball=False,
+    )
+    repository = _repository_with_session()
+
+    result = evaluate_and_run_discovery_augmentation(
+        session_repository=repository,
+        session_id="sess-1",
+        workflow_result=workflow_result,
+        policy=policy,
+        execution_budget=None,
+        research_question_id="rq-abc123",
+    )
+
+    assert result.acquisition_plan is None
+    assert result.acquisition_plan_attempted is False
+    assert "returned no candidates" in (result.acquisition_plan_skipped_reason or "")
+
+
+def test_acquisition_plan_skipped_without_research_question_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def _fail(*args: object, **kwargs: object) -> None:
+        raise AssertionError("Should not request an acquisition plan with no research_question_id.")
+
+    def fake_execute_discovery_plan(plan: object, **kwargs: object) -> FederatedDiscoveryResult:
+        return _federated_result(candidate_count=2)
+
+    monkeypatch.setattr(discovery_policy, "execute_discovery_plan", fake_execute_discovery_plan)
+    monkeypatch.setattr(discovery_policy, "citation_snowball", _fail)
+    monkeypatch.setattr(discovery_policy, "general_question_acquisition_plan", _fail)
+
+    report = _evidence_report([_paper("10.1/a")])
+    workflow_result = _workflow_result(evidence_report=report, primary_record_ids=frozenset())
+    policy = FederatedDiscoveryPolicy(
+        ledger_root=tmp_path,
+        min_evidence_record_coverage=3,
+        enable_acquisition_plan=True,
+        enable_citation_snowball=False,
+    )
+    repository = _repository_with_session()
+
+    # No research_question_id supplied.
+    result = evaluate_and_run_discovery_augmentation(
+        session_repository=repository,
+        session_id="sess-1",
+        workflow_result=workflow_result,
+        policy=policy,
+        execution_budget=None,
+    )
+
+    assert result.acquisition_plan is None
+    assert result.acquisition_plan_attempted is False
+    assert "research_question_id" in (result.acquisition_plan_skipped_reason or "")
+
+
+def test_acquisition_plan_requested_with_this_runs_own_candidates_when_enabled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_execute_discovery_plan(plan: object, **kwargs: object) -> FederatedDiscoveryResult:
+        return _federated_result(candidate_count=3)
+
+    def fake_acquisition_plan(**kwargs: object) -> GeneralQuestionAcquisitionPlanResult:
+        captured.update(kwargs)
+        return _acquisition_plan_result()
+
+    monkeypatch.setattr(discovery_policy, "execute_discovery_plan", fake_execute_discovery_plan)
+    monkeypatch.setattr(discovery_policy, "citation_snowball", lambda *a, **k: _snowball_result())
+    monkeypatch.setattr(
+        discovery_policy, "general_question_acquisition_plan", fake_acquisition_plan
+    )
+
+    report = _evidence_report([_paper("10.1/a", rank=1)])
+    workflow_result = _workflow_result(
+        evidence_report=report, primary_record_ids=frozenset({"ev-1"})
+    )
+    policy = FederatedDiscoveryPolicy(
+        ledger_root=tmp_path / "ledger",
+        min_evidence_record_coverage=3,
+        enable_acquisition_plan=True,
+        acquisition_plan_max_candidates=2,
+        acquisition_plan_max_full_text_acquisitions=2,
+    )
+    repository = _repository_with_session()
+
+    result = evaluate_and_run_discovery_augmentation(
+        session_repository=repository,
+        session_id="sess-1",
+        workflow_result=workflow_result,
+        policy=policy,
+        execution_budget=None,
+        research_question_id="rq-abc123",
+    )
+
+    assert captured["search_run_id"] == "run-xyz"
+    assert captured["research_question_id"] == "rq-abc123"
+    # 3 discovered candidates, capped at acquisition_plan_max_candidates=2.
+    assert captured["candidate_ids"] == ("pubmed:0", "pubmed:1")
+    assert captured["max_candidates"] == 2
+
+    assert result.acquisition_plan is not None
+    assert result.acquisition_plan.search_run_id == "run-xyz"
+    assert result.acquisition_plan_attempted is True
+    assert result.acquisition_plan_error is None
+    assert result.acquisition_plan_skipped_reason is None
+
+    events = repository.list_events("sess-1")
+    workflow_nodes = [event.workflow_node for event in events]
+    assert "acquisition_plan" in workflow_nodes
+    acquisition_event = next(e for e in events if e.workflow_node == "acquisition_plan")
+    assert acquisition_event.validation_status == "succeeded"
+    assert acquisition_event.source_ids == ()  # a plan is still not an Evidence Record
+
+
+def test_acquisition_plan_failure_is_recorded_and_does_not_raise(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fake_execute_discovery_plan(plan: object, **kwargs: object) -> FederatedDiscoveryResult:
+        return _federated_result(candidate_count=1)
+
+    def fake_acquisition_plan(**kwargs: object) -> GeneralQuestionAcquisitionPlanResult:
+        raise KeCommandError("ke general-question-acquisition-plan exited 1: sanitized message")
+
+    monkeypatch.setattr(discovery_policy, "execute_discovery_plan", fake_execute_discovery_plan)
+    monkeypatch.setattr(discovery_policy, "citation_snowball", lambda *a, **k: _snowball_result())
+    monkeypatch.setattr(
+        discovery_policy, "general_question_acquisition_plan", fake_acquisition_plan
+    )
+
+    report = _evidence_report([_paper("10.1/a", rank=1)])
+    workflow_result = _workflow_result(
+        evidence_report=report, primary_record_ids=frozenset({"ev-1"})
+    )
+    policy = FederatedDiscoveryPolicy(
+        ledger_root=tmp_path, min_evidence_record_coverage=3, enable_acquisition_plan=True
+    )
+    repository = _repository_with_session()
+
+    result = evaluate_and_run_discovery_augmentation(
+        session_repository=repository,
+        session_id="sess-1",
+        workflow_result=workflow_result,
+        policy=policy,
+        execution_budget=None,
+        research_question_id="rq-abc123",
+    )
+
+    assert result.acquisition_plan is None
+    assert result.acquisition_plan_attempted is True
+    assert result.acquisition_plan_error == (
+        "ke general-question-acquisition-plan exited 1: sanitized message"
+    )
+    assert result.acquisition_plan_skipped_reason is None
+
+    events = repository.list_events("sess-1")
+    acquisition_event = next(e for e in events if e.workflow_node == "acquisition_plan")
+    assert acquisition_event.validation_status == "failed"
+    assert acquisition_event.notes == (
+        "ke general-question-acquisition-plan exited 1: sanitized message"
+    )
