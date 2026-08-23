@@ -1299,3 +1299,275 @@ def citation_snowball(
         return parse_citation_snowball_result(payload)
     except CitationSnowballParseError as exc:
         raise KeCommandError(str(exc)) from exc
+
+
+class GeneralQuestionAcquisitionParseError(RuntimeError):
+    """`ke general-question-acquisition-plan --output`'s JSON did not match the expected shape."""
+
+
+@dataclasses.dataclass(frozen=True)
+class GeneralQuestionAcquisitionIdentity:
+    """Provider-neutral identity facts Core preserved from the search snapshot."""
+
+    canonical_id: str
+    doi: str | None
+    pmid: str | None
+    pmcid: str | None
+    arxiv_id: str | None
+    openalex_id: str | None
+    semantic_scholar_id: str | None
+
+
+@dataclasses.dataclass(frozen=True)
+class GeneralQuestionAcquisitionItem:
+    """One Core-resolved candidate-selection result for a bounded acquisition plan.
+
+    ``disposition`` is one of Core's stable values (``already_indexed``,
+    ``eligible_full_text``, ``metadata_only``, ``skipped_budget``,
+    ``not_found_in_run``) -- acquisition eligibility, never scientific
+    support. AI does not reinterpret or re-rank this value.
+    """
+
+    candidate_id: str
+    title: str | None
+    disposition: str
+    identity: GeneralQuestionAcquisitionIdentity | None
+    selected_observation_provider: str | None
+    full_text_url: str | None
+    xml_url: str | None
+    license: str | None
+    open_access: bool | None
+    existing_paper_id: int | None
+    reason: str | None
+
+
+@dataclasses.dataclass(frozen=True)
+class GeneralQuestionAcquisitionPlanResult:
+    """One `ke general-question-acquisition-plan --output` response, fully parsed and typed.
+
+    Mirrors Core's ``GeneralQuestionAcquisitionPlan.to_dict()``
+    (`knowledge_engine/general_question_acquisition.py`) field for field. This
+    plans and reuses candidate resolution only -- it never implies a source
+    was downloaded, parsed, or promoted to an Evidence Record (Core's own
+    CORE-GQR-3/GQR-4 remain future work for that).
+    """
+
+    schema_version: int
+    search_run_id: str
+    research_question_id: str
+    query_text: str
+    requested_candidate_count: int
+    resolved_candidate_count: int
+    already_indexed_count: int
+    full_text_selected_count: int
+    metadata_only_count: int
+    skipped_budget_count: int
+    missing_candidate_count: int
+    provider_failures: tuple[str, ...]
+    items: tuple[GeneralQuestionAcquisitionItem, ...]
+
+
+def _parse_general_question_acquisition_identity(
+    payload: dict[str, Any] | None,
+) -> GeneralQuestionAcquisitionIdentity | None:
+    if payload is None:
+        return None
+    try:
+        return GeneralQuestionAcquisitionIdentity(
+            canonical_id=payload["canonical_id"],
+            doi=payload.get("doi"),
+            pmid=payload.get("pmid"),
+            pmcid=payload.get("pmcid"),
+            arxiv_id=payload.get("arxiv_id"),
+            openalex_id=payload.get("openalex_id"),
+            semantic_scholar_id=payload.get("semantic_scholar_id"),
+        )
+    except (KeyError, TypeError) as exc:
+        raise GeneralQuestionAcquisitionParseError(
+            "`ke general-question-acquisition-plan --output` payload has a malformed "
+            f"candidate identity: {exc}"
+        ) from exc
+
+
+def _parse_general_question_acquisition_item(
+    payload: dict[str, Any],
+) -> GeneralQuestionAcquisitionItem:
+    try:
+        return GeneralQuestionAcquisitionItem(
+            candidate_id=payload["candidate_id"],
+            title=payload.get("title"),
+            disposition=payload["disposition"],
+            identity=_parse_general_question_acquisition_identity(payload.get("identity")),
+            selected_observation_provider=payload.get("selected_observation_provider"),
+            full_text_url=payload.get("full_text_url"),
+            xml_url=payload.get("xml_url"),
+            license=payload.get("license"),
+            open_access=payload.get("open_access"),
+            existing_paper_id=payload.get("existing_paper_id"),
+            reason=payload.get("reason"),
+        )
+    except (KeyError, TypeError) as exc:
+        raise GeneralQuestionAcquisitionParseError(
+            f"`ke general-question-acquisition-plan --output` payload has a malformed item: {exc}"
+        ) from exc
+
+
+def parse_general_question_acquisition_plan_result(
+    payload: dict[str, Any],
+) -> GeneralQuestionAcquisitionPlanResult:
+    """Parse Core's `general-question-acquisition-plan --output` snapshot without guessing.
+
+    Every field this parses is required in Core's own
+    ``GeneralQuestionAcquisitionPlan.to_dict()`` output -- a missing field
+    raises rather than defaulting, the same strictness
+    ``parse_federated_discovery_result`` applies to its own required fields.
+    """
+
+    try:
+        schema_version = payload["schema_version"]
+        search_run_id = payload["search_run_id"]
+        research_question_id = payload["research_question_id"]
+        query_text = payload["query_text"]
+        requested_candidate_count = payload["requested_candidate_count"]
+        resolved_candidate_count = payload["resolved_candidate_count"]
+        already_indexed_count = payload["already_indexed_count"]
+        full_text_selected_count = payload["full_text_selected_count"]
+        metadata_only_count = payload["metadata_only_count"]
+        skipped_budget_count = payload["skipped_budget_count"]
+        missing_candidate_count = payload["missing_candidate_count"]
+        provider_failures = payload["provider_failures"]
+        raw_items = payload["items"]
+    except (KeyError, TypeError) as exc:
+        raise GeneralQuestionAcquisitionParseError(
+            "`ke general-question-acquisition-plan --output` payload is missing a required "
+            f"field: {exc}"
+        ) from exc
+
+    if not isinstance(raw_items, list):
+        raise GeneralQuestionAcquisitionParseError(
+            "`ke general-question-acquisition-plan --output` payload's `items` field is not a list."
+        )
+
+    items = tuple(_parse_general_question_acquisition_item(item) for item in raw_items)
+
+    return GeneralQuestionAcquisitionPlanResult(
+        schema_version=schema_version,
+        search_run_id=search_run_id,
+        research_question_id=research_question_id,
+        query_text=query_text,
+        requested_candidate_count=requested_candidate_count,
+        resolved_candidate_count=resolved_candidate_count,
+        already_indexed_count=already_indexed_count,
+        full_text_selected_count=full_text_selected_count,
+        metadata_only_count=metadata_only_count,
+        skipped_budget_count=skipped_budget_count,
+        missing_candidate_count=missing_candidate_count,
+        provider_failures=tuple(provider_failures),
+        items=items,
+    )
+
+
+def general_question_acquisition_plan(
+    *,
+    search_run_id: str,
+    research_question_id: str,
+    candidate_ids: tuple[str, ...],
+    ledger_root: Path,
+    max_candidates: int = 10,
+    max_full_text_acquisitions: int = 5,
+    max_elapsed_seconds: int = 120,
+    allow_metadata_only: bool = True,
+    no_database: bool = False,
+    ke_executable: str = "ke",
+    execution_budget: ExecutionBudget | None = None,
+) -> GeneralQuestionAcquisitionPlanResult:
+    """Run `ke general-question-acquisition-plan --output <tmp>` and return the parsed result.
+
+    The first `ke_client` wrapper for Core's CORE-GQR-1/GQR-2 acquisition-plan
+    command (`docs/general_question_research_loop_v1.md`,
+    `docs/core_interface_contract.md`) -- the reachable path
+    `knowledge-engine-ai` issue #69's Stage 4 (candidate triage and
+    acquisition) names as its bridge into Core. Unlike the other commands
+    wrapped in this module, Core's command takes its request as a JSON
+    *file* argument (``GeneralQuestionAcquisitionRequest.from_json``), not
+    flags -- this wrapper writes that request to a private temporary file
+    alongside the usual ``--output`` snapshot file, runs the command, parses
+    the result, and discards both files; the caller only sees the typed
+    result.
+
+    Every returned item's ``disposition`` describes acquisition eligibility
+    only -- ``eligible_full_text`` never means a source was actually
+    acquired, parsed, or promoted to an Evidence Record. Core's own
+    CORE-GQR-3 (acquisition routing) and CORE-GQR-4 (persist and parse)
+    remain future work; this wrapper only reaches the planning command that
+    already exists today. Deliberately just the subprocess/parse boundary,
+    the same division `citation_snowball` and `federated_discover` use:
+    nothing here decides *when* to request a plan, selects candidate IDs, or
+    wires this into `run_research_question`'s own orchestration -- that
+    remains future work for issue #69.
+
+    ``no_database=True`` forwards Core's ``--no-database`` flag, skipping the
+    already-indexed lookup against the local corpus and reporting every
+    resolved candidate purely against the search-run snapshot. Raises
+    `KeCommandError` on command or contract failure and never returns a
+    partial or guessed result.
+    """
+
+    request_payload: dict[str, Any] = {
+        "schema_version": 1,
+        "search_run_id": search_run_id,
+        "research_question_id": research_question_id,
+        "candidate_ids": list(candidate_ids),
+        "max_candidates": max_candidates,
+        "max_full_text_acquisitions": max_full_text_acquisitions,
+        "max_elapsed_seconds": max_elapsed_seconds,
+        "allow_metadata_only": allow_metadata_only,
+    }
+
+    with tempfile.TemporaryDirectory(prefix="ke-general-question-acquisition-plan-") as scratch_dir:
+        request_path = Path(scratch_dir) / "request.json"
+        output_path = Path(scratch_dir) / "result.json"
+        request_path.write_text(json.dumps(request_payload), encoding="utf-8")
+
+        command = [
+            _resolve_ke_executable(ke_executable),
+            "general-question-acquisition-plan",
+            str(request_path),
+            "--ledger-root",
+            str(ledger_root),
+            "--output",
+            str(output_path),
+        ]
+        if no_database:
+            command.append("--no-database")
+
+        try:
+            result = _run_ke_command(
+                command,
+                operation="ke general-question-acquisition-plan",
+                execution_budget=execution_budget,
+            )
+        except FileNotFoundError as exc:
+            raise KeCommandError(
+                f"Could not run {ke_executable!r} -- "
+                "is knowledge-engine-core installed and on PATH?"
+            ) from exc
+
+        if result.returncode != 0:
+            message = result.stderr.strip() or result.stdout.strip()
+            raise KeCommandError(
+                f"`ke general-question-acquisition-plan` exited {result.returncode}: {message}"
+            )
+
+        try:
+            payload = json.loads(output_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise KeCommandError(
+                "`ke general-question-acquisition-plan` did not write a readable JSON output "
+                f"file: {exc}"
+            ) from exc
+
+    try:
+        return parse_general_question_acquisition_plan_result(payload)
+    except GeneralQuestionAcquisitionParseError as exc:
+        raise KeCommandError(str(exc)) from exc

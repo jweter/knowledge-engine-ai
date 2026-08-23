@@ -234,11 +234,27 @@ The existing `research_question_id`, answer version, federated search history, a
 - [ ] tests with clinical, chemistry, physics, ML, and general-biology questions.
 
 ### GQR-3 - Core acquisition bridge
-- [ ] Core command/API contract accepts one persisted search run and bounded selected candidates;
-- [ ] resolve candidate identity and existing-paper reuse;
-- [ ] use existing PMC/Europe PMC/Unpaywall/CORE acquisition capabilities where applicable;
-- [ ] persist structured acquisition receipts;
-- [ ] no silent download of non-permitted full text.
+- [x] Core command/API contract accepts one persisted search run and bounded
+  selected candidates -- `ke general-question-acquisition-plan` (Core's
+  CORE-GQR-1/GQR-2, `docs/core_interface_contract.md`) shipped this on
+  Core's `main`, and this repository's `ke_client.py` now has
+  `general_question_acquisition_plan()`, the first AI-side wrapper that
+  reaches it. Nothing yet decides *when* to call it or wires it into
+  `run_research_question`'s own orchestration -- see this milestone's
+  own next continuation below.
+- [x] resolve candidate identity and existing-paper reuse -- Core's
+  planner reports `already_indexed` (with the matching `Paper.id`) via
+  DOI/PMID/arXiv identity before any budget logic runs; the wrapper above
+  parses that disposition and identity verbatim.
+- [ ] use existing PMC/Europe PMC/Unpaywall/CORE acquisition capabilities
+  where applicable -- Core's own CORE-GQR-3 (acquisition routing),
+  not started.
+- [ ] persist structured acquisition receipts -- Core's own CORE-GQR-4
+  (persist and parse), not started.
+- [ ] no silent download of non-permitted full text -- not yet
+  meaningfully testable end-to-end: no code path downloads anything yet
+  (the plan command never fetches full text itself), so this remains
+  open until CORE-GQR-3/GQR-4 exist to violate or honor it.
 
 ### GQR-4 - Automatic grounded extraction
 - [ ] parse newly acquired paper;

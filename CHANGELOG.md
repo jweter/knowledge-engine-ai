@@ -9,6 +9,38 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **`ke_client` wrapper for Core's general-question acquisition plan
+  (issue #69 Stage 4 / CORE-GQR-1/GQR-2).** `general_question_acquisition_plan()`
+  is the first `ke_client` surface for `knowledge-engine-core`'s `ke
+  general-question-acquisition-plan` command
+  (`docs/general_question_research_loop_v1.md`,
+  `docs/core_interface_contract.md`), which already exists on `main` today
+  and does not depend on Core's still-unmerged pmid/arxiv_id-at-ingestion
+  continuation. Unlike the other commands this module wraps, Core's command
+  takes its request as a JSON *file* argument, not flags, so this wrapper
+  writes a `GeneralQuestionAcquisitionRequest` to a private temporary file
+  alongside the usual `--output` snapshot file, runs the command, parses
+  the typed `GeneralQuestionAcquisitionPlanResult` (schema version, budget
+  reconciliation counts, and one `GeneralQuestionAcquisitionItem` per
+  resolved candidate with its `disposition`, identity, and selected
+  observation), and discards both files. `no_database=True` forwards
+  Core's `--no-database` flag. Every returned `disposition`
+  (`already_indexed`/`eligible_full_text`/`metadata_only`/
+  `skipped_budget`/`not_found_in_run`) describes acquisition eligibility
+  only -- it never means a source was actually acquired, parsed, or
+  promoted to an Evidence Record; Core's own CORE-GQR-3 (acquisition
+  routing) and CORE-GQR-4 (persist and parse) remain future work. This is
+  deliberately just the subprocess/parse boundary, the same division
+  `citation_snowball` and `federated_discover` already established:
+  nothing here decides when to request a plan, selects candidate IDs, or
+  wires this into `run_research_question`'s own orchestration -- that
+  remains issue #69's own next continuation. 12 new tests in
+  `tests/test_ke_client.py`; full local quality gate (ruff format --check,
+  ruff check, mypy, pytest, pip-audit, git diff --check) passed via
+  `scripts/preflight.py` (437 tests total, 425 pre-existing plus 12 new).
+  No schema change, no new `ke` surface on Core's side (the command already
+  shipped) -- `knowledge-engine-web` is unaffected.
+
 - **Version-minting caller (AI-FRD-5 / answer-session-versioning).**
   `docs/roadmap/answer_session_versioning_design.md`'s own "next small,
   coherent slice" -- a caller that mints a version-*N+1* session and

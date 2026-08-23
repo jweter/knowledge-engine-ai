@@ -14,6 +14,7 @@ from knowledge_engine_ai.ke_client import (
     FederatedDiscoverHistoryParseError,
     FederatedDiscoveryParseError,
     FederatedProviderObservationFlags,
+    GeneralQuestionAcquisitionParseError,
     KeCommandError,
     citation_snowball,
     enriched_evidence_report,
@@ -23,10 +24,12 @@ from knowledge_engine_ai.ke_client import (
     federated_coverage_report,
     federated_discover,
     federated_discover_history,
+    general_question_acquisition_plan,
     parse_citation_snowball_result,
     parse_federated_coverage_report_result,
     parse_federated_discover_history_result,
     parse_federated_discovery_result,
+    parse_general_question_acquisition_plan_result,
     statistical_verify,
 )
 
@@ -1542,5 +1545,289 @@ def test_citation_snowball_never_uses_a_shell(
     citation_snowball(("doi:10.1000/seed",), ledger_root=tmp_path / "ledger")
 
     assert "shell" not in captured_kwargs or captured_kwargs["shell"] is False
+
+    assert captured_kwargs.get("shell", False) is False
+
+
+_VALID_GENERAL_QUESTION_ACQUISITION_PLAN_PAYLOAD = {
+    "schema_version": 1,
+    "search_run_id": "33333333-3333-3333-3333-333333333333",
+    "research_question_id": "creatine-strength-thread",
+    "query_text": "creatine supplementation maximal strength",
+    "requested_candidate_count": 2,
+    "resolved_candidate_count": 2,
+    "already_indexed_count": 0,
+    "full_text_selected_count": 1,
+    "metadata_only_count": 1,
+    "skipped_budget_count": 0,
+    "missing_candidate_count": 0,
+    "provider_failures": [],
+    "items": [
+        {
+            "candidate_id": "doi:10.1000/creatine-1",
+            "title": "Creatine and maximal strength",
+            "disposition": "eligible_full_text",
+            "identity": {
+                "canonical_id": "doi:10.1000/creatine-1",
+                "doi": "10.1000/creatine-1",
+                "pmid": "12345",
+                "pmcid": None,
+                "arxiv_id": None,
+                "openalex_id": None,
+                "semantic_scholar_id": None,
+            },
+            "selected_observation_provider": "pubmed",
+            "full_text_url": "https://example.org/creatine-1.pdf",
+            "xml_url": None,
+            "license": "CC BY",
+            "open_access": True,
+            "existing_paper_id": None,
+            "reason": None,
+        },
+        {
+            "candidate_id": "doi:10.1000/creatine-2",
+            "title": "A second creatine trial",
+            "disposition": "metadata_only",
+            "identity": {
+                "canonical_id": "doi:10.1000/creatine-2",
+                "doi": "10.1000/creatine-2",
+                "pmid": None,
+                "pmcid": None,
+                "arxiv_id": None,
+                "openalex_id": None,
+                "semantic_scholar_id": None,
+            },
+            "selected_observation_provider": "crossref",
+            "full_text_url": None,
+            "xml_url": None,
+            "license": None,
+            "open_access": None,
+            "existing_paper_id": None,
+            "reason": "no_eligible_open_full_text_location",
+        },
+    ],
+}
+
+
+def test_parse_general_question_acquisition_plan_result_parses_a_valid_payload() -> None:
+    result = parse_general_question_acquisition_plan_result(
+        _VALID_GENERAL_QUESTION_ACQUISITION_PLAN_PAYLOAD
+    )
+
+    assert result.search_run_id == "33333333-3333-3333-3333-333333333333"
+    assert result.research_question_id == "creatine-strength-thread"
+    assert result.requested_candidate_count == 2
+    assert result.full_text_selected_count == 1
+    assert result.metadata_only_count == 1
+    assert result.provider_failures == ()
+    assert len(result.items) == 2
+
+    first = result.items[0]
+    assert first.candidate_id == "doi:10.1000/creatine-1"
+    assert first.disposition == "eligible_full_text"
+    assert first.identity is not None
+    assert first.identity.doi == "10.1000/creatine-1"
+    assert first.identity.pmid == "12345"
+
+    second = result.items[1]
+    assert second.disposition == "metadata_only"
+    assert second.reason == "no_eligible_open_full_text_location"
+
+
+def test_parse_general_question_acquisition_plan_result_handles_a_null_identity() -> None:
+    payload = {
+        **_VALID_GENERAL_QUESTION_ACQUISITION_PLAN_PAYLOAD,
+        "items": [
+            {
+                "candidate_id": "doi:10.1000/missing",
+                "title": None,
+                "disposition": "not_found_in_run",
+                "identity": None,
+                "selected_observation_provider": None,
+                "full_text_url": None,
+                "xml_url": None,
+                "license": None,
+                "open_access": None,
+                "existing_paper_id": None,
+                "reason": "candidate_not_present_in_persisted_search_snapshot",
+            }
+        ],
+    }
+
+    result = parse_general_question_acquisition_plan_result(payload)
+
+    assert result.items[0].identity is None
+    assert result.items[0].disposition == "not_found_in_run"
+
+
+def test_parse_general_question_acquisition_plan_result_raises_on_a_missing_field() -> None:
+    payload = dict(_VALID_GENERAL_QUESTION_ACQUISITION_PLAN_PAYLOAD)
+    del payload["search_run_id"]
+
+    with pytest.raises(GeneralQuestionAcquisitionParseError):
+        parse_general_question_acquisition_plan_result(payload)
+
+
+def test_parse_general_question_acquisition_plan_result_raises_on_a_malformed_item() -> None:
+    payload = {
+        **_VALID_GENERAL_QUESTION_ACQUISITION_PLAN_PAYLOAD,
+        "items": [{"title": "missing candidate_id"}],
+    }
+
+    with pytest.raises(GeneralQuestionAcquisitionParseError):
+        parse_general_question_acquisition_plan_result(payload)
+
+
+def test_general_question_acquisition_plan_runs_the_expected_command_and_parses_the_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run(command: list[str], **kwargs: object) -> _FakeCompletedProcess:
+        captured["command"] = command
+        request_index = command.index("general-question-acquisition-plan") + 1
+        request_payload = json.loads(Path(command[request_index]).read_text(encoding="utf-8"))
+        captured["request_payload"] = request_payload
+        output_index = command.index("--output") + 1
+        Path(command[output_index]).write_text(
+            json.dumps(_VALID_GENERAL_QUESTION_ACQUISITION_PLAN_PAYLOAD), encoding="utf-8"
+        )
+        return _FakeCompletedProcess(0, "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    ledger_root = tmp_path / "ledger"
+
+    result = general_question_acquisition_plan(
+        search_run_id="33333333-3333-3333-3333-333333333333",
+        research_question_id="creatine-strength-thread",
+        candidate_ids=("doi:10.1000/creatine-1", "doi:10.1000/creatine-2"),
+        ledger_root=ledger_root,
+        max_candidates=5,
+        max_full_text_acquisitions=2,
+    )
+
+    assert result.search_run_id == "33333333-3333-3333-3333-333333333333"
+    assert len(result.items) == 2
+
+    command = captured["command"]
+    assert isinstance(command, list)
+    assert command[1] == "general-question-acquisition-plan"
+    assert "--ledger-root" in command and command[command.index("--ledger-root") + 1] == str(
+        ledger_root
+    )
+    assert "--no-database" not in command
+
+    request_payload = captured["request_payload"]
+    assert isinstance(request_payload, dict)
+    assert request_payload["schema_version"] == 1
+    assert request_payload["search_run_id"] == "33333333-3333-3333-3333-333333333333"
+    assert request_payload["candidate_ids"] == [
+        "doi:10.1000/creatine-1",
+        "doi:10.1000/creatine-2",
+    ]
+    assert request_payload["max_candidates"] == 5
+    assert request_payload["max_full_text_acquisitions"] == 2
+
+
+def test_general_question_acquisition_plan_forwards_no_database(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run(command: list[str], **kwargs: object) -> _FakeCompletedProcess:
+        captured["command"] = command
+        output_index = command.index("--output") + 1
+        Path(command[output_index]).write_text(
+            json.dumps(_VALID_GENERAL_QUESTION_ACQUISITION_PLAN_PAYLOAD), encoding="utf-8"
+        )
+        return _FakeCompletedProcess(0, "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    general_question_acquisition_plan(
+        search_run_id="run-1",
+        research_question_id="thread-1",
+        candidate_ids=("doi:10.1000/creatine-1",),
+        ledger_root=tmp_path / "ledger",
+        no_database=True,
+    )
+
+    command = captured["command"]
+    assert isinstance(command, list)
+    assert "--no-database" in command
+
+
+def test_general_question_acquisition_plan_raises_on_a_nonzero_exit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fake_run(command: list[str], **kwargs: object) -> _FakeCompletedProcess:
+        return _FakeCompletedProcess(1, "", "boom")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    with pytest.raises(KeCommandError, match="exited 1"):
+        general_question_acquisition_plan(
+            search_run_id="run-1",
+            research_question_id="thread-1",
+            candidate_ids=("doi:10.1000/creatine-1",),
+            ledger_root=tmp_path / "ledger",
+        )
+
+
+def test_general_question_acquisition_plan_raises_when_the_output_file_is_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fake_run(command: list[str], **kwargs: object) -> _FakeCompletedProcess:
+        return _FakeCompletedProcess(0, "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    with pytest.raises(KeCommandError, match="did not write a readable JSON output file"):
+        general_question_acquisition_plan(
+            search_run_id="run-1",
+            research_question_id="thread-1",
+            candidate_ids=("doi:10.1000/creatine-1",),
+            ledger_root=tmp_path / "ledger",
+        )
+
+
+def test_general_question_acquisition_plan_raises_a_clear_error_when_ke_is_not_installed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fake_run(command: list[str], **kwargs: object) -> _FakeCompletedProcess:
+        raise FileNotFoundError("ke")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    with pytest.raises(KeCommandError, match="is knowledge-engine-core installed"):
+        general_question_acquisition_plan(
+            search_run_id="run-1",
+            research_question_id="thread-1",
+            candidate_ids=("doi:10.1000/creatine-1",),
+            ledger_root=tmp_path / "ledger",
+        )
+
+
+def test_general_question_acquisition_plan_never_uses_a_shell(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured_kwargs: dict[str, object] = {}
+
+    def fake_run(command: list[str], **kwargs: object) -> _FakeCompletedProcess:
+        captured_kwargs.update(kwargs)
+        output_index = command.index("--output") + 1
+        Path(command[output_index]).write_text(
+            json.dumps(_VALID_GENERAL_QUESTION_ACQUISITION_PLAN_PAYLOAD), encoding="utf-8"
+        )
+        return _FakeCompletedProcess(0, "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    general_question_acquisition_plan(
+        search_run_id="run-1",
+        research_question_id="thread-1",
+        candidate_ids=("doi:10.1000/creatine-1",),
+        ledger_root=tmp_path / "ledger",
+    )
 
     assert captured_kwargs.get("shell", False) is False
