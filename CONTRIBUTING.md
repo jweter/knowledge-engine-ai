@@ -15,7 +15,7 @@ the project still being healthy in 10 years.
 2. Create a branch from `main`.
 3. Make a focused change.
 4. Add or update tests.
-5. Run the quality checks.
+5. Run the repository preflight.
 6. Open a pull request.
 
 After the initial bootstrap, avoid committing directly to `main`. Use feature
@@ -40,16 +40,19 @@ Use Conventional Commits:
 - `test: cover a malformed JSON response`
 - `chore: bump knowledge-engine-core pin`
 
-## Quality Checks
+## Quality Preflight
 
-Run these before opening a pull request:
+Before opening or updating a Python pull request, normalize and validate it with:
 
 ```bash
-poetry run ruff format --check .
-poetry run ruff check .
-poetry run mypy knowledge_engine_ai tests
-poetry run pytest
+poetry install
+poetry run python scripts/preflight.py --fix
 ```
+
+The preflight applies only Ruff's safe fixes, formats the tree, then reruns the
+complete check-only sequence enforced by CI: Ruff format, Ruff lint, strict mypy,
+pytest, pip-audit, and `git diff --check`. CI remains authoritative; do not weaken
+or suppress a gate to make the preflight pass.
 
 ## Code Style
 
