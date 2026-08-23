@@ -9,6 +9,48 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Acquisition-plan orchestration wiring (issue #69 Stage 4, second
+  slice).** `copilot/discovery_policy.py`'s `FederatedDiscoveryPolicy`
+  gains a new opt-in toggle, `enable_acquisition_plan` (default `False`),
+  plus `acquisition_plan_max_candidates`/`acquisition_plan_max_full_text_acquisitions`/
+  `acquisition_plan_max_elapsed_seconds`/`acquisition_plan_allow_metadata_only`
+  bounds. When turned on, `evaluate_and_run_discovery_augmentation` now
+  decides *when* to request a bounded Core acquisition plan and *which*
+  candidates to request it for -- the two gaps the prior session's
+  `ke_client.general_question_acquisition_plan()` wrapper (below) left
+  open: after a triggered federated-discovery run returns its own
+  candidates, this module requests a plan for that run's `search_run_id`
+  and deduplicated candidate IDs (capped at
+  `acquisition_plan_max_candidates`), gated on a `research_question_id`
+  also being available (Core's command requires one). Skipped, with an
+  explicit inspectable reason and no subprocess call, when disabled by
+  policy, when federated discovery did not run or returned no candidates,
+  or when no `research_question_id` is available. The outcome is recorded
+  as its own durable `ResearchEvent` (`acquisition_plan` workflow node,
+  never writing into `source_ids` -- a plan is still not an Evidence
+  Record) and surfaced on `DiscoveryAugmentationResult.acquisition_plan`/
+  `.acquisition_plan_error`/`.acquisition_plan_attempted`/
+  `.acquisition_plan_skipped_reason`, reachable end-to-end from
+  `ResearchQuestionResult.discovery`. `enable_acquisition_plan` defaults
+  to `False` (unlike `enable_federated_discovery`/`enable_citation_snowball`,
+  both `True`) since no caller has yet opted a real session into this
+  distinct, newer GQR-track capability -- every existing
+  `FederatedDiscoveryPolicy` caller is unaffected until it explicitly
+  turns this on. Still only a *plan*: Core's own CORE-GQR-3 (acquisition
+  routing) and CORE-GQR-4 (persist and parse) remain not started, so no
+  `eligible_full_text` disposition here implies a source was actually
+  acquired or promoted to an Evidence Record. 12 new tests in
+  `tests/copilot/test_discovery_policy.py` (449 tests total, 437
+  pre-existing plus 12 new); full local quality gate (ruff format --check,
+  ruff check, mypy, pytest, pip-audit, git diff --check) passed via
+  `scripts/preflight.py`. No schema change; `knowledge-engine-web` is
+  unaffected (no caller opts into `enable_acquisition_plan` yet). Next
+  continuation for this track: no code path acquires the `eligible_full_text`
+  candidates this plan names, since Core's CORE-GQR-3/GQR-4 remain future
+  work -- once those land, wiring an actual acquisition-invoking caller
+  (and deciding when to turn `enable_acquisition_plan` on for a real
+  session) becomes the next slice.
+
 - **`ke_client` wrapper for Core's general-question acquisition plan
   (issue #69 Stage 4 / CORE-GQR-1/GQR-2).** `general_question_acquisition_plan()`
   is the first `ke_client` surface for `knowledge-engine-core`'s `ke

@@ -102,6 +102,16 @@ sub-step rather than duplicating the session-creation/workflow/synthesis/
 close-gate composition here. `narrative_invalidated_at` and the crosswalk/
 rerun-trigger wiring the design doc also scopes remain, as before, owned by
 `copilot.research_freshness`.
+
+Issue #69 Stage 4 (candidate triage and acquisition): `discovery_policy.py`
+now also decides *when* to request a bounded Core acquisition plan for a
+triggered federated-discovery run's own candidates
+(`FederatedDiscoveryPolicy.enable_acquisition_plan`, default `False` --
+see that module's own docstring). This module does not call the
+acquisition-plan wrapper directly; it surfaces the outcome unchanged on
+`ResearchQuestionResult.discovery.acquisition_plan` alongside the existing
+`federated_discovery`/`citation_snowball` fields, the same way it already
+surfaces every other `DiscoveryAugmentationResult` field.
 """
 
 from __future__ import annotations
