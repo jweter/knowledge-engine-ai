@@ -1613,6 +1613,7 @@ def parse_general_question_pmc_persistence_result(
 ) -> GeneralQuestionPmcPersistenceResult:
     """Parse Core's persistence receipt strictly, preserving every lineage identifier."""
 
+    receipt_contract = "`ke general-question-acquire-pmc --receipt` payload"
     try:
         raw_items = payload["items"]
         schema_version = payload["schema_version"]
@@ -1625,12 +1626,12 @@ def parse_general_question_pmc_persistence_result(
         reused_count = payload["reused_count"]
     except (KeyError, TypeError) as exc:
         raise GeneralQuestionPmcPersistenceParseError(
-            f"`ke general-question-acquire-pmc --receipt` payload is missing a required field: {exc}"
+            f"{receipt_contract} is missing a required field: {exc}"
         ) from exc
 
     if not isinstance(raw_items, list):
         raise GeneralQuestionPmcPersistenceParseError(
-            "`ke general-question-acquire-pmc --receipt` payload's `items` field is not a list."
+            f"{receipt_contract}'s `items` field is not a list."
         )
 
     try:
@@ -1649,7 +1650,7 @@ def parse_general_question_pmc_persistence_result(
         )
     except (KeyError, TypeError) as exc:
         raise GeneralQuestionPmcPersistenceParseError(
-            f"`ke general-question-acquire-pmc --receipt` payload has a malformed item: {exc}"
+            f"{receipt_contract} has a malformed item: {exc}"
         ) from exc
 
     return GeneralQuestionPmcPersistenceResult(
