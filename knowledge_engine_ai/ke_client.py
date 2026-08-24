@@ -1740,8 +1740,7 @@ def general_question_acquire_pmc(
             payload = json.loads(receipt_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise KeCommandError(
-                "`ke general-question-acquire-pmc` did not write a readable JSON receipt: "
-                f"{exc}"
+                f"`ke general-question-acquire-pmc` did not write a readable JSON receipt: {exc}"
             ) from exc
 
     try:
