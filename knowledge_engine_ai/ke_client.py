@@ -1333,6 +1333,7 @@ class GeneralQuestionAcquisitionItem:
     disposition: str
     identity: GeneralQuestionAcquisitionIdentity | None
     selected_observation_provider: str | None
+    acquisition_route: str | None
     full_text_url: str | None
     xml_url: str | None
     license: str | None
@@ -1399,6 +1400,7 @@ def _parse_general_question_acquisition_item(
             disposition=payload["disposition"],
             identity=_parse_general_question_acquisition_identity(payload.get("identity")),
             selected_observation_provider=payload.get("selected_observation_provider"),
+            acquisition_route=payload.get("acquisition_route"),
             full_text_url=payload.get("full_text_url"),
             xml_url=payload.get("xml_url"),
             license=payload.get("license"),
@@ -1570,4 +1572,179 @@ def general_question_acquisition_plan(
     try:
         return parse_general_question_acquisition_plan_result(payload)
     except GeneralQuestionAcquisitionParseError as exc:
+        raise KeCommandError(str(exc)) from exc
+
+
+class GeneralQuestionPmcPersistenceParseError(RuntimeError):
+    """The PMC persistence receipt did not match Core's documented JSON shape."""
+
+
+@dataclasses.dataclass(frozen=True)
+class GeneralQuestionPmcPersistenceItem:
+    """One acquired PMC candidate linked to Core's durable paper/import lineage."""
+
+    candidate_id: str
+    pmid: str
+    pmcid: str
+    filename: str
+    sha256: str
+    paper_id: int
+    import_item_id: str
+    persistence_status: str
+
+
+@dataclasses.dataclass(frozen=True)
+class GeneralQuestionPmcPersistenceResult:
+    """Typed result of Core's bounded PMC acquisition, parse, and persistence command."""
+
+    schema_version: int
+    search_run_id: str
+    research_question_id: str
+    acquisition_route: str
+    import_run_id: str
+    parsed_count: int
+    persisted_count: int
+    reused_count: int
+    items: tuple[GeneralQuestionPmcPersistenceItem, ...]
+
+
+def parse_general_question_pmc_persistence_result(
+    payload: dict[str, Any],
+) -> GeneralQuestionPmcPersistenceResult:
+    """Parse Core's persistence receipt strictly, preserving every lineage identifier."""
+
+    receipt_contract = "`ke general-question-acquire-pmc --receipt` payload"
+    try:
+        raw_items = payload["items"]
+        schema_version = payload["schema_version"]
+        search_run_id = payload["search_run_id"]
+        research_question_id = payload["research_question_id"]
+        acquisition_route = payload["acquisition_route"]
+        import_run_id = payload["import_run_id"]
+        parsed_count = payload["parsed_count"]
+        persisted_count = payload["persisted_count"]
+        reused_count = payload["reused_count"]
+    except (KeyError, TypeError) as exc:
+        raise GeneralQuestionPmcPersistenceParseError(
+            f"{receipt_contract} is missing a required field: {exc}"
+        ) from exc
+
+    if not isinstance(raw_items, list):
+        raise GeneralQuestionPmcPersistenceParseError(
+            f"{receipt_contract}'s `items` field is not a list."
+        )
+
+    try:
+        items = tuple(
+            GeneralQuestionPmcPersistenceItem(
+                candidate_id=item["candidate_id"],
+                pmid=item["pmid"],
+                pmcid=item["pmcid"],
+                filename=item["filename"],
+                sha256=item["sha256"],
+                paper_id=item["paper_id"],
+                import_item_id=item["import_item_id"],
+                persistence_status=item["persistence_status"],
+            )
+            for item in raw_items
+        )
+    except (KeyError, TypeError) as exc:
+        raise GeneralQuestionPmcPersistenceParseError(
+            f"{receipt_contract} has a malformed item: {exc}"
+        ) from exc
+
+    return GeneralQuestionPmcPersistenceResult(
+        schema_version=schema_version,
+        search_run_id=search_run_id,
+        research_question_id=research_question_id,
+        acquisition_route=acquisition_route,
+        import_run_id=import_run_id,
+        parsed_count=parsed_count,
+        persisted_count=persisted_count,
+        reused_count=reused_count,
+        items=items,
+    )
+
+
+def general_question_acquire_pmc(
+    *,
+    search_run_id: str,
+    research_question_id: str,
+    candidate_ids: tuple[str, ...],
+    ledger_root: Path,
+    papers_dir: Path,
+    max_candidates: int = 10,
+    max_full_text_acquisitions: int = 5,
+    max_elapsed_seconds: int = 120,
+    allow_metadata_only: bool = True,
+    ke_executable: str = "ke",
+    execution_budget: ExecutionBudget | None = None,
+    working_directory: Path | None = None,
+) -> GeneralQuestionPmcPersistenceResult:
+    """Execute Core's approval-gated PMC route and return its durable persistence receipt.
+
+    This is an explicit side-effecting boundary: Core may download eligible,
+    reusable-license PMC full text into ``papers_dir`` and persist/reuse Papers
+    plus immutable ImportRun/ImportItem lineage in the Core database selected by
+    ``working_directory``. It does not create Evidence Records, and callers must
+    never pass these papers directly to synthesis before grounded extraction,
+    validation, and re-retrieval.
+    """
+
+    request_payload: dict[str, Any] = {
+        "schema_version": 1,
+        "search_run_id": search_run_id,
+        "research_question_id": research_question_id,
+        "candidate_ids": list(candidate_ids),
+        "max_candidates": max_candidates,
+        "max_full_text_acquisitions": max_full_text_acquisitions,
+        "max_elapsed_seconds": max_elapsed_seconds,
+        "allow_metadata_only": allow_metadata_only,
+    }
+
+    with tempfile.TemporaryDirectory(prefix="ke-general-question-acquire-pmc-") as scratch_dir:
+        request_path = Path(scratch_dir) / "request.json"
+        receipt_path = Path(scratch_dir) / "receipt.json"
+        request_path.write_text(json.dumps(request_payload), encoding="utf-8")
+
+        command = [
+            _resolve_ke_executable(ke_executable),
+            "general-question-acquire-pmc",
+            str(request_path),
+            "--ledger-root",
+            str(ledger_root),
+            "--papers-dir",
+            str(papers_dir),
+            "--receipt",
+            str(receipt_path),
+        ]
+        try:
+            result = _run_ke_command(
+                command,
+                operation="ke general-question-acquire-pmc",
+                execution_budget=execution_budget,
+                working_directory=working_directory,
+            )
+        except FileNotFoundError as exc:
+            raise KeCommandError(
+                f"Could not run {ke_executable!r} -- "
+                "is knowledge-engine-core installed and on PATH?"
+            ) from exc
+
+        if result.returncode != 0:
+            message = result.stderr.strip() or result.stdout.strip()
+            raise KeCommandError(
+                f"`ke general-question-acquire-pmc` exited {result.returncode}: {message}"
+            )
+
+        try:
+            payload = json.loads(receipt_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise KeCommandError(
+                f"`ke general-question-acquire-pmc` did not write a readable JSON receipt: {exc}"
+            ) from exc
+
+    try:
+        return parse_general_question_pmc_persistence_result(payload)
+    except GeneralQuestionPmcPersistenceParseError as exc:
         raise KeCommandError(str(exc)) from exc

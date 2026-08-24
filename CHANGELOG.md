@@ -9,6 +9,8 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Executable PMC persistence client (issue #69 Stage 4)**: `ke_client.general_question_acquire_pmc()` reaches Core's shipped, approval-gated `ke general-question-acquire-pmc` boundary with explicit papers/Core working directories and strictly parses Paper/ImportRun/ImportItem lineage. Acquisition-plan items now preserve Core's `acquisition_route`. It is not enabled on any existing session path; acquired Papers remain non-evidence until grounded extraction, validation, and re-retrieval.
+
 - **Acquisition-plan orchestration wiring (issue #69 Stage 4, second
   slice).** `copilot/discovery_policy.py`'s `FederatedDiscoveryPolicy`
   gains a new opt-in toggle, `enable_acquisition_plan` (default `False`),

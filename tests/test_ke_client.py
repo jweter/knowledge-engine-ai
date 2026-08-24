@@ -15,6 +15,7 @@ from knowledge_engine_ai.ke_client import (
     FederatedDiscoveryParseError,
     FederatedProviderObservationFlags,
     GeneralQuestionAcquisitionParseError,
+    GeneralQuestionPmcPersistenceParseError,
     KeCommandError,
     citation_snowball,
     enriched_evidence_report,
@@ -24,12 +25,14 @@ from knowledge_engine_ai.ke_client import (
     federated_coverage_report,
     federated_discover,
     federated_discover_history,
+    general_question_acquire_pmc,
     general_question_acquisition_plan,
     parse_citation_snowball_result,
     parse_federated_coverage_report_result,
     parse_federated_discover_history_result,
     parse_federated_discovery_result,
     parse_general_question_acquisition_plan_result,
+    parse_general_question_pmc_persistence_result,
     statistical_verify,
 )
 
@@ -1577,6 +1580,7 @@ _VALID_GENERAL_QUESTION_ACQUISITION_PLAN_PAYLOAD = {
                 "semantic_scholar_id": None,
             },
             "selected_observation_provider": "pubmed",
+            "acquisition_route": "pmc_oa",
             "full_text_url": "https://example.org/creatine-1.pdf",
             "xml_url": None,
             "license": "CC BY",
@@ -1598,6 +1602,7 @@ _VALID_GENERAL_QUESTION_ACQUISITION_PLAN_PAYLOAD = {
                 "semantic_scholar_id": None,
             },
             "selected_observation_provider": "crossref",
+            "acquisition_route": None,
             "full_text_url": None,
             "xml_url": None,
             "license": None,
@@ -1628,6 +1633,7 @@ def test_parse_general_question_acquisition_plan_result_parses_a_valid_payload()
     assert first.identity is not None
     assert first.identity.doi == "10.1000/creatine-1"
     assert first.identity.pmid == "12345"
+    assert first.acquisition_route == "pmc_oa"
 
     second = result.items[1]
     assert second.disposition == "metadata_only"
@@ -1831,3 +1837,130 @@ def test_general_question_acquisition_plan_never_uses_a_shell(
     )
 
     assert captured_kwargs.get("shell", False) is False
+
+
+_VALID_GENERAL_QUESTION_PMC_PERSISTENCE_PAYLOAD = {
+    "schema_version": 1,
+    "search_run_id": "33333333-3333-3333-3333-333333333333",
+    "research_question_id": "creatine-strength-thread",
+    "acquisition_route": "pmc_oa",
+    "import_run_id": "44444444-4444-4444-4444-444444444444",
+    "parsed_count": 1,
+    "persisted_count": 1,
+    "reused_count": 0,
+    "items": [
+        {
+            "candidate_id": "doi:10.1000/creatine-1",
+            "pmid": "12345",
+            "pmcid": "PMC12345",
+            "filename": "PMC12345.pdf",
+            "sha256": "a" * 64,
+            "paper_id": 42,
+            "import_item_id": "55555555-5555-5555-5555-555555555555",
+            "persistence_status": "persisted",
+        }
+    ],
+}
+
+
+def test_parse_general_question_pmc_persistence_result_preserves_lineage() -> None:
+    result = parse_general_question_pmc_persistence_result(
+        _VALID_GENERAL_QUESTION_PMC_PERSISTENCE_PAYLOAD
+    )
+
+    assert result.acquisition_route == "pmc_oa"
+    assert result.import_run_id == "44444444-4444-4444-4444-444444444444"
+    assert result.persisted_count == 1
+    assert result.items[0].paper_id == 42
+    assert result.items[0].import_item_id == "55555555-5555-5555-5555-555555555555"
+    assert result.items[0].persistence_status == "persisted"
+
+
+def test_parse_general_question_pmc_persistence_result_rejects_missing_lineage() -> None:
+    payload = dict(_VALID_GENERAL_QUESTION_PMC_PERSISTENCE_PAYLOAD)
+    del payload["import_run_id"]
+
+    with pytest.raises(GeneralQuestionPmcPersistenceParseError, match="required field"):
+        parse_general_question_pmc_persistence_result(payload)
+
+
+def test_general_question_acquire_pmc_runs_expected_command_and_parses_receipt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run(command: list[str], **kwargs: object) -> _FakeCompletedProcess:
+        captured["command"] = command
+        captured["kwargs"] = kwargs
+        request_index = command.index("general-question-acquire-pmc") + 1
+        captured["request"] = json.loads(Path(command[request_index]).read_text(encoding="utf-8"))
+        receipt_index = command.index("--receipt") + 1
+        Path(command[receipt_index]).write_text(
+            json.dumps(_VALID_GENERAL_QUESTION_PMC_PERSISTENCE_PAYLOAD), encoding="utf-8"
+        )
+        return _FakeCompletedProcess(0, "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    ledger_root = tmp_path / "ledger"
+    papers_dir = tmp_path / "papers"
+    core_root = tmp_path / "core"
+
+    result = general_question_acquire_pmc(
+        search_run_id="33333333-3333-3333-3333-333333333333",
+        research_question_id="creatine-strength-thread",
+        candidate_ids=("doi:10.1000/creatine-1",),
+        ledger_root=ledger_root,
+        papers_dir=papers_dir,
+        max_candidates=3,
+        max_full_text_acquisitions=1,
+        working_directory=core_root,
+    )
+
+    assert result.items[0].paper_id == 42
+    command = captured["command"]
+    assert isinstance(command, list)
+    assert command[1] == "general-question-acquire-pmc"
+    assert command[command.index("--ledger-root") + 1] == str(ledger_root)
+    assert command[command.index("--papers-dir") + 1] == str(papers_dir)
+    assert "--receipt" in command
+    request = captured["request"]
+    assert isinstance(request, dict)
+    assert request["candidate_ids"] == ["doi:10.1000/creatine-1"]
+    assert request["max_candidates"] == 3
+    assert request["max_full_text_acquisitions"] == 1
+    kwargs = captured["kwargs"]
+    assert isinstance(kwargs, dict)
+    assert kwargs["cwd"] == core_root
+    assert kwargs.get("shell", False) is False
+
+
+def test_general_question_acquire_pmc_raises_on_nonzero_exit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        subprocess, "run", lambda command, **kwargs: _FakeCompletedProcess(1, "", "sanitized")
+    )
+
+    with pytest.raises(KeCommandError, match="exited 1: sanitized"):
+        general_question_acquire_pmc(
+            search_run_id="run-1",
+            research_question_id="thread-1",
+            candidate_ids=("doi:10.1000/creatine-1",),
+            ledger_root=tmp_path / "ledger",
+            papers_dir=tmp_path / "papers",
+        )
+
+
+def test_general_question_acquire_pmc_raises_when_receipt_is_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(subprocess, "run", lambda command, **kwargs: _FakeCompletedProcess(0, ""))
+
+    with pytest.raises(KeCommandError, match="readable JSON receipt"):
+        general_question_acquire_pmc(
+            search_run_id="run-1",
+            research_question_id="thread-1",
+            candidate_ids=("doi:10.1000/creatine-1",),
+            ledger_root=tmp_path / "ledger",
+            papers_dir=tmp_path / "papers",
+        )
