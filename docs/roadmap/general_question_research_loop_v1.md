@@ -253,15 +253,17 @@ The existing `research_question_id`, answer version, federated search history, a
   planner reports `already_indexed` (with the matching `Paper.id`) via
   DOI/PMID/arXiv identity before any budget logic runs; the wrapper above
   parses that disposition and identity verbatim.
-- [ ] use existing PMC/Europe PMC/Unpaywall/CORE acquisition capabilities
-  where applicable -- Core's own CORE-GQR-3 (acquisition routing),
-  not started.
-- [ ] persist structured acquisition receipts -- Core's own CORE-GQR-4
-  (persist and parse), not started.
-- [ ] no silent download of non-permitted full text -- not yet
-  meaningfully testable end-to-end: no code path downloads anything yet
-  (the plan command never fetches full text itself), so this remains
-  open until CORE-GQR-3/GQR-4 exist to violate or honor it.
+- [x] use existing PMC/Europe PMC/Unpaywall/CORE acquisition capabilities
+  where applicable -- Core routes all four deterministically and executes
+  PMC OA; this repository's `general_question_acquire_pmc()` reaches it.
+  Europe PMC, CORE, and Unpaywall execution remain later Core adapters.
+- [x] persist structured acquisition receipts -- the PMC path persists or
+  reuses Papers, records immutable ImportRun/ImportItem lineage, and this
+  repository strictly preserves those receipt identifiers.
+- [x] no silent download of non-permitted full text for the executable PMC
+  path -- Core re-resolves exact PMIDs, requires reusable-license evidence,
+  and uses its atomic approval-gated service. The AI wrapper is explicit and
+  opt-in; no existing session calls it.
 
 ### GQR-4 - Automatic grounded extraction
 - [ ] parse newly acquired paper;
