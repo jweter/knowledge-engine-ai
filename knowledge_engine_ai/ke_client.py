@@ -1574,6 +1574,7 @@ def general_question_acquisition_plan(
     except GeneralQuestionAcquisitionParseError as exc:
         raise KeCommandError(str(exc)) from exc
 
+
 class GeneralQuestionPmcPersistenceParseError(RuntimeError):
     """The PMC persistence receipt did not match Core's documented JSON shape."""
 
@@ -1614,16 +1615,14 @@ def parse_general_question_pmc_persistence_result(
 
     try:
         raw_items = payload["items"]
-        result_fields = {
-            "schema_version": payload["schema_version"],
-            "search_run_id": payload["search_run_id"],
-            "research_question_id": payload["research_question_id"],
-            "acquisition_route": payload["acquisition_route"],
-            "import_run_id": payload["import_run_id"],
-            "parsed_count": payload["parsed_count"],
-            "persisted_count": payload["persisted_count"],
-            "reused_count": payload["reused_count"],
-        }
+        schema_version = payload["schema_version"]
+        search_run_id = payload["search_run_id"]
+        research_question_id = payload["research_question_id"]
+        acquisition_route = payload["acquisition_route"]
+        import_run_id = payload["import_run_id"]
+        parsed_count = payload["parsed_count"]
+        persisted_count = payload["persisted_count"]
+        reused_count = payload["reused_count"]
     except (KeyError, TypeError) as exc:
         raise GeneralQuestionPmcPersistenceParseError(
             f"`ke general-question-acquire-pmc --receipt` payload is missing a required field: {exc}"
@@ -1653,7 +1652,17 @@ def parse_general_question_pmc_persistence_result(
             f"`ke general-question-acquire-pmc --receipt` payload has a malformed item: {exc}"
         ) from exc
 
-    return GeneralQuestionPmcPersistenceResult(items=items, **result_fields)
+    return GeneralQuestionPmcPersistenceResult(
+        schema_version=schema_version,
+        search_run_id=search_run_id,
+        research_question_id=research_question_id,
+        acquisition_route=acquisition_route,
+        import_run_id=import_run_id,
+        parsed_count=parsed_count,
+        persisted_count=persisted_count,
+        reused_count=reused_count,
+        items=items,
+    )
 
 
 def general_question_acquire_pmc(

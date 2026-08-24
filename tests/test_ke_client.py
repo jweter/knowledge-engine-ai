@@ -1838,6 +1838,7 @@ def test_general_question_acquisition_plan_never_uses_a_shell(
 
     assert captured_kwargs.get("shell", False) is False
 
+
 _VALID_GENERAL_QUESTION_PMC_PERSISTENCE_PAYLOAD = {
     "schema_version": 1,
     "search_run_id": "33333333-3333-3333-3333-333333333333",
@@ -1847,16 +1848,18 @@ _VALID_GENERAL_QUESTION_PMC_PERSISTENCE_PAYLOAD = {
     "parsed_count": 1,
     "persisted_count": 1,
     "reused_count": 0,
-    "items": [{
-        "candidate_id": "doi:10.1000/creatine-1",
-        "pmid": "12345",
-        "pmcid": "PMC12345",
-        "filename": "PMC12345.pdf",
-        "sha256": "a" * 64,
-        "paper_id": 42,
-        "import_item_id": "55555555-5555-5555-5555-555555555555",
-        "persistence_status": "persisted",
-    }],
+    "items": [
+        {
+            "candidate_id": "doi:10.1000/creatine-1",
+            "pmid": "12345",
+            "pmcid": "PMC12345",
+            "filename": "PMC12345.pdf",
+            "sha256": "a" * 64,
+            "paper_id": 42,
+            "import_item_id": "55555555-5555-5555-5555-555555555555",
+            "persistence_status": "persisted",
+        }
+    ],
 }
 
 
@@ -1890,7 +1893,9 @@ def test_general_question_acquire_pmc_runs_expected_command_and_parses_receipt(
         captured["command"] = command
         captured["kwargs"] = kwargs
         request_index = command.index("general-question-acquire-pmc") + 1
-        captured["request"] = json.loads(Path(command[request_index]).read_text(encoding="utf-8"))
+        captured["request"] = json.loads(
+            Path(command[request_index]).read_text(encoding="utf-8")
+        )
         receipt_index = command.index("--receipt") + 1
         Path(command[receipt_index]).write_text(
             json.dumps(_VALID_GENERAL_QUESTION_PMC_PERSISTENCE_PAYLOAD), encoding="utf-8"
@@ -1951,7 +1956,9 @@ def test_general_question_acquire_pmc_raises_on_nonzero_exit(
 def test_general_question_acquire_pmc_raises_when_receipt_is_missing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(subprocess, "run", lambda command, **kwargs: _FakeCompletedProcess(0, ""))
+    monkeypatch.setattr(
+        subprocess, "run", lambda command, **kwargs: _FakeCompletedProcess(0, "")
+    )
 
     with pytest.raises(KeCommandError, match="readable JSON receipt"):
         general_question_acquire_pmc(
