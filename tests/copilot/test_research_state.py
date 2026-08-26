@@ -28,7 +28,9 @@ class _Result:
     narrative_releaseable: bool
 
 
-def _workflow(*, evidence_ids: tuple[str, ...] = (), primary_error: str | None = None) -> WorkflowResult:
+def _workflow(
+    *, evidence_ids: tuple[str, ...] = (), primary_error: str | None = None
+) -> WorkflowResult:
     primary = RetrievalBranchResult(query="q", report=None, error=primary_error)
     contradiction = RetrievalBranchResult(query="q contradiction", report=None, error=None)
     parallel = ParallelRetrievalResult(
