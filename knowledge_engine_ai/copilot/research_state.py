@@ -203,7 +203,9 @@ def _primary_retrieval_failed(workflow: WorkflowResult) -> bool:
 def _indexed_evidence_record_count(workflow: WorkflowResult) -> int:
     parallel = workflow.parallel_retrieval
     if parallel is not None:
-        return len(parallel.primary_evidence_record_ids | parallel.contradiction_evidence_record_ids)
+        return len(
+            parallel.primary_evidence_record_ids | parallel.contradiction_evidence_record_ids
+        )
     report = workflow.evidence_report
     if report is None:
         return 0
