@@ -198,9 +198,7 @@ def test_degraded_provider_must_be_reported_explicitly() -> None:
 def test_each_required_seed_requires_per_source_field_audit() -> None:
     case = _monster_case()
     audited = tuple(
-        source_id
-        for source_id in case.required_seed_source_ids
-        if source_id != "pmid:33341807"
+        source_id for source_id in case.required_seed_source_ids if source_id != "pmid:33341807"
     )
 
     result = evaluate_research_case(
