@@ -22,6 +22,20 @@ from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
+class SourceFieldGap:
+    """One reviewed source missing benchmark-required extraction fields."""
+
+    source_id: str
+    missing_fields: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        _require_nonblank("source_id", self.source_id)
+        _require_unique_nonblank("missing_fields", self.missing_fields)
+        if not self.missing_fields:
+            raise ValueError("Source field gap requires at least one missing field.")
+
+
+@dataclass(frozen=True)
 class GoldenResearchCase:
     """One deterministic research-loop benchmark specification."""
 
@@ -32,6 +46,7 @@ class GoldenResearchCase:
     required_dimensions: tuple[str, ...]
     required_search_tracks: tuple[str, ...]
     required_seed_source_ids: tuple[str, ...]
+    required_source_fields: tuple[str, ...]
     counterevidence_seed_source_ids: tuple[str, ...] = ()
     required_providers: tuple[str, ...] = ()
     minimum_attempted_providers: int = 1
@@ -48,6 +63,7 @@ class GoldenResearchCase:
         _require_unique_nonblank("required_dimensions", self.required_dimensions)
         _require_unique_nonblank("required_search_tracks", self.required_search_tracks)
         _require_unique_nonblank("required_seed_source_ids", self.required_seed_source_ids)
+        _require_unique_nonblank("required_source_fields", self.required_source_fields)
         _require_unique_nonblank(
             "counterevidence_seed_source_ids", self.counterevidence_seed_source_ids
         )
@@ -62,6 +78,10 @@ class GoldenResearchCase:
             raise ValueError("Golden research case requires at least one search track.")
         if not self.required_seed_source_ids:
             raise ValueError("Golden research case requires at least one discovery seed source ID.")
+        if not self.required_source_fields:
+            raise ValueError(
+                "Golden research case requires at least one per-source extraction field."
+            )
 
         unknown_counterevidence = set(self.counterevidence_seed_source_ids) - set(
             self.required_seed_source_ids
@@ -93,15 +113,18 @@ class ResearchCaseRunSnapshot:
     discovery_triggered: bool
     attempted_providers: tuple[str, ...]
     degraded_providers: tuple[str, ...]
+    reported_degraded_providers: tuple[str, ...]
     covered_variants: tuple[str, ...]
     covered_dimensions: tuple[str, ...]
     completed_search_tracks: tuple[str, ...]
     reviewed_source_ids: tuple[str, ...]
     represented_counterevidence_source_ids: tuple[str, ...]
+    source_fields_audited_source_ids: tuple[str, ...]
     direct_long_term_study_found: bool
     direct_long_term_gap_reported: bool
     factual_claim_count: int
     source_linked_factual_claim_count: int
+    source_field_gaps: tuple[SourceFieldGap, ...] = ()
     violated_inference_guard_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
@@ -109,11 +132,13 @@ class ResearchCaseRunSnapshot:
         for name in (
             "attempted_providers",
             "degraded_providers",
+            "reported_degraded_providers",
             "covered_variants",
             "covered_dimensions",
             "completed_search_tracks",
             "reviewed_source_ids",
             "represented_counterevidence_source_ids",
+            "source_fields_audited_source_ids",
             "violated_inference_guard_ids",
         ):
             _require_unique_nonblank(name, getattr(self, name))
@@ -130,6 +155,18 @@ class ResearchCaseRunSnapshot:
         unknown_degraded = set(self.degraded_providers) - set(self.attempted_providers)
         if unknown_degraded:
             raise ValueError("degraded_providers must be a subset of attempted_providers.")
+        unknown_reported_degraded = set(self.reported_degraded_providers) - set(
+            self.attempted_providers
+        )
+        if unknown_reported_degraded:
+            raise ValueError("reported_degraded_providers must be a subset of attempted_providers.")
+
+        gap_source_ids = tuple(gap.source_id for gap in self.source_field_gaps)
+        if len(gap_source_ids) != len(set(gap_source_ids)):
+            raise ValueError("source_field_gaps must contain at most one gap per source_id.")
+        unknown_gap_sources = set(gap_source_ids) - set(self.source_fields_audited_source_ids)
+        if unknown_gap_sources:
+            raise ValueError("source_field_gaps sources must also be source-field audited.")
 
         unknown_counterevidence = set(self.represented_counterevidence_source_ids) - set(
             self.reviewed_source_ids
@@ -152,6 +189,10 @@ class ResearchCaseBenchmarkResult:
     missing_counterevidence_seed_source_ids: tuple[str, ...]
     missing_required_providers: tuple[str, ...]
     provider_count_shortfall: int
+    unreported_degraded_providers: tuple[str, ...]
+    incorrectly_reported_degraded_providers: tuple[str, ...]
+    missing_source_field_audits: tuple[str, ...]
+    source_field_gaps: tuple[SourceFieldGap, ...]
     discovery_required_but_not_triggered: bool
     long_term_gap_disclosure_missing: bool
     unlinked_factual_claim_count: int
@@ -170,6 +211,10 @@ class ResearchCaseBenchmarkResult:
                 self.missing_counterevidence_seed_source_ids,
                 self.missing_required_providers,
                 self.provider_count_shortfall,
+                self.unreported_degraded_providers,
+                self.incorrectly_reported_degraded_providers,
+                self.missing_source_field_audits,
+                self.source_field_gaps,
                 self.discovery_required_but_not_triggered,
                 self.long_term_gap_disclosure_missing,
                 self.unlinked_factual_claim_count,
@@ -202,6 +247,23 @@ def evaluate_research_case(
         0,
         case.minimum_attempted_providers - len(snapshot.attempted_providers),
     )
+    unreported_degraded_providers = _missing(
+        snapshot.degraded_providers, snapshot.reported_degraded_providers
+    )
+    incorrectly_reported_degraded_providers = _missing(
+        snapshot.reported_degraded_providers, snapshot.degraded_providers
+    )
+    missing_source_field_audits = _missing(
+        case.required_seed_source_ids, snapshot.source_fields_audited_source_ids
+    )
+    required_source_fields = set(case.required_source_fields)
+    for gap in snapshot.source_field_gaps:
+        unknown_fields = set(gap.missing_fields) - required_source_fields
+        if unknown_fields:
+            raise ValueError(
+                f"Source field gap for {gap.source_id!r} named non-required field(s): "
+                + ", ".join(sorted(unknown_fields))
+            )
 
     discovery_required_but_not_triggered = (
         case.require_discovery_on_empty_index
@@ -239,6 +301,10 @@ def evaluate_research_case(
         missing_counterevidence_seed_source_ids=missing_counterevidence,
         missing_required_providers=missing_required_providers,
         provider_count_shortfall=provider_count_shortfall,
+        unreported_degraded_providers=unreported_degraded_providers,
+        incorrectly_reported_degraded_providers=incorrectly_reported_degraded_providers,
+        missing_source_field_audits=missing_source_field_audits,
+        source_field_gaps=snapshot.source_field_gaps,
         discovery_required_but_not_triggered=discovery_required_but_not_triggered,
         long_term_gap_disclosure_missing=long_term_gap_disclosure_missing,
         unlinked_factual_claim_count=unlinked_factual_claim_count,
@@ -268,6 +334,8 @@ def default_golden_research_cases() -> tuple[GoldenResearchCase, ...]:
                 "incident_hypertension_risk",
                 "measurement_artifact",
                 "original_vs_zero_long_term_risk",
+                "direct_vs_class_level_evidence",
+                "certainty_and_missing_evidence",
             ),
             required_search_tracks=(
                 "direct_monster_or_commercial_energy_drink_trials",
@@ -294,6 +362,17 @@ def default_golden_research_cases() -> tuple[GoldenResearchCase, ...]:
                 "pmid:26869455",
                 "pmid:31826724",
                 "pmid:32529512",
+            ),
+            required_source_fields=(
+                "population",
+                "exposure",
+                "dose",
+                "duration",
+                "comparator",
+                "bp_measurement_method",
+                "effect_size",
+                "confidence_interval",
+                "risk_of_bias_or_limitations",
             ),
             counterevidence_seed_source_ids=(
                 "pmid:26931509",
@@ -336,6 +415,7 @@ __all__ = [
     "GoldenResearchCase",
     "ResearchCaseBenchmarkResult",
     "ResearchCaseRunSnapshot",
+    "SourceFieldGap",
     "default_golden_research_cases",
     "evaluate_research_case",
 ]
