@@ -5,6 +5,7 @@ import pytest
 from knowledge_engine_ai.research_case_benchmark import (
     GoldenResearchCase,
     ResearchCaseRunSnapshot,
+    SourceFieldGap,
     default_golden_research_cases,
     evaluate_research_case,
 )
@@ -22,15 +23,18 @@ def _complete_snapshot(**overrides: object) -> ResearchCaseRunSnapshot:
         "discovery_triggered": True,
         "attempted_providers": ("pubmed", "openalex", "crossref"),
         "degraded_providers": (),
+        "reported_degraded_providers": (),
         "covered_variants": case.required_variants,
         "covered_dimensions": case.required_dimensions,
         "completed_search_tracks": case.required_search_tracks,
         "reviewed_source_ids": case.required_seed_source_ids,
         "represented_counterevidence_source_ids": case.counterevidence_seed_source_ids,
+        "source_fields_audited_source_ids": case.required_seed_source_ids,
         "direct_long_term_study_found": False,
         "direct_long_term_gap_reported": True,
         "factual_claim_count": 12,
         "source_linked_factual_claim_count": 12,
+        "source_field_gaps": (),
         "violated_inference_guard_ids": (),
     }
     values.update(overrides)
@@ -59,6 +63,17 @@ def test_monster_case_encodes_issue_79_required_separations_and_seeds() -> None:
     assert "pmid:26708636" in case.counterevidence_seed_source_ids
     assert case.required_providers == ("pubmed",)
     assert case.minimum_attempted_providers >= 2
+    assert "direct_vs_class_level_evidence" in case.required_dimensions
+    assert "certainty_and_missing_evidence" in case.required_dimensions
+    assert {
+        "population",
+        "dose",
+        "duration",
+        "bp_measurement_method",
+        "effect_size",
+        "confidence_interval",
+        "risk_of_bias_or_limitations",
+    } <= set(case.required_source_fields)
     assert case.require_long_term_gap_disclosure_when_absent is True
 
 
@@ -167,6 +182,54 @@ def test_unlinked_claims_and_inference_guard_violations_fail() -> None:
     assert result.passes is False
 
 
+def test_degraded_provider_must_be_reported_explicitly() -> None:
+    result = evaluate_research_case(
+        _monster_case(),
+        _complete_snapshot(
+            degraded_providers=("openalex",),
+            reported_degraded_providers=(),
+        ),
+    )
+
+    assert result.unreported_degraded_providers == ("openalex",)
+    assert result.passes is False
+
+
+def test_each_required_seed_requires_per_source_field_audit() -> None:
+    case = _monster_case()
+    audited = tuple(
+        source_id
+        for source_id in case.required_seed_source_ids
+        if source_id != "pmid:33341807"
+    )
+
+    result = evaluate_research_case(
+        case,
+        _complete_snapshot(source_fields_audited_source_ids=audited),
+    )
+
+    assert result.missing_source_field_audits == ("pmid:33341807",)
+    assert result.passes is False
+
+
+def test_missing_required_source_field_fails_visibly() -> None:
+    result = evaluate_research_case(
+        _monster_case(),
+        _complete_snapshot(
+            source_field_gaps=(
+                SourceFieldGap(
+                    source_id="pmid:37695306",
+                    missing_fields=("confidence_interval",),
+                ),
+            ),
+        ),
+    )
+
+    assert result.source_field_gaps[0].source_id == "pmid:37695306"
+    assert result.source_field_gaps[0].missing_fields == ("confidence_interval",)
+    assert result.passes is False
+
+
 def test_snapshot_rejects_degraded_provider_that_was_not_attempted() -> None:
     with pytest.raises(ValueError, match="subset of attempted_providers"):
         _complete_snapshot(degraded_providers=("semantic_scholar",))
@@ -182,6 +245,7 @@ def test_case_rejects_counterevidence_seed_outside_required_seed_bank() -> None:
             required_dimensions=("dimension",),
             required_search_tracks=("track",),
             required_seed_source_ids=("pmid:1",),
+            required_source_fields=("population",),
             counterevidence_seed_source_ids=("pmid:2",),
         )
 
