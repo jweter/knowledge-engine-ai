@@ -22,6 +22,8 @@ def test_monster_query_plan_covers_every_benchmark_search_track() -> None:
         "direct_6_12_month_or_one_year_energy_drink_longitudinal",
     } <= track_ids
     assert "counterevidence_or_null_findings" in track_ids
+    assert "direct_zero_ultra_blood_pressure" in track_ids
+    assert "direct_original_monster_blood_pressure" in track_ids
 
 
 def test_monster_query_plan_preserves_direct_class_indirect_guidance_and_counter_scopes() -> None:
@@ -35,6 +37,19 @@ def test_monster_query_plan_preserves_direct_class_indirect_guidance_and_counter
         EvidenceScope.GUIDANCE,
         EvidenceScope.COUNTEREVIDENCE,
     }
+
+
+def test_monster_query_plan_searches_both_product_variants_explicitly() -> None:
+    plan = monster_energy_bp_query_plan()
+
+    queries_by_track = {
+        variant.track_id: variant.query
+        for variant in plan.query_variants
+        if variant.track_id
+        in {"direct_zero_ultra_blood_pressure", "direct_original_monster_blood_pressure"}
+    }
+    assert "Monster Zero Ultra" in queries_by_track["direct_zero_ultra_blood_pressure"]
+    assert "Monster Energy Original" in queries_by_track["direct_original_monster_blood_pressure"]
 
 
 def test_monster_query_plan_preserves_benchmark_dimensions_and_seed_pmids() -> None:
@@ -89,9 +104,9 @@ def test_monster_query_plan_has_explicit_long_term_and_counterevidence_queries()
 
 
 def test_monster_query_plan_budget_keeps_at_least_one_query_per_track() -> None:
-    plan = monster_energy_bp_query_plan(max_total_variants=9)
+    plan = monster_energy_bp_query_plan(max_total_variants=11)
 
-    assert len(plan.query_variants) == 9
+    assert len(plan.query_variants) == 11
     assert {variant.track_id for variant in plan.query_variants} == {
         track.track_id for track in plan.tracks
     }
@@ -99,7 +114,7 @@ def test_monster_query_plan_budget_keeps_at_least_one_query_per_track() -> None:
 
 def test_monster_query_plan_rejects_budget_smaller_than_track_count() -> None:
     with pytest.raises(ValueError, match="at least the number of search tracks"):
-        monster_energy_bp_query_plan(max_total_variants=8)
+        monster_energy_bp_query_plan(max_total_variants=10)
 
 
 def test_monster_fixture_rejects_unrelated_golden_case() -> None:
