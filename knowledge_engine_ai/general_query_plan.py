@@ -90,8 +90,7 @@ class ConceptGroup:
         _require_unique_nonblank("synonyms", self.synonyms)
         if len(self.synonyms) > MAX_SYNONYMS_PER_CONCEPT:
             raise ValueError(
-                f"Concept {self.concept_id!r} has more than "
-                f"{MAX_SYNONYMS_PER_CONCEPT} synonyms."
+                f"Concept {self.concept_id!r} has more than {MAX_SYNONYMS_PER_CONCEPT} synonyms."
             )
         if self.canonical_term in self.synonyms:
             raise ValueError("Concept synonyms must not repeat the canonical term.")
@@ -160,9 +159,7 @@ class QueryVariant:
         _require_nonblank("query", self.query)
         _require_nonblank_values("chosen_concept_terms", self.chosen_concept_terms)
         if len(self.query) > MAX_QUERY_CHARACTERS:
-            raise ValueError(
-                f"Query variant exceeds the {MAX_QUERY_CHARACTERS}-character bound."
-            )
+            raise ValueError(f"Query variant exceeds the {MAX_QUERY_CHARACTERS}-character bound.")
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -202,9 +199,7 @@ class GeneralQueryPlan:
         _require_unique_nonblank("answer_dimensions", self.answer_dimensions)
         _require_unique_nonblank("seed_source_ids", self.seed_source_ids)
         if not 1 <= self.max_total_variants <= MAX_TOTAL_VARIANTS:
-            raise ValueError(
-                f"max_total_variants must be between 1 and {MAX_TOTAL_VARIANTS}."
-            )
+            raise ValueError(f"max_total_variants must be between 1 and {MAX_TOTAL_VARIANTS}.")
 
         if self.frame_type is QueryFrameType.PICO and self.pico is None:
             raise ValueError("PICO query plan requires an explicit PicoFrame.")
@@ -298,13 +293,9 @@ def compile_general_query_plan(
     if not tracks:
         raise ValueError("General query plan requires at least one search track.")
     if len(tracks) > MAX_SEARCH_TRACKS:
-        raise ValueError(
-            f"General query plan supports at most {MAX_SEARCH_TRACKS} search tracks."
-        )
+        raise ValueError(f"General query plan supports at most {MAX_SEARCH_TRACKS} search tracks.")
     if not 1 <= max_total_variants <= MAX_TOTAL_VARIANTS:
-        raise ValueError(
-            f"max_total_variants must be between 1 and {MAX_TOTAL_VARIANTS}."
-        )
+        raise ValueError(f"max_total_variants must be between 1 and {MAX_TOTAL_VARIANTS}.")
     if max_total_variants < len(tracks):
         raise ValueError(
             "max_total_variants must be at least the number of search tracks so "
