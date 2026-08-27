@@ -297,6 +297,22 @@ Minimum v1 benchmark set:
 
 Each benchmark question records expected relevant source IDs where known, expected behavior when evidence is absent, and whether domain-specific scoring should be available.
 
+Issue #79 now provides the first **golden research-case** scaffold for a topic that may
+begin outside the indexed corpus: two Monster Energy exposures and one-year blood
+pressure. `knowledge_engine_ai.research_case_benchmark` deliberately remains separate
+from the reviewed-EvidenceRecord retrieval benchmark. It encodes the two product
+variants; acute, persistent/chronic, incident-hypertension, measurement-artifact, and
+variant-comparison dimensions; the required evidence/search tracks; the issue's known
+PMIDs as discovery-seed identities; explicit null/counter-evidence targets; scholarly
+provider coverage; long-term evidence-gap disclosure; and citation/inference guards.
+Discovery seeds are not Evidence Records and do not encode a preferred scientific
+conclusion.
+
+The case specification and deterministic scorer are implemented, but the benchmark is
+not claimed to pass end to end yet. A future adapter must build its run snapshot from
+durable structured GQR artifacts after GQR-4/GQR-5 provide grounded extraction,
+promotion, and re-retrieval. It must not grade the case by scraping narrative prose.
+
 ### GQR-8 - Reliability hardening
 - [ ] provider failure drills;
 - [ ] duplicate acquisition tests;
