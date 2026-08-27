@@ -44,6 +44,16 @@ def monster_energy_bp_query_plan(
             synonyms=("Monster Zero Ultra", "Monster Original"),
         ),
         ConceptGroup(
+            concept_id="monster_zero_ultra",
+            canonical_term="Monster Zero Ultra",
+            synonyms=("White Monster",),
+        ),
+        ConceptGroup(
+            concept_id="monster_original",
+            canonical_term="Monster Energy Original",
+            synonyms=("Monster Original", "Original Green Monster"),
+        ),
+        ConceptGroup(
             concept_id="energy_drink_class",
             canonical_term="energy drink",
             synonyms=("energy drinks", "commercial energy drink"),
@@ -113,6 +123,20 @@ def monster_energy_bp_query_plan(
             concept_ids=("monster_brand", "blood_pressure", "acute_timecourse"),
             fixed_terms=("trial",),
             max_variants=5,
+        ),
+        SearchTrack(
+            track_id="direct_zero_ultra_blood_pressure",
+            purpose="Explicitly search Zero Ultra / White Monster blood-pressure evidence.",
+            scope=EvidenceScope.DIRECT,
+            concept_ids=("monster_zero_ultra", "blood_pressure", "acute_timecourse"),
+            max_variants=4,
+        ),
+        SearchTrack(
+            track_id="direct_original_monster_blood_pressure",
+            purpose="Explicitly search Original Green Monster blood-pressure evidence.",
+            scope=EvidenceScope.DIRECT,
+            concept_ids=("monster_original", "blood_pressure", "acute_timecourse"),
+            max_variants=4,
         ),
         SearchTrack(
             track_id="energy_drink_randomized_or_meta_analysis",
