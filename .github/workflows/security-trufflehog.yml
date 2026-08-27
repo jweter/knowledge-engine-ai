@@ -1,0 +1,116 @@
+name: Security - TruffleHog
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  secret-scan:
+    name: Secret leak scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository history
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Install pinned TruffleHog
+        env:
+          TRUFFLEHOG_VERSION: "3.97.1"
+          TRUFFLEHOG_ARCHIVE_SHA256: "f863ea3a8d786f7d097870496c977944cce7372a2fe1e56707d965016e543ece"
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/trufflehog.tar.gz"
+          curl --fail --silent --show-error --location \
+            "https://github.com/trufflesecurity/trufflehog/releases/download/v${TRUFFLEHOG_VERSION}/trufflehog_${TRUFFLEHOG_VERSION}_linux_amd64.tar.gz" \
+            --output "$archive"
+          printf '%s  %s\n' "$TRUFFLEHOG_ARCHIVE_SHA256" "$archive" | sha256sum --check --strict -
+          tar -xzf "$archive" -C "$RUNNER_TEMP" trufflehog
+          chmod 0755 "$RUNNER_TEMP/trufflehog"
+          "$RUNNER_TEMP/trufflehog" --version
+
+      - name: Verify scanner detects an ephemeral synthetic secret
+        run: |
+          set -euo pipefail
+          fixture_dir="$(mktemp -d)"
+          trap 'rm -rf "$fixture_dir"' EXIT
+          openssl genrsa -out "$fixture_dir/ephemeral-private-key.pem" 2048 >/dev/null 2>&1
+
+          set +e
+          "$RUNNER_TEMP/trufflehog" filesystem \
+            --no-verification \
+            --no-update \
+            --fail \
+            "$fixture_dir" \
+            >"$RUNNER_TEMP/trufflehog-self-test.log" 2>&1
+          status=$?
+          set -e
+          rm -f "$RUNNER_TEMP/trufflehog-self-test.log"
+
+          if [ "$status" -ne 183 ]; then
+            echo "::error::TruffleHog self-test expected exit 183 for the ephemeral fixture; got $status."
+            exit 1
+          fi
+
+      - name: Scan introduced commit range without credential verification
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BASE_SHA: ${{ github.event.before }}
+          PUSH_HEAD_SHA: ${{ github.event.after }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            base="$PR_BASE_SHA"
+            head="$PR_HEAD_SHA"
+          else
+            base="$PUSH_BASE_SHA"
+            head="$PUSH_HEAD_SHA"
+          fi
+
+          if [ -z "$head" ]; then
+            echo "::error::Unable to determine the commit to scan."
+            exit 1
+          fi
+
+          args=(
+            git "file://$GITHUB_WORKSPACE"
+            --branch "$head"
+            --no-verification
+            --no-update
+            --fail
+          )
+
+          if [ -n "$base" ] && [ "$base" != "0000000000000000000000000000000000000000" ]; then
+            args+=(--since-commit "$base")
+          fi
+
+          set +e
+          "$RUNNER_TEMP/trufflehog" "${args[@]}" \
+            >"$RUNNER_TEMP/trufflehog-scan.log" 2>&1
+          status=$?
+          set -e
+          rm -f "$RUNNER_TEMP/trufflehog-scan.log"
+
+          case "$status" in
+            0)
+              echo "TruffleHog found no secret-like material in the introduced commit range."
+              ;;
+            183)
+              echo "::error::TruffleHog detected secret-like material in the introduced commit range. Results are intentionally not printed to CI logs. Reproduce the scan locally to inspect and rotate/revoke any real credential before proceeding."
+              exit 1
+              ;;
+            *)
+              echo "::error::TruffleHog scan failed with exit code $status. Results are intentionally not printed to CI logs."
+              exit "$status"
+              ;;
+          esac
