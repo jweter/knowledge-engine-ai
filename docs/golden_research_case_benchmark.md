@@ -31,8 +31,10 @@ The case requires separate coverage of:
 1. acute pressor effects during the hours after consumption;
 2. persistent/chronic baseline BP over repeated use;
 3. incident hypertension risk over longer follow-up;
-4. BP-measurement artifact from caffeine before a reading; and
-5. Original-vs-Zero long-term risk context.
+4. BP-measurement artifact from caffeine before a reading;
+5. Original-vs-Zero long-term risk context;
+6. direct Monster evidence vs class-level/indirect evidence; and
+7. certainty plus missing-evidence disclosure.
 
 It also requires distinct search tracks for direct Monster/commercial energy-drink
 trials, energy-drink randomized/meta-analytic evidence, repeated/chronic
@@ -57,6 +59,27 @@ explicitly requires null/tolerance findings to be represented:
 Any source may affect synthesis only after normal Core acquisition, grounding,
 validation, Evidence Record promotion, and re-retrieval.
 
+## Per-source extraction audit
+
+Issue #79 requires source-level extraction, not citation presence alone. Each
+required discovery seed therefore must have an auditable record of whether these
+fields were captured:
+
+- population;
+- exposure;
+- dose;
+- duration;
+- comparator;
+- BP measurement method;
+- effect size;
+- confidence interval; and
+- risk of bias or limitations.
+
+`SourceFieldGap` records any missing required field for a reviewed source. A
+benchmark run cannot pass by silently omitting a field. This contract still does
+not decide what the extracted value should be; grounding and scientific truth
+remain Core-owned evidence concerns.
+
 ## Deterministic acceptance guards
 
 `evaluate_research_case()` fails visibly when a structured run snapshot shows
@@ -65,9 +88,14 @@ any of the following:
 - one of the two exposure variants was not covered;
 - acute/chronic/incident-hypertension/measurement dimensions were collapsed or
   omitted;
+- direct-vs-class evidence or certainty/missing-evidence framing was omitted;
 - a required search track was skipped;
 - a required PMID seed or counter-evidence seed was not reviewed;
+- a required seed was not audited for the required per-source extraction fields;
+- a per-source extraction audit found required fields missing;
 - PubMed was not attempted or fewer than two scholarly providers were attempted;
+- an actually degraded provider was not reported, or a provider was reported as
+  degraded when the structured run facts did not mark it degraded;
 - an empty indexed corpus did not trigger bounded discovery;
 - no direct long-term study was found and the answer failed to disclose that
   evidence gap;
