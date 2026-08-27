@@ -397,32 +397,75 @@ def _compile_track_queries(
     concept_by_id: dict[str, ConceptGroup],
 ) -> tuple[tuple[str, tuple[str, ...]], ...]:
     concept_term_sets = tuple(concept_by_id[concept_id].terms for concept_id in track.concept_ids)
-    combinations: Iterable[tuple[str, ...]]
-    if concept_term_sets:
-        combinations = product(*concept_term_sets)
-    else:
-        combinations = ((),)
-
     queries: list[tuple[str, tuple[str, ...]]] = []
     seen_queries: set[str] = set()
-    for chosen_terms in combinations:
-        query_terms = (*chosen_terms, *track.fixed_terms)
-        query = " ".join(query_terms)
-        if len(query) > MAX_QUERY_CHARACTERS:
-            raise ValueError(
-                f"Compiled query for track {track.track_id!r} exceeds "
-                f"{MAX_QUERY_CHARACTERS} characters."
+
+    if not concept_term_sets:
+        _append_track_query(
+            track,
+            (),
+            queries=queries,
+            seen_queries=seen_queries,
+        )
+        return tuple(queries)
+
+    canonical_terms = tuple(terms[0] for terms in concept_term_sets)
+    _append_track_query(
+        track,
+        canonical_terms,
+        queries=queries,
+        seen_queries=seen_queries,
+    )
+
+    max_term_count = max(len(terms) for terms in concept_term_sets)
+    for synonym_index in range(1, max_term_count):
+        for concept_index, terms in enumerate(concept_term_sets):
+            if synonym_index >= len(terms):
+                continue
+            chosen = list(canonical_terms)
+            chosen[concept_index] = terms[synonym_index]
+            _append_track_query(
+                track,
+                tuple(chosen),
+                queries=queries,
+                seen_queries=seen_queries,
             )
-        if query in seen_queries:
-            continue
-        seen_queries.add(query)
-        queries.append((query, tuple(chosen_terms)))
+            if len(queries) >= track.max_variants:
+                return tuple(queries)
+
+    combinations: Iterable[tuple[str, ...]] = product(*concept_term_sets)
+    for chosen_terms in combinations:
+        _append_track_query(
+            track,
+            chosen_terms,
+            queries=queries,
+            seen_queries=seen_queries,
+        )
         if len(queries) >= track.max_variants:
             break
 
     if not queries:
         raise ValueError(f"Search track {track.track_id!r} produced no query variants.")
     return tuple(queries)
+
+
+def _append_track_query(
+    track: SearchTrack,
+    chosen_terms: tuple[str, ...],
+    *,
+    queries: list[tuple[str, tuple[str, ...]]],
+    seen_queries: set[str],
+) -> None:
+    query = " ".join((*chosen_terms, *track.fixed_terms))
+    if len(query) > MAX_QUERY_CHARACTERS:
+        raise ValueError(
+            f"Compiled query for track {track.track_id!r} exceeds "
+            f"{MAX_QUERY_CHARACTERS} characters."
+        )
+    if query in seen_queries:
+        return
+    seen_queries.add(query)
+    queries.append((query, chosen_terms))
 
 
 def _require_nonblank(name: str, value: str) -> None:
