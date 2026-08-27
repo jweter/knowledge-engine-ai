@@ -125,9 +125,7 @@ class ResearchCaseRunSnapshot:
         if self.source_linked_factual_claim_count < 0:
             raise ValueError("source_linked_factual_claim_count must not be negative.")
         if self.source_linked_factual_claim_count > self.factual_claim_count:
-            raise ValueError(
-                "source_linked_factual_claim_count cannot exceed factual_claim_count."
-            )
+            raise ValueError("source_linked_factual_claim_count cannot exceed factual_claim_count.")
 
         unknown_degraded = set(self.degraded_providers) - set(self.attempted_providers)
         if unknown_degraded:
@@ -223,9 +221,7 @@ def evaluate_research_case(
 
     known_guards = set(case.inference_guard_ids)
     violated_guards = tuple(
-        guard_id
-        for guard_id in snapshot.violated_inference_guard_ids
-        if guard_id in known_guards
+        guard_id for guard_id in snapshot.violated_inference_guard_ids if guard_id in known_guards
     )
     unknown_violations = set(snapshot.violated_inference_guard_ids) - known_guards
     if unknown_violations:
