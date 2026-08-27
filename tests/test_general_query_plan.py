@@ -57,6 +57,35 @@ def test_compiler_keeps_one_canonical_query_per_track_before_synonym_expansion()
     assert {variant.track_id for variant in plan.query_variants} == {"direct", "counter"}
 
 
+def test_track_synonym_expansion_samples_each_concept_before_cartesian_combinations() -> None:
+    concepts = (
+        ConceptGroup("exposure", "energy drink", ("Monster Energy",)),
+        ConceptGroup("outcome", "blood pressure", ("hypertension",)),
+        ConceptGroup("duration", "acute", ("120 minutes",)),
+    )
+    track = SearchTrack(
+        track_id="acute",
+        purpose="Acute exposure/outcome evidence.",
+        scope=EvidenceScope.DIRECT,
+        concept_ids=("exposure", "outcome", "duration"),
+        max_variants=4,
+    )
+
+    plan = compile_general_query_plan(
+        "Do energy drinks acutely affect blood pressure?",
+        concepts=concepts,
+        tracks=(track,),
+        max_total_variants=4,
+    )
+
+    assert [variant.query for variant in plan.query_variants] == [
+        "energy drink blood pressure acute",
+        "Monster Energy blood pressure acute",
+        "energy drink hypertension acute",
+        "energy drink blood pressure 120 minutes",
+    ]
+
+
 def test_global_variant_budget_cannot_starve_a_search_track() -> None:
     with pytest.raises(ValueError, match="at least the number of search tracks"):
         compile_general_query_plan(
