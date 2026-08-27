@@ -56,11 +56,18 @@ The compiler has hard ceilings for concepts, synonyms, search tracks, variants
 per track, total variants, and query length.
 
 Within the caller's total variant budget it always keeps the canonical query for
-**every** search track first. Additional synonym variants are allocated
-round-robin across tracks.
+**every** search track first. Additional variants are allocated round-robin
+across tracks.
 
-That prevents one synonym-rich early track from consuming the whole search
-budget and silently dropping later research objectives.
+Within a track, synonym expansion is also diversity-first: after the canonical
+query, the compiler substitutes one concept at a time before falling back to
+multi-concept Cartesian combinations. A small per-track budget therefore samples
+aliases across the exposure, outcome, and time/duration concepts instead of
+letting the product order repeatedly vary only one concept.
+
+Together these rules prevent one synonym-rich track or concept from consuming
+the search budget and silently dropping later research objectives or important
+aliases.
 
 ## PICO is opt-in
 
@@ -79,18 +86,23 @@ general biology questions to ensure they remain generic by default.
 compiles the Monster Energy / one-year blood-pressure benchmark through the same
 generic compiler.
 
-The fixture includes all benchmark-required search tracks plus a deliberate
-counter-evidence/null-finding track:
+The fixture currently contains eleven explicit search tracks:
 
 1. direct Monster/commercial energy-drink trials;
-2. randomized/meta-analytic energy-drink evidence;
-3. repeated/chronic energy-drink exposure;
-4. chronic caffeine evidence as indirect context;
-5. sugar-sweetened beverage incident-hypertension evidence;
-6. artificially sweetened beverage context;
-7. blood-pressure measurement guidance;
-8. explicit 6-12 month / one-year longitudinal energy-drink search;
-9. null, nonsignificant, and tolerance counter-evidence.
+2. direct Monster Zero Ultra / White Monster blood-pressure evidence;
+3. direct Monster Original / Original Green blood-pressure evidence;
+4. randomized/meta-analytic energy-drink evidence;
+5. repeated/chronic energy-drink exposure;
+6. chronic caffeine evidence as bounded indirect context;
+7. sugar-sweetened beverage incident-hypertension evidence;
+8. artificially sweetened beverage context;
+9. blood-pressure measurement guidance;
+10. explicit 6-12 month / one-year longitudinal energy-drink search;
+11. null, nonsignificant, and tolerance counter-evidence.
+
+The explicit product tracks guarantee that Zero Ultra and Original cannot be
+lost merely because the broader brand concept has more aliases than the current
+query budget can expand.
 
 The plan preserves the benchmark's answer dimensions and all seeded PMID
 identities. Those PMIDs remain **discovery/validation targets only**. A query
