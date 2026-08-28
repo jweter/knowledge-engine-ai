@@ -20,9 +20,9 @@ Two checks, both structural or numeric, neither linguistic:
 1. Hallucinated citations / ungrounded numbers -- every
    `[evidence_record_id]` the narrative cites must be a record actually
    present in the report; every numeric token the narrative states must
-   appear in some cited record's `claim_text`/`result_summary` or in the
-   Evidence Quality/Claim Confidence values the synthesis prompt explicitly
-   supplies and permits the model to mention.
+   appear in some retrieved record field the synthesis prompt explicitly
+   supplies (`claim_text`, `result_summary`, or `limitations`) or in the
+   Evidence Quality/Claim Confidence values the prompt permits.
 2. Missed qualifiers -- any record whose `evidence_direction` is
    `qualifies`/`contradicts`, or which carries a non-empty
    `limitations` list, that the narrative never cites at all.
@@ -90,7 +90,7 @@ def verify_synthesis(narrative: str, report: EvidenceReport) -> VerificationResu
     grounded_text = " ".join(
         text
         for record in records_by_id.values()
-        for text in (record.claim_text, record.result_summary)
+        for text in (record.claim_text, record.result_summary, *record.limitations)
         if text
     )
     grounded_numbers = set(_NUMBER_RE.findall(grounded_text))

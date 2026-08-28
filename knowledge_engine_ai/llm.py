@@ -33,6 +33,10 @@ class LocalLLMError(RuntimeError):
     """The local model could not be reached, or did not return a usable response."""
 
 
+class LocalLLMTimeoutError(LocalLLMError):
+    """The local model exceeded the caller's bounded generation window."""
+
+
 class LocalLLM(Protocol):
     def generate(
         self,
@@ -86,11 +90,11 @@ class UrllibOllamaTransport:
             # `urlopen`'s `timeout=` bounds every socket read, not just the
             # connect -- a slow generation (a larger or reasoning model,
             # e.g. Qwen3's "thinking" mode) can time out reading the
-            # response body itself. That raises a bare `TimeoutError`,
-            # not a `URLError`, so it needs its own catch here; otherwise
-            # it escapes this method unwrapped and crashes the caller
-            # instead of being reported as an ordinary `LocalLLMError`.
-            raise LocalLLMError(
+            # response body itself. Keep timeout distinct from other local
+            # model failures so synthesis can safely fall back to a purely
+            # deterministic evidence rendering without masking outages,
+            # malformed responses, or missing-model errors.
+            raise LocalLLMTimeoutError(
                 f"Ollama at {url} did not respond within {timeout_seconds:.0f}s. "
                 "The model may still be generating -- a larger or reasoning "
                 "model can need more time than the default timeout."
