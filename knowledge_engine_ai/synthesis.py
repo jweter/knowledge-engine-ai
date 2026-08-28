@@ -38,7 +38,8 @@ def build_synthesis_prompt(report: EvidenceReport) -> str:
         lines.extend(
             (
                 "",
-                "Mandatory qualification citations: " + ", ".join(f"[{item}]" for item in mandatory_ids),
+                "Mandatory qualification citations: "
+                + ", ".join(f"[{item}]" for item in mandatory_ids),
                 "The final answer is incomplete unless every mandatory citation above appears.",
             )
         )
