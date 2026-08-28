@@ -241,7 +241,7 @@ def query_plan_from_question(
     payload_text = _extract_json_object(raw_output)
     if payload_text is None:
         raise QueryDecompositionError(
-            "Model output contained no complete JSON object.\n" f"Raw output:\n{raw_output}"
+            f"Model output contained no complete JSON object.\nRaw output:\n{raw_output}"
         )
 
     try:
@@ -298,7 +298,9 @@ def _parse_concepts(value: object) -> tuple[ConceptGroup, ...]:
         try:
             concepts.append(
                 ConceptGroup(
-                    concept_id=_required_string(item["concept_id"], f"concepts[{index}].concept_id"),
+                    concept_id=_required_string(
+                        item["concept_id"], f"concepts[{index}].concept_id"
+                    ),
                     canonical_term=_required_string(
                         item["canonical_term"], f"concepts[{index}].canonical_term"
                     ),
@@ -336,9 +338,7 @@ def _parse_tracks(value: object) -> tuple[SearchTrack, ...]:
                     track_id=_required_string(item["track_id"], f"tracks[{index}].track_id"),
                     purpose=_required_string(item["purpose"], f"tracks[{index}].purpose"),
                     scope=scope,
-                    concept_ids=_string_tuple(
-                        item["concept_ids"], f"tracks[{index}].concept_ids"
-                    ),
+                    concept_ids=_string_tuple(item["concept_ids"], f"tracks[{index}].concept_ids"),
                     fixed_terms=_string_tuple(item["fixed_terms"], f"tracks[{index}].fixed_terms"),
                     max_variants=max_variants,
                 )
@@ -358,7 +358,8 @@ def _require_exact_keys(value: dict[object, object], expected: frozenset[str], l
         )
     if unknown:
         raise QueryDecompositionError(
-            f"{label} contains unsupported field(s): " + ", ".join(sorted(str(key) for key in unknown))
+            f"{label} contains unsupported field(s): "
+            + ", ".join(sorted(str(key) for key in unknown))
         )
 
 
