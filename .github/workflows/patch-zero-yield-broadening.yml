@@ -1,0 +1,291 @@
+name: Patch zero-yield discovery broadening
+
+on:
+  push:
+    branches:
+      - agent/gqr-zero-yield-discovery-broadening
+    paths:
+      - .github/workflows/patch-zero-yield-broadening.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: agent/gqr-zero-yield-discovery-broadening
+      - name: Patch discovery policy
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("knowledge_engine_ai/copilot/discovery_policy.py")
+          text = path.read_text(encoding="utf-8")
+
+          replacements = []
+          replacements.append((
+              "from pathlib import Path\n\nfrom knowledge_engine_ai.discovery_plan import (\n",
+              "from pathlib import Path\n\nfrom knowledge_engine_ai.copilot.discovery_broadening import (\n"
+              "    MAX_ZERO_YIELD_BROADENING_QUERIES,\n"
+              "    compile_zero_yield_broadening_queries,\n"
+              ")\n"
+              "from knowledge_engine_ai.discovery_plan import (\n",
+          ))
+          replacements.append((
+              "DEFAULT_DISCOVERY_MAX_EXECUTION_SECONDS = 45.0\n",
+              "DEFAULT_DISCOVERY_MAX_EXECUTION_SECONDS = 45.0\n"
+              "DEFAULT_DISCOVERY_ZERO_YIELD_BROADENING_QUERIES = 2\n",
+          ))
+          replacements.append((
+              "    discovery_max_execution_seconds: float = DEFAULT_DISCOVERY_MAX_EXECUTION_SECONDS\n"
+              "    citation_snowball_seed_limit: int = DEFAULT_SNOWBALL_SEED_LIMIT\n",
+              "    discovery_max_execution_seconds: float = DEFAULT_DISCOVERY_MAX_EXECUTION_SECONDS\n"
+              "    discovery_zero_yield_broadening_queries: int = (\n"
+              "        DEFAULT_DISCOVERY_ZERO_YIELD_BROADENING_QUERIES\n"
+              "    )\n"
+              "    citation_snowball_seed_limit: int = DEFAULT_SNOWBALL_SEED_LIMIT\n",
+          ))
+          replacements.append((
+              "        if not 1 <= self.discovery_limit_per_provider <= 100:\n"
+              "            raise DiscoveryPolicyError(\"discovery_limit_per_provider must be between 1 and 100.\")\n"
+              "        if not 1 <= self.citation_snowball_max_depth <= 3:\n",
+              "        if not 1 <= self.discovery_limit_per_provider <= 100:\n"
+              "            raise DiscoveryPolicyError(\"discovery_limit_per_provider must be between 1 and 100.\")\n"
+              "        if not (\n"
+              "            0\n"
+              "            <= self.discovery_zero_yield_broadening_queries\n"
+              "            <= MAX_ZERO_YIELD_BROADENING_QUERIES\n"
+              "        ):\n"
+              "            raise DiscoveryPolicyError(\n"
+              "                \"discovery_zero_yield_broadening_queries must be between 0 and \"\n"
+              "                f\"{MAX_ZERO_YIELD_BROADENING_QUERIES}.\"\n"
+              "            )\n"
+              "        if not 1 <= self.citation_snowball_max_depth <= 3:\n",
+          ))
+
+          old_function = '''def _run_federated_discovery(
+    *,
+    session_repository: SessionRepository,
+    session_id: str,
+    question: str,
+    policy: FederatedDiscoveryPolicy,
+    execution_budget: ExecutionBudget | None,
+    research_question_id: str | None = None,
+) -> tuple[FederatedDiscoveryResult | None, str | None]:
+    start = time.monotonic()
+    try:
+        sub_budget = _sub_budget(policy.discovery_max_execution_seconds, execution_budget)
+        plan = compile_discovery_plan(
+            question,
+            providers=policy.discovery_providers,
+            limit_per_provider=policy.discovery_limit_per_provider,
+            max_execution_seconds=sub_budget.remaining_seconds(),
+        )
+        result = execute_discovery_plan(
+            plan,
+            ledger_root=policy.ledger_root,
+            openalex_api_key=policy.openalex_api_key,
+            semantic_scholar_api_key=policy.semantic_scholar_api_key,
+            research_question_id=research_question_id,
+            ke_executable=policy.ke_executable,
+        )
+    except (DiscoveryPlanError, KeCommandError, ExecutionBudgetExceeded) as exc:
+        error = str(exc)
+        _record_event(
+            session_repository,
+            session_id=session_id,
+            workflow_node=_FEDERATED_DISCOVERY_NODE,
+            tool_name="ke federated-discover",
+            output=None,
+            error=error,
+            duration_ms=_elapsed_ms(start),
+        )
+        return None, error
+
+    _record_event(
+        session_repository,
+        session_id=session_id,
+        workflow_node=_FEDERATED_DISCOVERY_NODE,
+        tool_name="ke federated-discover",
+        output=_federated_discovery_summary(result),
+        error=None,
+        duration_ms=_elapsed_ms(start),
+        output_hash=_hash_candidates(candidate.canonical_id for candidate in result.candidates),
+    )
+    return result, None
+'''
+
+          new_function = '''def _run_federated_discovery(
+    *,
+    session_repository: SessionRepository,
+    session_id: str,
+    question: str,
+    policy: FederatedDiscoveryPolicy,
+    execution_budget: ExecutionBudget | None,
+    research_question_id: str | None = None,
+) -> tuple[FederatedDiscoveryResult | None, str | None]:
+    start = time.monotonic()
+    attempted_queries: list[str] = []
+    broadening_error: str | None = None
+    try:
+        sub_budget = _sub_budget(policy.discovery_max_execution_seconds, execution_budget)
+        result = _execute_federated_discovery_query(
+            question,
+            policy=policy,
+            sub_budget=sub_budget,
+            research_question_id=research_question_id,
+        )
+        attempted_queries.append(question)
+    except (DiscoveryPlanError, KeCommandError, ExecutionBudgetExceeded) as exc:
+        error = str(exc)
+        _record_event(
+            session_repository,
+            session_id=session_id,
+            workflow_node=_FEDERATED_DISCOVERY_NODE,
+            tool_name="ke federated-discover",
+            output=None,
+            error=error,
+            duration_ms=_elapsed_ms(start),
+        )
+        return None, error
+
+    if (
+        not result.candidates
+        and policy.discovery_zero_yield_broadening_queries > 0
+        and _discovery_result_allows_query_broadening(result)
+    ):
+        broadened_queries = compile_zero_yield_broadening_queries(
+            question,
+            max_queries=policy.discovery_zero_yield_broadening_queries,
+        )
+        for broadened_query in broadened_queries:
+            try:
+                broadened_result = _execute_federated_discovery_query(
+                    broadened_query,
+                    policy=policy,
+                    sub_budget=sub_budget,
+                    research_question_id=research_question_id,
+                )
+            except (DiscoveryPlanError, KeCommandError, ExecutionBudgetExceeded) as exc:
+                # The original discovery request already completed successfully.  A
+                # fallback failure must not rewrite that valid result into a hard
+                # discovery failure; retain the last valid snapshot and record why
+                # broadening stopped in the event summary.
+                broadening_error = str(exc)
+                break
+            attempted_queries.append(broadened_query)
+            result = broadened_result
+            if result.candidates or not _discovery_result_allows_query_broadening(result):
+                break
+
+    _record_event(
+        session_repository,
+        session_id=session_id,
+        workflow_node=_FEDERATED_DISCOVERY_NODE,
+        tool_name="ke federated-discover",
+        output=_federated_discovery_summary(
+            result,
+            attempted_queries=tuple(attempted_queries),
+            broadening_error=broadening_error,
+        ),
+        error=None,
+        duration_ms=_elapsed_ms(start),
+        output_hash=_hash_candidates(candidate.canonical_id for candidate in result.candidates),
+    )
+    return result, None
+
+
+def _execute_federated_discovery_query(
+    query: str,
+    *,
+    policy: FederatedDiscoveryPolicy,
+    sub_budget: ExecutionBudget,
+    research_question_id: str | None,
+) -> FederatedDiscoveryResult:
+    plan = compile_discovery_plan(
+        query,
+        providers=policy.discovery_providers,
+        limit_per_provider=policy.discovery_limit_per_provider,
+        max_execution_seconds=sub_budget.remaining_seconds(),
+    )
+    return execute_discovery_plan(
+        plan,
+        ledger_root=policy.ledger_root,
+        openalex_api_key=policy.openalex_api_key,
+        semantic_scholar_api_key=policy.semantic_scholar_api_key,
+        research_question_id=research_question_id,
+        ke_executable=policy.ke_executable,
+    )
+
+
+def _discovery_result_allows_query_broadening(result: FederatedDiscoveryResult) -> bool:
+    """Whether at least one provider actually evaluated the query rather than failing.
+
+    An empty/successful provider response can be repaired by a broader query.  A run
+    where every attempted provider is rate-limited, unavailable, or failed cannot.
+    Retrying different wording in that state only adds latency and load.
+    """
+
+    return any(
+        status.attempted and status.outcome in {"empty", "success"}
+        for status in result.provider_statuses
+    )
+'''
+          replacements.append((old_function, new_function))
+
+          old_summary = '''def _federated_discovery_summary(result: FederatedDiscoveryResult) -> str:
+    return (
+        f"search_run_id={result.search_run_id} completeness={result.completeness} "
+        f"{len(result.candidates)} deduplicated candidate(s) "
+        f"across {len(result.provider_statuses)} provider(s) attempted. "
+        "Discovery leads only -- not Evidence Records, not acquired, not synthesized from."
+    )
+'''
+          new_summary = '''def _federated_discovery_summary(
+    result: FederatedDiscoveryResult,
+    *,
+    attempted_queries: tuple[str, ...] = (),
+    broadening_error: str | None = None,
+) -> str:
+    query_summary = ""
+    if attempted_queries:
+        query_summary = (
+            f"query_attempts={len(attempted_queries)} final_query={result.query_text!r}. "
+        )
+    if broadening_error is not None:
+        query_summary += f"Zero-yield broadening stopped: {broadening_error}. "
+    return (
+        f"search_run_id={result.search_run_id} completeness={result.completeness} "
+        f"{len(result.candidates)} deduplicated candidate(s) "
+        f"across {len(result.provider_statuses)} provider(s) attempted. "
+        f"{query_summary}"
+        "Discovery leads only -- not Evidence Records, not acquired, not synthesized from."
+    )
+'''
+          replacements.append((old_summary, new_summary))
+
+          replacements.append((
+              '    "DEFAULT_DISCOVERY_MAX_EXECUTION_SECONDS",\n',
+              '    "DEFAULT_DISCOVERY_MAX_EXECUTION_SECONDS",\n'
+              '    "DEFAULT_DISCOVERY_ZERO_YIELD_BROADENING_QUERIES",\n',
+          ))
+
+          for old, new in replacements:
+              if old not in text:
+                  raise SystemExit(f"expected patch target not found: {old[:120]!r}")
+              text = text.replace(old, new, 1)
+
+          path.write_text(text, encoding="utf-8")
+          PY
+      - name: Remove temporary patch workflow and commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/patch-zero-yield-broadening.yml
+          git add knowledge_engine_ai/copilot/discovery_policy.py
+          git commit -m "Use bounded broadening after zero-yield discovery"
+          git push origin HEAD:agent/gqr-zero-yield-discovery-broadening
