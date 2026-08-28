@@ -45,5 +45,8 @@ def test_prompt_lists_every_required_qualifier_and_limitation_citation() -> None
     prompt = build_synthesis_prompt(report)
 
     assert "Mandatory qualification citations: [ev-qualifies], [ev-limited]" in prompt
-    assert "[ev-support]" not in prompt.split("Mandatory qualification citations:", 1)[1].splitlines()[0]
+    assert (
+        "[ev-support]"
+        not in prompt.split("Mandatory qualification citations:", 1)[1].splitlines()[0]
+    )
     assert "The final answer is incomplete unless every mandatory citation above appears." in prompt
