@@ -1,0 +1,107 @@
+name: Probe GQR-2 discovery yield
+
+on:
+  push:
+    branches:
+      - agent/bt0-empty-json-acceptance
+    paths:
+      - .github/workflows/probe-gqr2-discovery-yield.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      POETRY_VIRTUALENVS_CREATE: "false"
+      KE_DATA_DIR: /tmp/ke-probe-data
+      KE_AI_OLLAMA_HOST: http://127.0.0.1:11434
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: agent/bt0-empty-json-acceptance
+          path: ai
+      - uses: actions/checkout@v7
+        with:
+          repository: jweter/knowledge-engine-core
+          ref: d73c93bad268f89523b27ca6b69442c1b5741583
+          path: core
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            knowledge_engine
+            README.md
+            pyproject.toml
+            poetry.lock
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install runtimes
+        run: |
+          python -m pip install poetry
+          poetry -C core install --only main
+          poetry -C ai install --only main
+      - name: Start Ollama
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          if ! curl -sf http://127.0.0.1:11434/api/tags >/dev/null; then
+            ollama serve >"${RUNNER_TEMP}/ollama.log" 2>&1 &
+          fi
+          for _ in $(seq 1 30); do
+            curl -sf http://127.0.0.1:11434/api/tags >/dev/null && break
+            sleep 1
+          done
+          ollama pull qwen2.5:0.5b
+      - name: Compile GQR-2 query plan
+        working-directory: core
+        run: |
+          mkdir -p "${RUNNER_TEMP}/probe"
+          python - <<'PY' | tee "${RUNNER_TEMP}/probe/query-plan.log"
+          import os
+          from pathlib import Path
+          from knowledge_engine_ai.copilot.query_decomposition import query_plan_from_question
+          from knowledge_engine_ai.llm import OllamaLLM
+
+          question = "In healthy adults, does listening to music during exercise improve endurance performance compared with exercising without music?"
+          llm = OllamaLLM(model="qwen2.5:0.5b", host=os.environ["KE_AI_OLLAMA_HOST"])
+          plan = query_plan_from_question(question, llm, max_total_variants=12)
+          out = Path(os.environ["RUNNER_TEMP"]) / "probe" / "query-plan.json"
+          out.write_text(plan.to_json(), encoding="utf-8")
+          print("FRAME=", plan.frame_type.value)
+          print("TRACKS=", len(plan.tracks))
+          for variant in plan.query_variants:
+              print(variant.variant_id, variant.scope.value, repr(variant.query))
+          PY
+      - name: Probe PubMed query yield
+        working-directory: core
+        run: |
+          mkdir -p "${RUNNER_TEMP}/probe/ledger"
+          ke federated-discover \
+            --query "music exercise endurance" \
+            --providers pubmed \
+            --limit 10 \
+            --ledger-root "${RUNNER_TEMP}/probe/ledger" \
+            --output "${RUNNER_TEMP}/probe/pubmed-broad.json"
+          python - <<'PY' | tee "${RUNNER_TEMP}/probe/pubmed-broad.log"
+          import json, os
+          from pathlib import Path
+          payload = json.loads((Path(os.environ["RUNNER_TEMP"]) / "probe" / "pubmed-broad.json").read_text())
+          print("CANDIDATES=", len(payload["candidates"]))
+          print("STATUSES=", payload["provider_statuses"])
+          for item in payload["candidates"][:5]:
+              print(item["canonical_id"], item["title"])
+          PY
+      - name: Upload probe
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: gqr2-discovery-yield-probe
+          path: |
+            ${{ runner.temp }}/probe/query-plan.json
+            ${{ runner.temp }}/probe/query-plan.log
+            ${{ runner.temp }}/probe/pubmed-broad.json
+            ${{ runner.temp }}/probe/pubmed-broad.log
+            ${{ runner.temp }}/ollama.log
+          if-no-files-found: warn
