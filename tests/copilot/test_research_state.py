@@ -4,6 +4,7 @@ import json
 from dataclasses import dataclass
 
 from knowledge_engine_ai.copilot.discovery_policy import DiscoveryAugmentationResult
+from knowledge_engine_ai.copilot.grounded_completion import GroundedCompletionResult
 from knowledge_engine_ai.copilot.intent import ISAValidationResult
 from knowledge_engine_ai.copilot.research_state import (
     RESEARCH_STATE_SCHEMA_VERSION,
@@ -26,6 +27,8 @@ class _Result:
     discovery: DiscoveryAugmentationResult | None
     close_result: SessionCloseResult
     narrative_releaseable: bool
+    grounded_completion: GroundedCompletionResult | None = None
+    used_reretrieved_evidence: bool = False
 
 
 def _workflow(
@@ -80,7 +83,18 @@ def _discovery(*, completeness: str = "complete") -> DiscoveryAugmentationResult
         evidence_record_coverage=1,
         federated_discovery=federated,
         federated_discovery_attempted=True,
-        acquisition_plan_attempted=False,
+        acquisition_plan_attempted=True,
+    )
+
+
+def _completion(*, with_new_evidence: bool = True) -> GroundedCompletionResult:
+    return GroundedCompletionResult(
+        attempted=True,
+        search_run_id="run-1",
+        research_question_id="rq-1",
+        paper_ids=(1,),
+        promoted_record_ids=("ev-new",) if with_new_evidence else (),
+        reretrieval_report=None,
     )
 
 
@@ -102,11 +116,15 @@ def test_indexed_releaseable_answer_is_indexed_answer_and_serializes_stably() ->
         "acquisition_plan_attempted": False,
         "discovery_triggered": False,
         "federated_discovery_attempted": False,
+        "grounded_completion_attempted": False,
+        "grounded_completion_completed": False,
         "indexed_evidence_record_count": 2,
+        "promoted_evidence_record_count": 0,
         "provider_degraded": False,
         "reason": "indexed_evidence_sufficient",
-        "schema_version": 1,
+        "schema_version": 2,
         "state": "indexed_answer",
+        "used_reretrieved_evidence": False,
     }
 
 
@@ -125,6 +143,62 @@ def test_triggered_research_with_releaseable_indexed_evidence_is_partial() -> No
     assert state.federated_discovery_attempted is True
 
 
+def test_grounded_reretrieval_used_for_releaseable_answer_is_researched_answer() -> None:
+    completion = GroundedCompletionResult(
+        attempted=True,
+        search_run_id="run-1",
+        research_question_id="rq-1",
+        paper_ids=(1,),
+        promoted_record_ids=("ev-new",),
+        reretrieval_report=object(),  # type: ignore[arg-type]
+    )
+    state = derive_research_state(
+        _Result(
+            workflow=_workflow(),
+            discovery=_discovery(),
+            close_result=_close(),
+            narrative_releaseable=True,
+            grounded_completion=completion,
+            used_reretrieved_evidence=True,
+        )
+    )
+
+    assert state.state is ResearchState.RESEARCHED_ANSWER
+    assert state.reason == "grounded_completion_reretrieval_used_for_releaseable_answer"
+    assert state.grounded_completion_attempted is True
+    assert state.grounded_completion_completed is True
+    assert state.used_reretrieved_evidence is True
+    assert state.promoted_evidence_record_count == 1
+
+
+def test_releaseable_researched_answer_with_degraded_provider_coverage_is_provider_degraded() -> (
+    None
+):
+    completion = GroundedCompletionResult(
+        attempted=True,
+        search_run_id="run-1",
+        research_question_id="rq-1",
+        paper_ids=(1,),
+        promoted_record_ids=("ev-new",),
+        reretrieval_report=object(),  # type: ignore[arg-type]
+    )
+    state = derive_research_state(
+        _Result(
+            workflow=_workflow(evidence_ids=("ev-1",)),
+            discovery=_discovery(completeness="partial"),
+            close_result=_close(),
+            narrative_releaseable=True,
+            grounded_completion=completion,
+            used_reretrieved_evidence=True,
+        )
+    )
+
+    assert state.state is ResearchState.PROVIDER_DEGRADED
+    assert state.reason == "releaseable_researched_answer_with_degraded_provider_coverage"
+    assert state.provider_degraded is True
+    assert state.used_reretrieved_evidence is True
+
+
 def test_releaseable_answer_with_degraded_provider_coverage_is_provider_degraded() -> None:
     state = derive_research_state(
         _Result(
@@ -139,7 +213,7 @@ def test_releaseable_answer_with_degraded_provider_coverage_is_provider_degraded
     assert state.provider_degraded is True
 
 
-def test_triggered_research_without_releaseable_answer_remains_research_required() -> None:
+def test_triggered_research_without_completion_remains_research_required() -> None:
     state = derive_research_state(
         _Result(
             workflow=_workflow(),
@@ -151,6 +225,22 @@ def test_triggered_research_without_releaseable_answer_remains_research_required
 
     assert state.state is ResearchState.RESEARCH_REQUIRED
     assert state.reason == "indexed_coverage_insufficient_bounded_research_started"
+
+
+def test_completed_bounded_research_without_answer_is_insufficient_evidence() -> None:
+    state = derive_research_state(
+        _Result(
+            workflow=_workflow(),
+            discovery=_discovery(),
+            close_result=_close(),
+            narrative_releaseable=False,
+            grounded_completion=_completion(with_new_evidence=False),
+        )
+    )
+
+    assert state.state is ResearchState.INSUFFICIENT_EVIDENCE
+    assert state.reason == "bounded_research_completed_without_releaseable_grounded_answer"
+    assert state.grounded_completion_attempted is True
 
 
 def test_no_trigger_and_no_releaseable_answer_is_insufficient_evidence() -> None:
