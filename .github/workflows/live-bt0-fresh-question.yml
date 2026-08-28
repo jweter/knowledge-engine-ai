@@ -16,7 +16,7 @@ jobs:
     timeout-minutes: 30
     env:
       POETRY_VIRTUALENVS_CREATE: "false"
-      KE_DATA_DIR: ${{ runner.temp }}/ke-core-data
+      KE_DATA_DIR: /tmp/ke-core-data
       KE_LLM_MODEL: qwen2.5:0.5b
       KE_OLLAMA_HOST: http://127.0.0.1:11434
     steps:
@@ -100,6 +100,7 @@ jobs:
         with:
           name: bt0-fresh-music-endurance
           path: |
+            /tmp/ke-core-data
             ${{ runner.temp }}/bt0/benchmark.json
             ${{ runner.temp }}/bt0/benchmark.log
             ${{ runner.temp }}/bt0/ollama-tail.log
