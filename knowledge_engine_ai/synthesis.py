@@ -9,6 +9,8 @@ Nothing discovered-but-unacquired, unreviewed, or outside the report may enter i
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+
 from knowledge_engine_ai.llm import LocalLLM, LocalLLMError
 from knowledge_engine_ai.models import EvidenceRecord, EvidenceReport, RetrievedPaper
 
@@ -146,7 +148,7 @@ def _is_required_qualifier(record: EvidenceRecord) -> bool:
     return record.evidence_direction in {"qualifies", "contradicts"} or bool(record.limitations)
 
 
-def _claim_records(report: EvidenceReport):
+def _claim_records(report: EvidenceReport) -> Iterator[EvidenceRecord]:
     for paper in report.papers:
         for record in paper.evidence_records:
             if record.claim_text and record.evidence_record_id:
