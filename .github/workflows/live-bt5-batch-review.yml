@@ -1,0 +1,127 @@
+name: Live BT-5 batch grounded review
+
+on:
+  push:
+    branches:
+      - agent/bt0-empty-json-acceptance
+    paths:
+      - .github/workflows/live-bt5-batch-review.yml
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      POETRY_VIRTUALENVS_CREATE: "false"
+      KE_DATA_DIR: /tmp/ke-core-data
+      KE_LLM_MODEL: qwen2.5:0.5b
+      KE_OLLAMA_HOST: http://127.0.0.1:11434
+    steps:
+      - name: Check out AI batch-review PR head
+        uses: actions/checkout@v7
+        with:
+          ref: agent/batch-grounded-review
+          path: ai
+
+      - name: Check out current Core main
+        uses: actions/checkout@v7
+        with:
+          repository: jweter/knowledge-engine-core
+          ref: 655edebc2349be058247e2b68893685a6e4e8cf7
+          path: core
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            knowledge_engine
+            README.md
+            pyproject.toml
+            poetry.lock
+            data/corpora/glp1_weight_loss/sources.csv
+            data/corpora/glp1_weight_loss/evidence_records.jsonl
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install runtimes
+        run: |
+          python -m pip install poetry
+          poetry -C core install --only main
+          poetry -C ai install --only main
+
+      - name: Install and start Ollama
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          if ! curl -sf http://127.0.0.1:11434/api/tags >/dev/null; then
+            ollama serve >"${RUNNER_TEMP}/ollama.log" 2>&1 &
+          fi
+          for _ in $(seq 1 30); do
+            curl -sf http://127.0.0.1:11434/api/tags >/dev/null && break
+            sleep 1
+          done
+          ollama pull qwen2.5:0.5b
+
+      - name: Prepare isolated fresh corpus
+        run: |
+          mkdir -p "${RUNNER_TEMP}/bt5/ledger" "${RUNNER_TEMP}/bt5/papers" "${KE_DATA_DIR}"
+          cp core/data/corpora/glp1_weight_loss/sources.csv "${RUNNER_TEMP}/bt5/sources.csv"
+          cp core/data/corpora/glp1_weight_loss/evidence_records.jsonl "${RUNNER_TEMP}/bt5/evidence.jsonl"
+
+      - name: Run unchanged fresh-question cold benchmark
+        working-directory: core
+        run: |
+          set -o pipefail
+          QUESTION='In healthy adults, does listening to music during exercise improve endurance performance compared with exercising without music?'
+          ke-ai-research-benchmark "$QUESTION" \
+            --sources "${RUNNER_TEMP}/bt5/sources.csv" \
+            --evidence "${RUNNER_TEMP}/bt5/evidence.jsonl" \
+            --session-db "${RUNNER_TEMP}/bt5/sessions.sqlite3" \
+            --ledger-root "${RUNNER_TEMP}/bt5/ledger" \
+            --papers-dir "${RUNNER_TEMP}/bt5/papers" \
+            --llm-model qwen2.5:0.5b \
+            --ke-executable "$(command -v ke)" \
+            --providers pubmed,semantic_scholar \
+            --repeats 1 \
+            --timeout-seconds 240 \
+            --scenario-id fresh-music-endurance-batch-grounded-review \
+            --output "${RUNNER_TEMP}/bt5/benchmark.json" \
+            2>&1 | tee "${RUNNER_TEMP}/bt5/benchmark.log"
+
+      - name: Report extraction benchmark
+        if: always()
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          path = Path(os.environ["RUNNER_TEMP"]) / "bt5" / "benchmark.json"
+          if not path.exists():
+              print("BENCHMARK_JSON_MISSING")
+              raise SystemExit(1)
+          run = json.loads(path.read_text(encoding="utf-8"))["runs"][0]
+          stage = next(
+              item for item in run["bottleneck_report"]["stages"]
+              if item["stage"] == "extraction_promotion"
+          )
+          print(f"WALL_CLOCK_MS={run['wall_clock_duration_ms']}")
+          print(f"EXTRACTION_PROMOTION_MS={stage['known_duration_ms']}")
+          print(f"GROUNDED_RECORDS={run['funnel']['grounded_record_count']}")
+          print(f"PROMOTED_RECORDS={run['funnel']['promoted_evidence_record_count']}")
+          print(f"RELEASEABLE={run['narrative_releaseable']}")
+          print(f"FINAL_STATE={run['final_state']['state']}")
+          assert stage["known_duration_ms"] is not None
+          PY
+
+      - name: Upload benchmark artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: bt5-batch-grounded-review
+          path: |
+            ${{ runner.temp }}/bt5/benchmark.json
+            ${{ runner.temp }}/bt5/benchmark.log
+            ${{ runner.temp }}/bt5/sessions.sqlite3
+          if-no-files-found: warn
