@@ -1,29 +1,23 @@
 """GQR-4/GQR-5 bridge from acquisition plans to grounded re-retrieval.
 
-This module closes the first executable path between Core's persisted discovery
-candidates and an EvidenceReport that may be used for synthesis. It deliberately
-composes Core's existing public ``ke`` commands instead of importing Core as a
-Python package:
+This module closes the first executable path between Core discovery candidates
+and an EvidenceReport that may be used for synthesis:
 
-acquisition plan -> bounded route execution -> persisted Papers -> extraction
-review queue -> automated classification -> staged EvidenceRecords -> LLM-grounded
-PICO verification -> automated review promotion -> Core-validated append to the
-real evidence store -> original-question re-retrieval.
+acquisition plan -> bounded acquisition -> persisted Papers -> extraction queue
+-> automated classification -> private staged EvidenceRecords -> Core grounding
+verification -> Core review promotion -> durable Core promotion -> re-retrieval.
 
-The staging step is the trust boundary. Raw automatically classified records are
-never appended to the caller's evidence file. They are first promoted into a
-private temporary evidence file, passed through Core's grounding verifier and
-``evidence-record-review-promote`` gate, and only records that are both
-``llm_grounded`` and ``reviewed`` are submitted to Core's promotion validator for
-final persistence. Discovery candidates and merely acquired Papers therefore
-never become synthesis inputs by shortcut.
+The private staging file is the trust boundary. Raw automated records are never
+written to the caller's evidence file. Only records Core reports as both
+``llm_grounded`` and ``reviewed`` are submitted back through Core's EvidenceRecord
+promotion validator for durable persistence.
 """
 
 from __future__ import annotations
 
 import json
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -40,7 +34,6 @@ from knowledge_engine_ai.models import EvidenceReport
 
 _ELIGIBLE_FULL_TEXT = "eligible_full_text"
 _ALREADY_INDEXED = "already_indexed"
-
 _ROUTE_COMMANDS: dict[str, str] = {
     "pmc_oa": "general-question-acquire-pmc",
     "europe_pmc_oa": "general-question-acquire-europe-pmc",
@@ -59,8 +52,9 @@ class GroundedCompletionContractError(RuntimeError):
 
 @dataclass(frozen=True)
 class GroundedCompletionPolicy:
-    """Explicit bounds and filesystem context for one GQR-4/GQR-5 completion pass."""
+    """Explicit bounds and Core filesystem context for one completion pass."""
 
+    ledger_root: Path
     papers_dir: Path
     grounding_model: str
     core_working_directory: Path | None = None
@@ -123,7 +117,7 @@ class AcquisitionRouteResult:
 
 @dataclass(frozen=True)
 class GroundedCompletionResult:
-    """Structured GQR-4/GQR-5 completion outcome for one discovery augmentation."""
+    """Structured GQR-4/GQR-5 outcome for one discovery augmentation."""
 
     attempted: bool
     search_run_id: str | None
@@ -167,6 +161,16 @@ class GroundedCompletionResult:
         }
 
 
+@dataclass(frozen=True)
+class _ExtractionResult:
+    draft_item_count: int
+    classified_item_count: int
+    staged_record_ids: tuple[str, ...]
+    grounded_record_ids: tuple[str, ...]
+    promoted_record_ids: tuple[str, ...]
+    grounding_failures: tuple[str, ...] = ()
+
+
 def complete_discovered_research(
     question: str,
     *,
@@ -179,11 +183,9 @@ def complete_discovered_research(
 ) -> GroundedCompletionResult:
     """Acquire, ground, promote, and re-retrieve one discovery augmentation.
 
-    The function never turns provider candidates directly into evidence. Core owns
-    every durable acquisition and EvidenceRecord promotion operation. Individual
-    acquisition-route failures degrade the run but do not erase successful routes.
-    Extraction/promotion failure stops the new-evidence path before re-retrieval so
-    an ungrounded staged record can never enter synthesis accidentally.
+    Acquisition-route failures are retained as degraded route results and do not
+    erase successful routes. Extraction failure stops the new-evidence path before
+    re-retrieval, preventing an ungrounded staged record from entering synthesis.
     """
 
     plan = discovery.acquisition_plan
@@ -196,27 +198,19 @@ def complete_discovered_research(
                 else None
             ),
             research_question_id=None,
-            skipped_reason=discovery.acquisition_plan_skipped_reason
-            or discovery.acquisition_plan_error
-            or "no acquisition plan available",
+            skipped_reason=(
+                discovery.acquisition_plan_skipped_reason
+                or discovery.acquisition_plan_error
+                or "no acquisition plan available"
+            ),
         )
 
-    already_indexed = tuple(
-        sorted(
-            {
-                item.existing_paper_id
-                for item in plan.items
-                if item.disposition == _ALREADY_INDEXED and item.existing_paper_id is not None
-            }
-        )
-    )
-    route_candidates = _route_candidates(plan)
+    already_indexed = _already_indexed_paper_ids(plan)
     route_results: list[AcquisitionRouteResult] = []
     acquired_paper_ids: list[int] = []
-
-    for route, candidate_ids in route_candidates[: policy.max_acquisition_routes]:
+    for route, candidate_ids in _route_candidates(plan)[: policy.max_acquisition_routes]:
         try:
-            route_result = _execute_acquisition_route(
+            result = _execute_acquisition_route(
                 plan,
                 route=route,
                 candidate_ids=candidate_ids,
@@ -225,14 +219,14 @@ def complete_discovered_research(
                 execution_budget=execution_budget,
             )
         except (KeCommandError, GroundedCompletionContractError) as exc:
-            route_result = AcquisitionRouteResult(
+            result = AcquisitionRouteResult(
                 route=route,
                 candidate_ids=candidate_ids,
                 attempted=True,
                 error=str(exc),
             )
-        route_results.append(route_result)
-        acquired_paper_ids.extend(route_result.paper_ids)
+        route_results.append(result)
+        acquired_paper_ids.extend(result.paper_ids)
 
     paper_ids = tuple(dict.fromkeys((*already_indexed, *acquired_paper_ids)))
     if not paper_ids:
@@ -240,7 +234,6 @@ def complete_discovered_research(
             attempted=True,
             search_run_id=plan.search_run_id,
             research_question_id=plan.research_question_id,
-            already_indexed_paper_ids=already_indexed,
             acquisition_routes=tuple(route_results),
             skipped_reason="no persisted or reusable paper was available for grounded extraction",
         )
@@ -264,10 +257,9 @@ def complete_discovered_research(
             extraction_error=str(exc),
         )
 
-    promoted_ids = extraction.promoted_record_ids
     reretrieval: EvidenceReport | None = None
     reretrieval_error: str | None = None
-    if promoted_ids:
+    if extraction.promoted_record_ids:
         try:
             reretrieval = evidence_report(
                 question,
@@ -292,27 +284,28 @@ def complete_discovered_research(
         classified_item_count=extraction.classified_item_count,
         staged_record_ids=extraction.staged_record_ids,
         grounded_record_ids=extraction.grounded_record_ids,
-        promoted_record_ids=promoted_ids,
+        promoted_record_ids=extraction.promoted_record_ids,
         grounding_failures=extraction.grounding_failures,
         reretrieval_report=reretrieval,
         reretrieval_error=reretrieval_error,
         skipped_reason=(
             "no automatically classified record passed grounded review"
-            if not promoted_ids and extraction.extraction_error is None
+            if not extraction.promoted_record_ids
             else None
         ),
     )
 
 
-@dataclass(frozen=True)
-class _ExtractionResult:
-    draft_item_count: int
-    classified_item_count: int
-    staged_record_ids: tuple[str, ...]
-    grounded_record_ids: tuple[str, ...]
-    promoted_record_ids: tuple[str, ...]
-    grounding_failures: tuple[str, ...] = field(default_factory=tuple)
-    extraction_error: str | None = None
+def _already_indexed_paper_ids(plan: GeneralQuestionAcquisitionPlanResult) -> tuple[int, ...]:
+    return tuple(
+        sorted(
+            {
+                item.existing_paper_id
+                for item in plan.items
+                if item.disposition == _ALREADY_INDEXED and item.existing_paper_id is not None
+            }
+        )
+    )
 
 
 def _route_candidates(
@@ -322,12 +315,9 @@ def _route_candidates(
     for item in plan.items:
         if item.disposition != _ELIGIBLE_FULL_TEXT or item.acquisition_route is None:
             continue
-        if item.acquisition_route not in _ROUTE_COMMANDS:
-            continue
-        grouped.setdefault(item.acquisition_route, []).append(item.candidate_id)
-    return tuple(
-        (route, tuple(grouped[route])) for route in _ROUTE_COMMANDS if route in grouped
-    )
+        if item.acquisition_route in _ROUTE_COMMANDS:
+            grouped.setdefault(item.acquisition_route, []).append(item.candidate_id)
+    return tuple((route, tuple(grouped[route])) for route in _ROUTE_COMMANDS if route in grouped)
 
 
 def _execute_acquisition_route(
@@ -340,15 +330,15 @@ def _execute_acquisition_route(
     execution_budget: ExecutionBudget | None,
 ) -> AcquisitionRouteResult:
     command_name = _ROUTE_COMMANDS[route]
-    bounded_candidate_ids = candidate_ids[: policy.max_candidates_per_route]
+    bounded_ids = candidate_ids[: policy.max_candidates_per_route]
     request_payload = {
         "schema_version": 1,
         "search_run_id": plan.search_run_id,
         "research_question_id": plan.research_question_id,
-        "candidate_ids": list(bounded_candidate_ids),
-        "max_candidates": len(bounded_candidate_ids),
+        "candidate_ids": list(bounded_ids),
+        "max_candidates": len(bounded_ids),
         "max_full_text_acquisitions": min(
-            len(bounded_candidate_ids), policy.max_full_text_acquisitions_per_route
+            len(bounded_ids), policy.max_full_text_acquisitions_per_route
         ),
         "max_elapsed_seconds": policy.max_elapsed_seconds_per_route,
         "allow_metadata_only": True,
@@ -364,52 +354,32 @@ def _execute_acquisition_route(
             command_name,
             str(request_path),
             "--ledger-root",
-            str(plan_ledger_root := _require_ledger_root_from_policy(policy)),
+            str(policy.ledger_root),
             "--papers-dir",
             str(policy.papers_dir),
             "--receipt",
             str(receipt_path),
         ]
-        try:
-            completed = _run_ke_command(
-                command,
-                operation=f"ke {command_name}",
-                execution_budget=execution_budget,
-                working_directory=policy.core_working_directory,
-            )
-        except FileNotFoundError as exc:
-            raise KeCommandError(
-                f"Could not run {ke_executable!r} -- is knowledge-engine-core installed and on PATH?"
-            ) from exc
-        if completed.returncode != 0:
-            message = completed.stderr.strip() or completed.stdout.strip()
-            raise KeCommandError(f"`ke {command_name}` exited {completed.returncode}: {message}")
+        _run_checked(
+            command,
+            operation=f"ke {command_name}",
+            policy=policy,
+            execution_budget=execution_budget,
+        )
         try:
             payload = json.loads(receipt_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
-            raise KeCommandError(f"`ke {command_name}` did not write a readable receipt: {exc}") from exc
+            raise KeCommandError(
+                f"`ke {command_name}` did not write a readable receipt: {exc}"
+            ) from exc
 
-    _ = plan_ledger_root  # retained in the command above for explicit provenance readability.
     return _parse_acquisition_receipt(
         payload,
         route=route,
-        candidate_ids=bounded_candidate_ids,
+        candidate_ids=bounded_ids,
         search_run_id=plan.search_run_id,
         research_question_id=plan.research_question_id,
     )
-
-
-def _require_ledger_root_from_policy(policy: GroundedCompletionPolicy) -> Path:
-    # Core's acquisition executor must read the exact federated run ledger. The
-    # completion policy intentionally derives it from the Core working directory
-    # only when the caller has configured the conventional location; callers that
-    # need a different location should pass an absolute papers/core root layout.
-    if policy.core_working_directory is None:
-        raise GroundedCompletionPolicyError(
-            "core_working_directory is required for acquisition execution so the "
-            "federated ledger can be resolved deterministically."
-        )
-    return policy.core_working_directory / "data" / "federated_search_runs"
 
 
 def _parse_acquisition_receipt(
@@ -432,6 +402,7 @@ def _parse_acquisition_receipt(
         raise GroundedCompletionContractError(
             f"Acquisition receipt is missing a required field: {exc}"
         ) from exc
+
     if (
         receipt_search_run_id != search_run_id
         or receipt_research_question_id != research_question_id
@@ -443,7 +414,7 @@ def _parse_acquisition_receipt(
     if not isinstance(items, list):
         raise GroundedCompletionContractError("Acquisition receipt items must be a list.")
     try:
-        received_candidate_ids = tuple(item["candidate_id"] for item in items)
+        received_candidate_ids = tuple(str(item["candidate_id"]) for item in items)
         paper_ids = tuple(int(item["paper_id"]) for item in items)
     except (KeyError, TypeError, ValueError) as exc:
         raise GroundedCompletionContractError(
@@ -453,6 +424,7 @@ def _parse_acquisition_receipt(
         raise GroundedCompletionContractError(
             "Acquisition receipt candidate identities do not match the requested route."
         )
+
     return AcquisitionRouteResult(
         route=route,
         candidate_ids=candidate_ids,
@@ -477,17 +449,19 @@ def _extract_ground_promote(
         draft_path = root / "draft.jsonl"
         classified_path = root / "classified.jsonl"
         bounded_path = root / "bounded-classified.jsonl"
-        staged_evidence_path = root / "staged-evidence.jsonl"
+        staged_path = root / "staged-evidence.jsonl"
         ready_path = root / "ready-reviewed.jsonl"
 
+        batch_command = [
+            _resolve_ke_executable(ke_executable),
+            "extraction-review-batch-generate",
+            "--output",
+            str(draft_path),
+        ]
+        for paper_id in paper_ids:
+            batch_command.extend(("--paper-id", str(paper_id)))
         _run_checked(
-            [
-                _resolve_ke_executable(ke_executable),
-                "extraction-review-batch-generate",
-                "--output",
-                str(draft_path),
-                *[argument for paper_id in paper_ids for argument in ("--paper-id", str(paper_id))],
-            ],
+            batch_command,
             operation="ke extraction-review-batch-generate",
             policy=policy,
             execution_budget=execution_budget,
@@ -510,13 +484,7 @@ def _extract_ground_promote(
         classified_records = _read_jsonl(classified_path)
         bounded_records = classified_records[: policy.max_promoted_records]
         if not bounded_records:
-            return _ExtractionResult(
-                draft_item_count=len(draft_records),
-                classified_item_count=0,
-                staged_record_ids=(),
-                grounded_record_ids=(),
-                promoted_record_ids=(),
-            )
+            return _ExtractionResult(len(draft_records), 0, (), (), ())
         _write_jsonl(bounded_path, bounded_records)
 
         _run_checked(
@@ -526,18 +494,14 @@ def _extract_ground_promote(
                 "--input",
                 str(bounded_path),
                 "--output",
-                str(staged_evidence_path),
+                str(staged_path),
             ],
             operation="ke extraction-review-promote (staging)",
             policy=policy,
             execution_budget=execution_budget,
         )
-        staged_records = _read_jsonl(staged_evidence_path)
-        staged_ids = tuple(
-            str(record["evidence_record_id"])
-            for record in staged_records
-            if record.get("evidence_record_id")
-        )
+        staged_records = _read_jsonl(staged_path)
+        staged_ids = _record_ids(staged_records)
 
         grounding_failures: list[str] = []
         for evidence_record_id in staged_ids:
@@ -547,7 +511,7 @@ def _extract_ground_promote(
                         _resolve_ke_executable(ke_executable),
                         "evidence-review-automate",
                         "--evidence",
-                        str(staged_evidence_path),
+                        str(staged_path),
                         "--model",
                         policy.grounding_model,
                         "--evidence-record-id",
@@ -565,23 +529,23 @@ def _extract_ground_promote(
                 _resolve_ke_executable(ke_executable),
                 "evidence-record-review-promote",
                 "--evidence",
-                str(staged_evidence_path),
+                str(staged_path),
             ],
             operation="ke evidence-record-review-promote",
             policy=policy,
             execution_budget=execution_budget,
         )
-        reviewed_records = _read_jsonl(staged_evidence_path)
+        reviewed_records = _read_jsonl(staged_path)
         ready_records = tuple(record for record in reviewed_records if _is_grounded_reviewed(record))
-        grounded_ids = tuple(str(record["evidence_record_id"]) for record in ready_records)
+        grounded_ids = _record_ids(ready_records)
         if not ready_records:
             return _ExtractionResult(
-                draft_item_count=len(draft_records),
-                classified_item_count=len(classified_records),
-                staged_record_ids=staged_ids,
-                grounded_record_ids=(),
-                promoted_record_ids=(),
-                grounding_failures=tuple(grounding_failures),
+                len(draft_records),
+                len(classified_records),
+                staged_ids,
+                (),
+                (),
+                tuple(grounding_failures),
             )
 
         _write_jsonl(ready_path, ready_records)
@@ -599,16 +563,16 @@ def _extract_ground_promote(
             policy=policy,
             execution_budget=execution_budget,
         )
-        after_ids = _evidence_ids(evidence)
-        promoted_ids = tuple(record_id for record_id in after_ids if record_id not in before_ids)
-
+        promoted_ids = tuple(
+            record_id for record_id in _evidence_ids(evidence) if record_id not in before_ids
+        )
         return _ExtractionResult(
-            draft_item_count=len(draft_records),
-            classified_item_count=len(classified_records),
-            staged_record_ids=staged_ids,
-            grounded_record_ids=grounded_ids,
-            promoted_record_ids=promoted_ids,
-            grounding_failures=tuple(grounding_failures),
+            len(draft_records),
+            len(classified_records),
+            staged_ids,
+            grounded_ids,
+            promoted_ids,
+            tuple(grounding_failures),
         )
 
 
@@ -659,6 +623,14 @@ def _write_jsonl(path: Path, records: tuple[dict[str, Any], ...]) -> None:
     )
 
 
+def _record_ids(records: tuple[dict[str, Any], ...]) -> tuple[str, ...]:
+    return tuple(
+        str(record["evidence_record_id"])
+        for record in records
+        if record.get("evidence_record_id")
+    )
+
+
 def _is_grounded_reviewed(record: dict[str, Any]) -> bool:
     checklist = record.get("review_checklist")
     return (
@@ -669,11 +641,7 @@ def _is_grounded_reviewed(record: dict[str, Any]) -> bool:
 
 
 def _evidence_ids(path: Path) -> tuple[str, ...]:
-    return tuple(
-        str(record["evidence_record_id"])
-        for record in _read_jsonl(path)
-        if record.get("evidence_record_id")
-    )
+    return _record_ids(_read_jsonl(path))
 
 
 __all__ = [
