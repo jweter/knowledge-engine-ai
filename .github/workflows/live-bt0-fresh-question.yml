@@ -20,10 +20,10 @@ jobs:
       KE_LLM_MODEL: qwen2.5:0.5b
       KE_OLLAMA_HOST: http://127.0.0.1:11434
     steps:
-      - name: Check out AI synthesis resilience PR head
+      - name: Check out AI grounded timing PR head
         uses: actions/checkout@v7
         with:
-          ref: agent/synthesis-release-resilience
+          ref: agent/grounded-phase-timing
           path: ai
 
       - name: Check out current Core main
@@ -135,7 +135,7 @@ jobs:
             --providers pubmed,semantic_scholar \
             --repeats 2 \
             --timeout-seconds 240 \
-            --scenario-id fresh-music-endurance-synthesis-resilience-v2 \
+            --scenario-id fresh-music-endurance-grounded-phase-timing \
             --output "${RUNNER_TEMP}/bt0/benchmark.json" \
             2>&1 | tee "${RUNNER_TEMP}/bt0/benchmark.log"
 
@@ -173,7 +173,7 @@ jobs:
           rows = connection.execute(
               """
               SELECT session_id, sequence_number, workflow_node,
-                     validation_status, tool_name, notes
+                     validation_status, duration_ms, tool_name, notes
               FROM research_events
               ORDER BY session_id, sequence_number
               """
@@ -196,7 +196,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: bt0-fresh-music-endurance-synthesis-resilience-v2
+          name: bt0-fresh-music-endurance-grounded-phase-timing
           path: |
             ${{ runner.temp }}/bt0/core-empty-report.json
             ${{ runner.temp }}/bt0/retrieval-diagnostics.log
