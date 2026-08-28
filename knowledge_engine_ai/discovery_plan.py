@@ -14,13 +14,17 @@ fails to construct at all -- fail closed, never silently dropped or sent to
 explicit, and an executor that runs the plan through the same
 `ke_client.federated_discover()` subprocess boundary every other caller
 uses, returning Core's own `search_run_id` so the run remains independently
-replayable (`ke federated-discover-report`... conceptually -- Core does not
-have a report command for this yet, the ledger itself is the replay record).
+replayable.
 
-Deciding *when* a Research Session should invoke this compiler (rather than
-running locally against the already-imported corpus) is future work, not
-this slice -- see `docs/roadmap/federated_discovery_orchestration_adoption.md`'s
-AI-FRD-3 exit criteria and this module's own limitations noted there.
+For a durable Research Session (`research_question_id` supplied), the executor
+also repairs one measured failure mode from BT-0: a valid provider search can
+return zero candidates when the full natural-language question is too literal.
+In that case only, it tries a small deterministic sequence of progressively
+broader keyword queries inside the *same* wall-clock budget. Ad-hoc/manual
+discovery remains exactly one query. Provider outages/rate limits are not
+"repaired" by rewording, and discovery candidates remain leads only -- they
+still must pass acquisition, grounding, promotion, and re-retrieval before
+becoming answer evidence.
 """
 
 from __future__ import annotations
@@ -28,8 +32,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from knowledge_engine_ai.execution import ExecutionBudget
-from knowledge_engine_ai.ke_client import FederatedDiscoveryResult, federated_discover
+from knowledge_engine_ai.copilot.discovery_broadening import (
+    compile_zero_yield_broadening_queries,
+)
+from knowledge_engine_ai.execution import ExecutionBudget, ExecutionBudgetExceeded
+from knowledge_engine_ai.ke_client import (
+    FederatedDiscoveryResult,
+    KeCommandError,
+    federated_discover,
+)
 
 # Mirrors `_federated_discovery_registry`'s provider set in
 # knowledge-engine-core's `entrypoint.py` -- PubMed, Crossref, OpenAlex,
@@ -48,6 +59,7 @@ _MIN_LIMIT_PER_PROVIDER = 1
 _MAX_LIMIT_PER_PROVIDER = 100
 
 _MAX_EXECUTION_SECONDS_CEILING = 600.0
+DEFAULT_RESEARCH_ZERO_YIELD_BROADENING_QUERIES = 2
 
 
 class DiscoveryPlanError(ValueError):
@@ -154,27 +166,77 @@ def execute_discovery_plan(
     research_question_id: str | None = None,
     ke_executable: str = "ke",
 ) -> FederatedDiscoveryResult:
-    """Run a compiled plan through Core's `ke federated-discover` and return its result.
+    """Run a compiled plan through Core and return the final valid discovery snapshot.
 
-    Always builds an `ExecutionBudget` from `plan.max_execution_seconds` --
-    the plan's own explicit bound, not the caller's ambient timeout
-    preference -- so a compiled plan's execution budget cannot be silently
-    widened by whoever happens to execute it. The returned
-    `FederatedDiscoveryResult.search_run_id` is Core's own persisted ledger
-    ID: Core's `FederatedSearchLedger`, not this function, is the durable,
-    replayable record of what actually ran.
+    One `ExecutionBudget` covers the initial request and every optional broadening
+    request, so retries cannot silently widen the caller's wall-clock budget.
 
-    `research_question_id` is call-time run-identity context, not a plan
-    parameter -- deliberately not on `DiscoveryPlan` itself (the same
-    category as `ledger_root` and the provider API keys, per
-    `docs/roadmap/answer_session_versioning_design.md`). Forwarded verbatim
-    to `federated_discover`/Core's `--research-question-id` flag so a later
-    caller can find this run via `federated_discover_history`; omitting it
-    preserves every existing caller's behavior exactly.
+    `research_question_id` is call-time run-identity context. When omitted,
+    behavior is the historical one-query execution path. When supplied, a valid
+    zero-candidate result may trigger up to
+    `DEFAULT_RESEARCH_ZERO_YIELD_BROADENING_QUERIES` deterministic broader
+    searches. Broadening stops immediately when candidates appear or when no
+    provider actually evaluated the current wording. Every Core call keeps the
+    same `research_question_id`, so search-run provenance remains replayable.
+
+    If a fallback attempt itself fails or exhausts the remaining budget, the
+    executor returns the last *valid* zero-yield snapshot rather than converting a
+    successfully executed discovery step into a hard failure. Failure of the
+    initial request still propagates normally.
     """
 
-    return federated_discover(
+    execution_budget = ExecutionBudget.from_timeout(plan.max_execution_seconds)
+    result = _execute_query(
         plan.query,
+        plan=plan,
+        ledger_root=ledger_root,
+        openalex_api_key=openalex_api_key,
+        semantic_scholar_api_key=semantic_scholar_api_key,
+        research_question_id=research_question_id,
+        ke_executable=ke_executable,
+        execution_budget=execution_budget,
+    )
+
+    if research_question_id is None or result.candidates or not _can_repair_with_broader_query(result):
+        return result
+
+    broadened_queries = compile_zero_yield_broadening_queries(
+        plan.query,
+        max_queries=DEFAULT_RESEARCH_ZERO_YIELD_BROADENING_QUERIES,
+    )
+    for query in broadened_queries:
+        try:
+            broadened_result = _execute_query(
+                query,
+                plan=plan,
+                ledger_root=ledger_root,
+                openalex_api_key=openalex_api_key,
+                semantic_scholar_api_key=semantic_scholar_api_key,
+                research_question_id=research_question_id,
+                ke_executable=ke_executable,
+                execution_budget=execution_budget,
+            )
+        except (KeCommandError, ExecutionBudgetExceeded):
+            return result
+        result = broadened_result
+        if result.candidates or not _can_repair_with_broader_query(result):
+            break
+    return result
+
+
+def _execute_query(
+    query: str,
+    *,
+    plan: DiscoveryPlan,
+    ledger_root: Path,
+    openalex_api_key: str | None,
+    semantic_scholar_api_key: str | None,
+    research_question_id: str | None,
+    ke_executable: str,
+    execution_budget: ExecutionBudget,
+) -> FederatedDiscoveryResult:
+    return federated_discover(
+        query,
         ledger_root=ledger_root,
         limit=plan.limit_per_provider,
         providers=plan.providers,
@@ -182,11 +244,21 @@ def execute_discovery_plan(
         semantic_scholar_api_key=semantic_scholar_api_key,
         research_question_id=research_question_id,
         ke_executable=ke_executable,
-        execution_budget=ExecutionBudget.from_timeout(plan.max_execution_seconds),
+        execution_budget=execution_budget,
+    )
+
+
+def _can_repair_with_broader_query(result: FederatedDiscoveryResult) -> bool:
+    """Whether wording, rather than provider availability, can explain zero yield."""
+
+    return any(
+        status.attempted and status.outcome in {"empty", "success"}
+        for status in result.provider_statuses
     )
 
 
 __all__ = [
+    "DEFAULT_RESEARCH_ZERO_YIELD_BROADENING_QUERIES",
     "KNOWN_DISCOVERY_PROVIDERS",
     "DiscoveryPlan",
     "DiscoveryPlanError",
