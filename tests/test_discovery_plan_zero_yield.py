@@ -60,15 +60,11 @@ def test_research_session_broadens_zero_yield_until_candidates(
     calls: list[tuple[str, str | None, int]] = []
 
     def fake_federated_discover(query: str, **kwargs: object) -> FederatedDiscoveryResult:
-        calls.append(
-            (
-                query,
-                kwargs.get("research_question_id")
-                if isinstance(kwargs.get("research_question_id"), str)
-                else None,
-                id(kwargs["execution_budget"]),
-            )
+        raw_research_question_id = kwargs.get("research_question_id")
+        research_question_id = (
+            raw_research_question_id if isinstance(raw_research_question_id, str) else None
         )
+        calls.append((query, research_question_id, id(kwargs["execution_budget"])))
         if query == QUESTION:
             return _result(query)
         if query == "music exercise endurance":
