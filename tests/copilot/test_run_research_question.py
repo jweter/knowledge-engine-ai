@@ -308,7 +308,7 @@ def test_hallucinated_citation_blocks_session_close(
     assert session.status is SessionStatus.BLOCKED
 
 
-def test_missed_qualifying_evidence_blocks_session_close(
+def test_missed_qualifying_evidence_is_appended_before_session_close(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(
@@ -317,7 +317,8 @@ def test_missed_qualifying_evidence_blocks_session_close(
         _fake_run(_payload(evidence_records=[_GROUNDED_RECORD, _QUALIFYING_RECORD])),
     )
     repository = _repository()
-    # Narrative cites only ev-1, silently omitting the qualifying ev-2.
+    # The small model cites only ev-1. Synthesis must append ev-2 from the
+    # retrieved evidence rather than weakening the contradiction-review gate.
     llm = _FakeLLM(response="Semaglutide reduced body weight [ev-1].")
 
     result = run_research_question(
@@ -328,12 +329,15 @@ def test_missed_qualifying_evidence_blocks_session_close(
         llm=llm,
     )
 
+    assert result.narrative is not None
+    assert "Semaglutide reduced body weight [ev-1]." in result.narrative
+    assert "Evidence qualifications and limitations:" in result.narrative
+    assert "[ev-2]" in result.narrative
     assert result.verification is not None
-    assert result.verification.missed_qualifiers == ("ev-2",)
-    assert result.close_result.status is SessionStatus.BLOCKED
-    assert result.narrative_releaseable is False
-    assert "contradiction_review" in result.close_result.validation.unresolved_required_criteria
-
+    assert result.verification.missed_qualifiers == ()
+    assert result.verification.is_clean
+    assert result.close_result.status is SessionStatus.COMPLETED
+    assert result.narrative_releaseable is True
 
 def test_session_id_is_generated_and_events_are_durable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
