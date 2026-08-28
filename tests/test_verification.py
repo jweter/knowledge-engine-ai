@@ -119,6 +119,17 @@ def test_tolerates_a_number_grounded_in_a_different_cited_record_field() -> None
     assert result.ungrounded_numbers == ()
 
 
+def test_tolerates_a_number_grounded_in_supplied_limitations() -> None:
+    report = _report([_record(limitations=["Follow-up was limited to 24 weeks."])])
+    narrative = "Follow-up was limited to 24 weeks [ev-1]."
+
+    result = verify_synthesis(narrative, report)
+
+    assert result.ungrounded_numbers == ()
+    assert result.missed_qualifiers == ()
+    assert result.is_clean is True
+
+
 def test_tolerates_scores_supplied_to_synthesis_as_evidence_intelligence() -> None:
     intelligence = EvidenceIntelligence(
         schema_version=1,
