@@ -101,8 +101,8 @@ jobs:
           )
           replace_once(
               run_question,
-              '''        source_ids=source_ids,\n        source_dois=source_dois,\n    )\n''',
-              '''        source_ids=source_ids,\n        source_dois=source_dois,\n        duration_ms=result.reretrieval_duration_ms,\n    )\n''',
+              '''        notes=reretrieval_notes,\n        output_schema_version=output_schema_version,\n        source_ids=source_ids,\n        source_dois=source_dois,\n    )\n''',
+              '''        notes=reretrieval_notes,\n        output_schema_version=output_schema_version,\n        source_ids=source_ids,\n        source_dois=source_dois,\n        duration_ms=result.reretrieval_duration_ms,\n    )\n''',
           )
           replace_once(
               run_question,
