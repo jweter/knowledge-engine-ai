@@ -1,0 +1,117 @@
+name: Live BT-0 fresh question
+
+on:
+  push:
+    branches:
+      - agent/bt0-research-benchmark
+    paths:
+      - .github/workflows/live-bt0-fresh-question.yml
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      POETRY_VIRTUALENVS_CREATE: "false"
+      KE_DATA_DIR: /tmp/ke-core-data
+      KE_LLM_MODEL: qwen2.5:0.5b
+      KE_OLLAMA_HOST: http://127.0.0.1:11434
+    steps:
+      - name: Check out AI benchmark branch
+        uses: actions/checkout@v7
+        with:
+          ref: agent/bt0-research-benchmark
+          path: ai
+
+      - name: Check out Core main
+        uses: actions/checkout@v7
+        with:
+          repository: jweter/knowledge-engine-core
+          ref: main
+          path: core
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            knowledge_engine
+            README.md
+            pyproject.toml
+            poetry.lock
+            data/corpora/glp1_weight_loss/sources.csv
+            data/corpora/glp1_weight_loss/evidence_records.jsonl
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install Poetry and project runtimes
+        run: |
+          python -m pip install poetry
+          poetry -C core install --only main
+          poetry -C ai install --only main
+          ke --help >/dev/null
+          ke-ai-research-benchmark --help >/dev/null
+
+      - name: Install and start Ollama
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          if ! curl -sf http://127.0.0.1:11434/api/tags >/dev/null; then
+            ollama serve >"${RUNNER_TEMP}/ollama.log" 2>&1 &
+          fi
+          for _ in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:11434/api/tags >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          ollama pull qwen2.5:0.5b
+
+      - name: Prepare isolated fresh-corpus workspace
+        run: |
+          mkdir -p "${RUNNER_TEMP}/bt0/ledger" "${RUNNER_TEMP}/bt0/papers" "${KE_DATA_DIR}"
+          cp core/data/corpora/glp1_weight_loss/sources.csv "${RUNNER_TEMP}/bt0/sources.csv"
+          cp core/data/corpora/glp1_weight_loss/evidence_records.jsonl "${RUNNER_TEMP}/bt0/evidence.jsonl"
+
+      - name: Run fresh question cold then warm
+        working-directory: core
+        run: |
+          set -o pipefail
+          QUESTION='In healthy adults, does listening to music during exercise improve endurance performance compared with exercising without music?'
+          ke-ai-research-benchmark "$QUESTION" \
+            --sources "${RUNNER_TEMP}/bt0/sources.csv" \
+            --evidence "${RUNNER_TEMP}/bt0/evidence.jsonl" \
+            --session-db "${RUNNER_TEMP}/bt0/sessions.sqlite3" \
+            --ledger-root "${RUNNER_TEMP}/bt0/ledger" \
+            --papers-dir "${RUNNER_TEMP}/bt0/papers" \
+            --llm-model qwen2.5:0.5b \
+            --ke-executable "$(command -v ke)" \
+            --providers pubmed,semantic_scholar \
+            --repeats 2 \
+            --timeout-seconds 240 \
+            --scenario-id fresh-music-endurance \
+            --output "${RUNNER_TEMP}/bt0/benchmark.json" \
+            2>&1 | tee "${RUNNER_TEMP}/bt0/benchmark.log"
+
+      - name: Print benchmark result
+        if: always()
+        run: |
+          if [ -f "${RUNNER_TEMP}/bt0/benchmark.json" ]; then
+            cat "${RUNNER_TEMP}/bt0/benchmark.json"
+          fi
+          if [ -f "${RUNNER_TEMP}/ollama.log" ]; then
+            tail -100 "${RUNNER_TEMP}/ollama.log" > "${RUNNER_TEMP}/bt0/ollama-tail.log" || true
+          fi
+
+      - name: Upload benchmark diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: bt0-fresh-music-endurance
+          path: |
+            ${{ runner.temp }}/bt0/benchmark.json
+            ${{ runner.temp }}/bt0/benchmark.log
+            ${{ runner.temp }}/bt0/ollama-tail.log
+          if-no-files-found: warn
