@@ -620,25 +620,27 @@ def _extract_ground_promote(
         staged_ids = _record_ids(staged_records)
 
         grounding_failures: list[str] = []
-        for evidence_record_id in staged_ids:
-            try:
-                _run_checked(
-                    [
-                        _resolve_ke_executable(ke_executable),
-                        "evidence-review-automate",
-                        "--evidence",
-                        str(staged_path),
-                        "--model",
-                        policy.grounding_model,
-                        "--evidence-record-id",
-                        evidence_record_id,
-                    ],
-                    operation=f"ke evidence-review-automate {evidence_record_id}",
-                    policy=policy,
-                    execution_budget=execution_budget,
-                )
-            except KeCommandError:
-                grounding_failures.append(evidence_record_id)
+        try:
+            _run_checked(
+                [
+                    _resolve_ke_executable(ke_executable),
+                    "evidence-review-automate",
+                    "--evidence",
+                    str(staged_path),
+                    "--model",
+                    policy.grounding_model,
+                ],
+                operation="ke evidence-review-automate (batch)",
+                policy=policy,
+                execution_budget=execution_budget,
+            )
+        except KeCommandError:
+            # Core's batch command preserves the exact same per-record grounding
+            # rules. If the batch process itself fails, we cannot safely claim
+            # which staged records completed, so retain the fail-closed signal
+            # for every staged identity. The reviewed-file gate below still
+            # determines what, if anything, is eligible for durable promotion.
+            grounding_failures.extend(staged_ids)
 
         _run_checked(
             [

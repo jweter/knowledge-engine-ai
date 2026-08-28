@@ -236,16 +236,15 @@ def test_completion_acquires_grounds_promotes_and_reretrieves(
             _write_jsonl(output, [*existing, *promoted])
         elif operation == "evidence-review-automate":
             staged = Path(command[command.index("--evidence") + 1])
-            record_id = command[command.index("--evidence-record-id") + 1]
+            assert "--evidence-record-id" not in command
             records = [json.loads(line) for line in staged.read_text().splitlines() if line]
             for record in records:
-                if record["evidence_record_id"] == record_id:
-                    record["extraction_method"] = "m69-llm-grounded-pico-v1"
-                    record["review_checklist"] = {
-                        **record.get("review_checklist", {}),
-                        "llm_grounded": True,
-                        "human_reviewed": False,
-                    }
+                record["extraction_method"] = "m69-llm-grounded-pico-v1"
+                record["review_checklist"] = {
+                    **record.get("review_checklist", {}),
+                    "llm_grounded": True,
+                    "human_reviewed": False,
+                }
             _write_jsonl(staged, records)
         elif operation == "evidence-record-review-promote":
             staged = Path(command[command.index("--evidence") + 1])
@@ -281,7 +280,6 @@ def test_completion_acquires_grounds_promotes_and_reretrieves(
         "extraction-review-batch-generate",
         "extraction-review-autoclassify",
         "extraction-review-promote",
-        "evidence-review-automate",
         "evidence-review-automate",
         "evidence-record-review-promote",
         "extraction-review-promote",
