@@ -37,7 +37,7 @@ Unknown timing remains `null`; the benchmark does not turn an untimed stage into
 ## CLI
 
 ```bash
-ke-ai-research-benchmark run \
+ke-ai-research-benchmark \
   "In healthy adults, does listening to music during exercise improve endurance performance compared with exercising without music?" \
   --sources /absolute/path/to/sources.csv \
   --evidence /absolute/path/to/evidence.jsonl \
