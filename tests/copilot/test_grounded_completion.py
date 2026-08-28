@@ -88,8 +88,10 @@ def _discovery(plan: GeneralQuestionAcquisitionPlanResult | None) -> DiscoveryAu
 
 def _policy(tmp_path: Path) -> GroundedCompletionPolicy:
     core_root = tmp_path / "core"
-    (core_root / "data" / "federated_search_runs").mkdir(parents=True)
+    ledger_root = core_root / "data" / "federated_search_runs"
+    ledger_root.mkdir(parents=True)
     return GroundedCompletionPolicy(
+        ledger_root=ledger_root,
         papers_dir=core_root / "data" / "papers",
         grounding_model="test-grounder",
         core_working_directory=core_root,
@@ -99,9 +101,7 @@ def _policy(tmp_path: Path) -> GroundedCompletionPolicy:
 
 def _write_jsonl(path: Path, records: list[dict[str, object]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        "".join(json.dumps(record) + "\n" for record in records), encoding="utf-8"
-    )
+    path.write_text("".join(json.dumps(record) + "\n" for record in records), encoding="utf-8")
 
 
 def test_completion_skips_cleanly_without_an_acquisition_plan(tmp_path: Path) -> None:
@@ -227,7 +227,9 @@ def test_completion_acquires_grounds_promotes_and_reretrieves(
             for index, record in enumerate(input_records, start=1):
                 completed = dict(record)
                 completed["schema_version"] = completed.get("schema_version") or "0.1"
-                completed["evidence_record_id"] = completed.get("evidence_record_id") or f"ev-{index}"
+                completed["evidence_record_id"] = (
+                    completed.get("evidence_record_id") or f"ev-{index}"
+                )
                 completed["review_status"] = completed.get("review_status") or "draft"
                 if completed["evidence_record_id"] not in existing_ids:
                     promoted.append(completed)
@@ -323,8 +325,6 @@ def test_completion_does_not_persist_an_ungrounded_staged_record(
             _write_jsonl(output, [record])
         elif operation == "evidence-review-automate":
             return _Completed(returncode=1, stderr="grounding failed")
-        elif operation == "evidence-record-review-promote":
-            return _Completed()
         return _Completed()
 
     monkeypatch.setattr(module, "_run_ke_command", fake_run)
