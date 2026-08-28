@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 from knowledge_engine_ai.llm import LocalLLMTimeoutError
-from knowledge_engine_ai.models import EvidenceRecord, EvidenceReport, EvidenceSummary, RetrievedPaper
+from knowledge_engine_ai.models import (
+    EvidenceRecord,
+    EvidenceReport,
+    EvidenceSummary,
+    RetrievedPaper,
+)
 from knowledge_engine_ai.orchestrator.verification import verify_synthesis
 from knowledge_engine_ai.synthesis import synthesize_answer
 
