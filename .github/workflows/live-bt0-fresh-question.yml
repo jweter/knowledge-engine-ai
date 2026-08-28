@@ -135,7 +135,7 @@ jobs:
             --providers pubmed,semantic_scholar \
             --repeats 2 \
             --timeout-seconds 240 \
-            --scenario-id fresh-music-endurance-synthesis-resilience \
+            --scenario-id fresh-music-endurance-synthesis-resilience-v2 \
             --output "${RUNNER_TEMP}/bt0/benchmark.json" \
             2>&1 | tee "${RUNNER_TEMP}/bt0/benchmark.log"
 
@@ -196,7 +196,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: bt0-fresh-music-endurance-synthesis-resilience
+          name: bt0-fresh-music-endurance-synthesis-resilience-v2
           path: |
             ${{ runner.temp }}/bt0/core-empty-report.json
             ${{ runner.temp }}/bt0/retrieval-diagnostics.log
