@@ -42,6 +42,14 @@ _ROUTE_COMMANDS: dict[str, str] = {
     "unpaywall": "general-question-acquire-unpaywall",
 }
 
+#: BT-7 default: the number of newly promoted grounded EvidenceRecords that is
+#: considered sufficient to skip further optional acquisition breadth. Matches
+#: ``discovery_policy.DEFAULT_MIN_EVIDENCE_RECORD_COVERAGE`` so "adequate
+#: coverage" means the same thing before and after federated discovery.
+DEFAULT_MIN_PROMOTED_RECORDS_FOR_EARLY_STOP = 3
+
+_ADEQUACY_SKIP_REASON = "already-indexed evidence met the adequacy threshold before acquisition"
+
 
 class GroundedCompletionPolicyError(ValueError):
     """A grounded-completion policy contains an unsafe or unbounded value."""
@@ -65,6 +73,7 @@ class GroundedCompletionPolicy:
     max_elapsed_seconds_per_route: int = 120
     max_promoted_records: int = 12
     reretrieval_limit: int = 5
+    min_promoted_records_for_early_stop: int = DEFAULT_MIN_PROMOTED_RECORDS_FOR_EARLY_STOP
 
     def __post_init__(self) -> None:
         if not self.grounding_model.strip():
@@ -88,6 +97,10 @@ class GroundedCompletionPolicy:
             raise GroundedCompletionPolicyError("max_promoted_records must be 1..100.")
         if not 1 <= self.reretrieval_limit <= 100:
             raise GroundedCompletionPolicyError("reretrieval_limit must be 1..100.")
+        if not 1 <= self.min_promoted_records_for_early_stop <= self.max_promoted_records:
+            raise GroundedCompletionPolicyError(
+                "min_promoted_records_for_early_stop must be between 1 and max_promoted_records."
+            )
 
 
 @dataclass(frozen=True)
@@ -107,6 +120,7 @@ class AcquisitionRouteResult:
     persisted_count: int = 0
     reused_count: int = 0
     error: str | None = None
+    skipped_reason: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -118,6 +132,7 @@ class AcquisitionRouteResult:
             "persisted_count": self.persisted_count,
             "reused_count": self.reused_count,
             "error": self.error,
+            "skipped_reason": self.skipped_reason,
         }
 
 
@@ -144,6 +159,7 @@ class GroundedCompletionResult:
     extraction_duration_ms: int | None = None
     reretrieval_duration_ms: int | None = None
     skipped_reason: str | None = None
+    acquisition_skipped_for_adequacy: bool = False
 
     @property
     def completed_with_new_evidence(self) -> bool:
@@ -170,6 +186,7 @@ class GroundedCompletionResult:
             "reretrieval_duration_ms": self.reretrieval_duration_ms,
             "completed_with_new_evidence": self.completed_with_new_evidence,
             "skipped_reason": self.skipped_reason,
+            "acquisition_skipped_for_adequacy": self.acquisition_skipped_for_adequacy,
         }
 
 
@@ -195,12 +212,26 @@ def complete_discovered_research(
 ) -> GroundedCompletionResult:
     """Acquire, ground, promote, and re-retrieve one discovery augmentation.
 
+    BT-7 (issue #92): already-indexed candidates cost nothing to acquire, so they
+    are extracted/grounded/promoted first, before any network acquisition. If that
+    alone promotes at least ``policy.min_promoted_records_for_early_stop`` grounded
+    EvidenceRecords, the bounded research path is already adequate and every
+    configured acquisition route is skipped -- recorded as an explicit,
+    inspectable ``AcquisitionRouteResult(attempted=False, skipped_reason=...)``
+    rather than silently omitted. Otherwise acquisition proceeds across every
+    configured route exactly as before, and the newly acquired papers are
+    extracted/promoted in one additional bounded batch. This never lets a
+    discovery candidate bypass EvidenceRecord validation; it only decides whether
+    already-validated coverage makes further optional breadth necessary.
+
     Acquisition-route failures are retained as degraded route results and do not
     erase successful routes. PMC candidates are deliberately isolated because Core's
     PMC executor is validation-atomic: one candidate that no longer has independently
     verified reusable full text must not discard other candidates that still pass
-    Core's strict verification. Extraction failure stops the new-evidence path before
-    re-retrieval, preventing an ungrounded staged record from entering synthesis.
+    Core's strict verification. An extraction-batch failure stops that batch's
+    new-evidence path before re-retrieval, preventing an ungrounded staged record
+    from entering synthesis, but does not discard grounded records a prior batch
+    already promoted durably.
     """
 
     plan = discovery.acquisition_plan
@@ -220,25 +251,83 @@ def complete_discovered_research(
             ),
         )
 
-    acquisition_start = time.monotonic()
     already_indexed = _already_indexed_paper_ids(plan)
-    route_results: list[AcquisitionRouteResult] = []
-    acquired_paper_ids: list[int] = []
-    for route, candidate_ids in _route_candidates(plan)[: policy.max_acquisition_routes]:
-        results = _execute_acquisition_route_attempts(
-            plan,
-            route=route,
-            candidate_ids=candidate_ids,
-            policy=policy,
-            ke_executable=ke_executable,
-            execution_budget=execution_budget,
-        )
-        route_results.extend(results)
-        for result in results:
-            acquired_paper_ids.extend(result.paper_ids)
+    route_candidates = _route_candidates(plan)[: policy.max_acquisition_routes]
 
-    acquisition_duration_ms = _elapsed_ms(acquisition_start)
-    paper_ids = tuple(dict.fromkeys((*already_indexed, *acquired_paper_ids)))
+    extraction = _ExtractionResult(0, 0, (), (), ())
+    extraction_error: str | None = None
+    processed_paper_ids: list[int] = []
+    extraction_duration_start = time.monotonic()
+
+    if already_indexed:
+        processed_paper_ids.extend(already_indexed)
+        try:
+            extraction = _extract_ground_promote(
+                already_indexed,
+                evidence=evidence,
+                policy=policy,
+                ke_executable=ke_executable,
+                execution_budget=execution_budget,
+            )
+        except KeCommandError as exc:
+            extraction_error = str(exc)
+
+    adequate_from_indexed = extraction_error is None and (
+        len(extraction.promoted_record_ids) >= policy.min_promoted_records_for_early_stop
+    )
+
+    route_results: list[AcquisitionRouteResult] = []
+    acquisition_duration_ms: int | None = None
+    acquisition_skipped_for_adequacy = False
+
+    if extraction_error is None and route_candidates:
+        if adequate_from_indexed:
+            acquisition_skipped_for_adequacy = True
+            acquisition_duration_ms = 0
+            route_results.extend(
+                AcquisitionRouteResult(
+                    route=route,
+                    candidate_ids=candidate_ids,
+                    attempted=False,
+                    skipped_reason=_ADEQUACY_SKIP_REASON,
+                )
+                for route, candidate_ids in route_candidates
+            )
+        else:
+            acquisition_start = time.monotonic()
+            acquired_paper_ids: list[int] = []
+            for route, candidate_ids in route_candidates:
+                results = _execute_acquisition_route_attempts(
+                    plan,
+                    route=route,
+                    candidate_ids=candidate_ids,
+                    policy=policy,
+                    ke_executable=ke_executable,
+                    execution_budget=execution_budget,
+                )
+                route_results.extend(results)
+                for result in results:
+                    acquired_paper_ids.extend(result.paper_ids)
+            acquisition_duration_ms = _elapsed_ms(acquisition_start)
+
+            newly_acquired = tuple(
+                dict.fromkeys(pid for pid in acquired_paper_ids if pid not in processed_paper_ids)
+            )
+            if newly_acquired:
+                processed_paper_ids.extend(newly_acquired)
+                try:
+                    acquired_extraction = _extract_ground_promote(
+                        newly_acquired,
+                        evidence=evidence,
+                        policy=policy,
+                        ke_executable=ke_executable,
+                        execution_budget=execution_budget,
+                    )
+                    extraction = _merge_extraction_results(extraction, acquired_extraction)
+                except KeCommandError as exc:
+                    extraction_error = str(exc)
+
+    paper_ids = tuple(processed_paper_ids)
     if not paper_ids:
         return GroundedCompletionResult(
             attempted=True,
@@ -249,16 +338,8 @@ def complete_discovered_research(
             skipped_reason="no persisted or reusable paper was available for grounded extraction",
         )
 
-    extraction_start = time.monotonic()
-    try:
-        extraction = _extract_ground_promote(
-            paper_ids,
-            evidence=evidence,
-            policy=policy,
-            ke_executable=ke_executable,
-            execution_budget=execution_budget,
-        )
-    except KeCommandError as exc:
+    extraction_duration_ms = _elapsed_ms(extraction_duration_start)
+    if extraction_error is not None and not extraction.promoted_record_ids:
         return GroundedCompletionResult(
             attempted=True,
             search_run_id=plan.search_run_id,
@@ -267,11 +348,11 @@ def complete_discovered_research(
             acquisition_routes=tuple(route_results),
             paper_ids=paper_ids,
             acquisition_duration_ms=acquisition_duration_ms,
-            extraction_duration_ms=_elapsed_ms(extraction_start),
-            extraction_error=str(exc),
+            extraction_duration_ms=extraction_duration_ms,
+            extraction_error=extraction_error,
+            acquisition_skipped_for_adequacy=acquisition_skipped_for_adequacy,
         )
 
-    extraction_duration_ms = _elapsed_ms(extraction_start)
     reretrieval: EvidenceReport | None = None
     reretrieval_error: str | None = None
     reretrieval_duration_ms: int | None = None
@@ -304,11 +385,13 @@ def complete_discovered_research(
         grounded_record_ids=extraction.grounded_record_ids,
         promoted_record_ids=extraction.promoted_record_ids,
         grounding_failures=extraction.grounding_failures,
+        extraction_error=extraction_error,
         reretrieval_report=reretrieval,
         reretrieval_error=reretrieval_error,
         acquisition_duration_ms=acquisition_duration_ms,
         extraction_duration_ms=extraction_duration_ms,
         reretrieval_duration_ms=reretrieval_duration_ms,
+        acquisition_skipped_for_adequacy=acquisition_skipped_for_adequacy,
         skipped_reason=(
             "no automatically classified record passed grounded review"
             if not extraction.promoted_record_ids
@@ -552,6 +635,21 @@ def _parse_acquisition_receipt(
     )
 
 
+def _merge_extraction_results(
+    first: _ExtractionResult, second: _ExtractionResult
+) -> _ExtractionResult:
+    """Combine two bounded extraction batches into one cumulative BT-7 result."""
+
+    return _ExtractionResult(
+        draft_item_count=first.draft_item_count + second.draft_item_count,
+        classified_item_count=first.classified_item_count + second.classified_item_count,
+        staged_record_ids=first.staged_record_ids + second.staged_record_ids,
+        grounded_record_ids=first.grounded_record_ids + second.grounded_record_ids,
+        promoted_record_ids=first.promoted_record_ids + second.promoted_record_ids,
+        grounding_failures=first.grounding_failures + second.grounding_failures,
+    )
+
+
 def _extract_ground_promote(
     paper_ids: tuple[int, ...],
     *,
@@ -763,6 +861,7 @@ def _evidence_ids(path: Path) -> tuple[str, ...]:
 
 
 __all__ = [
+    "DEFAULT_MIN_PROMOTED_RECORDS_FOR_EARLY_STOP",
     "AcquisitionRouteResult",
     "GroundedCompletionContractError",
     "GroundedCompletionPolicy",
