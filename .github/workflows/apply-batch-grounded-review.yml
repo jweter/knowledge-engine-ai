@@ -1,0 +1,68 @@
+name: Apply batch grounded review patch
+
+on:
+  push:
+    branches:
+      - agent/batch-grounded-review
+    paths:
+      - .github/workflows/apply-batch-grounded-review.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: agent/batch-grounded-review
+
+      - name: Replace per-record review subprocesses with one batch call
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: Path, old: str, new: str) -> None:
+              text = path.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one match, found {count}")
+              path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          source = Path("knowledge_engine_ai/copilot/grounded_completion.py")
+          replace_once(
+              source,
+              '''        grounding_failures: list[str] = []\n        for evidence_record_id in staged_ids:\n            try:\n                _run_checked(\n                    [\n                        _resolve_ke_executable(ke_executable),\n                        "evidence-review-automate",\n                        "--evidence",\n                        str(staged_path),\n                        "--model",\n                        policy.grounding_model,\n                        "--evidence-record-id",\n                        evidence_record_id,\n                    ],\n                    operation=f"ke evidence-review-automate {evidence_record_id}",\n                    policy=policy,\n                    execution_budget=execution_budget,\n                )\n            except KeCommandError:\n                grounding_failures.append(evidence_record_id)\n''',
+              '''        grounding_failures: list[str] = []\n        try:\n            _run_checked(\n                [\n                    _resolve_ke_executable(ke_executable),\n                    "evidence-review-automate",\n                    "--evidence",\n                    str(staged_path),\n                    "--model",\n                    policy.grounding_model,\n                ],\n                operation="ke evidence-review-automate (batch)",\n                policy=policy,\n                execution_budget=execution_budget,\n            )\n        except KeCommandError:\n            # Core's batch command preserves the exact same per-record grounding\n            # rules. If the batch process itself fails, we cannot safely claim\n            # which staged records completed, so retain the fail-closed signal\n            # for every staged identity. The reviewed-file gate below still\n            # determines what, if anything, is eligible for durable promotion.\n            grounding_failures.extend(staged_ids)\n''',
+          )
+
+          test = Path("tests/copilot/test_grounded_completion.py")
+          replace_once(
+              test,
+              '''        elif operation == "evidence-review-automate":\n            staged = Path(command[command.index("--evidence") + 1])\n            record_id = command[command.index("--evidence-record-id") + 1]\n            records = [json.loads(line) for line in staged.read_text().splitlines() if line]\n            for record in records:\n                if record["evidence_record_id"] == record_id:\n                    record["extraction_method"] = "m69-llm-grounded-pico-v1"\n                    record["review_checklist"] = {\n                        **record.get("review_checklist", {}),\n                        "llm_grounded": True,\n                        "human_reviewed": False,\n                    }\n            _write_jsonl(staged, records)\n''',
+              '''        elif operation == "evidence-review-automate":\n            staged = Path(command[command.index("--evidence") + 1])\n            assert "--evidence-record-id" not in command\n            records = [json.loads(line) for line in staged.read_text().splitlines() if line]\n            for record in records:\n                record["extraction_method"] = "m69-llm-grounded-pico-v1"\n                record["review_checklist"] = {\n                    **record.get("review_checklist", {}),\n                    "llm_grounded": True,\n                    "human_reviewed": False,\n                }\n            _write_jsonl(staged, records)\n''',
+          )
+          replace_once(
+              test,
+              '''        "extraction-review-promote",\n        "evidence-review-automate",\n        "evidence-review-automate",\n        "evidence-record-review-promote",\n''',
+              '''        "extraction-review-promote",\n        "evidence-review-automate",\n        "evidence-record-review-promote",\n''',
+          )
+          PY
+
+      - name: Focused tests and formatting
+        run: |
+          python -m pip install poetry
+          poetry install
+          poetry run ruff format knowledge_engine_ai/copilot/grounded_completion.py tests/copilot/test_grounded_completion.py
+          poetry run ruff check knowledge_engine_ai/copilot/grounded_completion.py tests/copilot/test_grounded_completion.py
+          poetry run pytest tests/copilot/test_grounded_completion.py
+
+      - name: Commit source changes
+        run: |
+          git rm .github/workflows/apply-batch-grounded-review.yml
+          git add knowledge_engine_ai/copilot/grounded_completion.py tests/copilot/test_grounded_completion.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Batch grounded evidence review in one Core invocation"
+          git push origin HEAD:agent/batch-grounded-review
