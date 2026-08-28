@@ -1,117 +1,17 @@
-"""AI-O12: compose the built orchestrator into one callable pipeline.
+"""Compose one durable research session from retrieval through grounded synthesis.
 
-`docs/web_integration_design.md`'s AI-O12 milestone: nothing in this repo
-composes `run_fixed_evidence_workflow` -> `synthesize_answer` ->
-`verify_synthesis` -> `build_session_report` -> `attempt_session_close` ->
-`build_session_trace` into one call, even though every one of those
-pieces (AI-O1 through AI-O9) is already built and tested. This module is
-that composition, and nothing more -- it does not add a new capability,
-it wires up the existing ones in the order the design doc specifies so a
-caller (a CLI command today, `knowledge-engine-web`'s `/ask` route later
-under AI-O14) can ask one real question and get back a durable session,
-a verified narrative (or an honest explanation of why there is none),
-and a full trace, in one call.
+The default path remains the original AI-O12 workflow: fixed corpus retrieval,
+optional discovery augmentation, synthesis, deterministic verification, ISA close,
+and trace construction. When a caller also supplies ``grounded_completion_policy``,
+the same session continues through GQR-4/GQR-5 after discovery: eligible papers are
+acquired/reused, extracted into privately staged evidence, grounding-verified,
+promoted, and the researcher's original question is re-retrieved. Only that grounded
+re-retrieval may replace the initial corpus report as synthesis input.
 
-Session lifecycle here mirrors AI-O2's own discipline: this module
-*does* call `session_repository.create_session` itself, unlike
-`run_fixed_evidence_workflow` -- `run_research_question` is the one
-place in this repo that owns a full question-to-answer run end to end,
-so it is the natural owner of session creation too. A caller that wants
-to resume or inspect an existing session uses `SessionRepository`
-directly, the same as before this module existed.
-
-AI-FRD-3/AI-FRD-4 wiring (`copilot/discovery_policy.py`): when a caller
-supplies `discovery_policy`, this module evaluates a deterministic
-coverage-gap trigger right after the fixed retrieval workflow runs and,
-if it fires, compiles/executes a bounded `DiscoveryPlan` (AI-FRD-3) and a
-bounded citation-snowball expansion (AI-FRD-4) seeded from the corpus's
-own already-relevant papers. `discovery_policy` defaults to `None`,
-which reproduces this function's pre-AI-FRD-3/4-wiring behavior exactly
--- no new subprocess call, no new cost -- matching
-`docs/agent-development-policy.md` section 2's cost-consciousness rule
-for optional-capability opt-in. See `discovery_policy.py`'s own
-docstring for the full trigger/budget/provenance policy.
-
-A `ResearchISA` (AI-O2's Ideal State Artifact) is attached to every
-session this module creates, with three fixed, deterministic criteria:
-workflow integrity (every required deterministic step succeeded), citation
-integrity (no hallucinated citations or ungrounded numbers), and contradiction
-review (no qualifying/contradicting evidence record silently omitted from the
-narrative). When no narrative was produced at
-all -- either because retrieval found no evidence with a stated claim
-to synthesize from, or because the local LLM call itself failed -- both
-two narrative criteria are recorded as passed: there is no narrative to have
-gotten either check wrong, the same vacuous-truth reasoning
-`VerificationResult.is_clean` already applies to an unproblematic empty result.
-The independent workflow-integrity criterion still blocks a failed retrieval.
-This keeps the ISA's
-`required` criteria satisfiable without needing a dynamic `required`
-flag decided after the fact, which the write-once ISA contract does not
-allow. A synthesis-step failure (e.g. Ollama unreachable) is still
-visible and durable -- it is recorded as its own failed `ResearchEvent`
-and surfaced on `ResearchQuestionResult.synthesis_error` -- it is simply
-not what blocks the ISA close gate, which is scoped to narrative
-correctness, not synthesis availability.
-
-AI-FRD-2's first bounded slice (coverage-aware Research ISA): when a caller
-supplies `discovery_policy`, a fourth, *optional* (`required=False`)
-`discovery_coverage` criterion is attached alongside the three fixed ones
-above and evaluated from the same `DiscoveryAugmentationResult` AI-FRD-3/
-AI-FRD-4's wiring already produces. It reports `FAILED` -- naming the
-specific provider(s) and their recorded outcome -- whenever a triggered
-federated-discovery run's own Core-derived `completeness` is not
-`"complete"` (i.e. some attempted provider genuinely failed, was rate
-limited, or was unavailable; Core's own `completeness` already excludes
-disabled/skipped providers from this judgment, so AI never re-derives it).
-It is `NOT_APPLICABLE` when discovery was not triggered (coverage was
-already sufficient, or the primary retrieval itself failed and is already
-blocked by `workflow_integrity`), or when it was triggered but federated
-discovery is disabled by policy (never attempted, so there is no provider
-outcome to judge), and omitted from the ISA entirely when no
-`discovery_policy` was supplied at all -- the existing three-criteria path
-is unchanged byte for byte. Being optional means a degraded federated
-search never silently blocks session close (synthesis may still proceed in
-degraded mode), but it also means the limitation is always explicit and
-inspectable on the session's own ISA validation, never hidden behind a
-model's unverified claim to have "searched broadly." See
-`docs/roadmap/federated_discovery_orchestration_adoption.md`'s AI-FRD-2
-section.
-
-`research_question_id` threading (`docs/roadmap/answer_session_versioning_design.md`):
-this module now accepts an optional `research_question_id` and always sets
-it on the `ResearchSession` it creates (caller-supplied, or deterministically
-derived from the question text when omitted), forwarding it to the
-federated-discovery sub-step only when `discovery_policy` is also supplied.
-This closes the concrete plumbing gap that design doc's "Where
-`research_question_id` actually comes from" section named -- Core's
-`federated_discover_history`/`federated_coverage_report` now have something
-to find later for any session whose discovery step actually ran under a
-given thread identity.
-
-`answer_version`/`supersedes_session_id` threading (2026-08-22, later still):
-this module also now accepts optional `answer_version` (default `1`) and
-`supersedes_session_id` (default `None`) keyword parameters, set verbatim
-on the `ResearchSession` it creates -- additive, same opt-in shape as
-`research_question_id` itself, so every existing caller that does not pass
-them keeps today's behavior (`answer_version=1`, `supersedes_session_id=None`)
-exactly. This module still never calls `SessionRepository.supersede_session`
-itself -- minting version *N+1* and superseding version *N* once *N+1*
-reaches `COMPLETED` is `copilot.research_freshness.mint_next_version`'s job
-(see that module), which calls this function as its own version-*N+1*
-sub-step rather than duplicating the session-creation/workflow/synthesis/
-close-gate composition here. `narrative_invalidated_at` and the crosswalk/
-rerun-trigger wiring the design doc also scopes remain, as before, owned by
-`copilot.research_freshness`.
-
-Issue #69 Stage 4 (candidate triage and acquisition): `discovery_policy.py`
-now also decides *when* to request a bounded Core acquisition plan for a
-triggered federated-discovery run's own candidates
-(`FederatedDiscoveryPolicy.enable_acquisition_plan`, default `False` --
-see that module's own docstring). This module does not call the
-acquisition-plan wrapper directly; it surfaces the outcome unchanged on
-`ResearchQuestionResult.discovery.acquisition_plan` alongside the existing
-`federated_discovery`/`citation_snowball` fields, the same way it already
-surfaces every other `DiscoveryAugmentationResult` field.
+Grounded completion is explicit opt-in because it performs side-effecting acquisition
+and local-model grounding work. It requires a discovery policy with acquisition-plan
+requests enabled. Discovery candidates and merely acquired papers are never passed to
+synthesis directly.
 """
 
 from __future__ import annotations
@@ -128,6 +28,11 @@ from knowledge_engine_ai.copilot.discovery_policy import (
     FederatedDiscoveryPolicy,
     evaluate_and_run_discovery_augmentation,
 )
+from knowledge_engine_ai.copilot.grounded_completion import (
+    GroundedCompletionPolicy,
+    GroundedCompletionResult,
+    complete_discovered_research,
+)
 from knowledge_engine_ai.copilot.intent import (
     CriterionResult,
     CriterionStatus,
@@ -143,11 +48,7 @@ from knowledge_engine_ai.orchestrator.parallel_retrieval import ExternalDiscover
 from knowledge_engine_ai.orchestrator.session_report import SessionReport, build_session_report
 from knowledge_engine_ai.orchestrator.verification import VerificationResult, verify_synthesis
 from knowledge_engine_ai.orchestrator.workflow import WorkflowResult, run_fixed_evidence_workflow
-from knowledge_engine_ai.sessions.models import (
-    ResearchEvent,
-    ResearchSession,
-    SessionStatus,
-)
+from knowledge_engine_ai.sessions.models import ResearchEvent, ResearchSession, SessionStatus
 from knowledge_engine_ai.sessions.repository import SessionRepository
 from knowledge_engine_ai.synthesis import synthesize_answer
 
@@ -156,31 +57,26 @@ _WORKFLOW_INTEGRITY_CRITERION_ID = "workflow_integrity"
 _CITATION_INTEGRITY_CRITERION_ID = "citation_integrity"
 _CONTRADICTION_REVIEW_CRITERION_ID = "contradiction_review"
 _DISCOVERY_COVERAGE_CRITERION_ID = "discovery_coverage"
+_GROUNDED_COMPLETION_INTEGRITY_CRITERION_ID = "grounded_completion_integrity"
+
 _SYNTHESIS_NODE = "synthesis"
 _SYNTHESIS_EXECUTOR_TYPE = "local_llm"
+_GROUNDED_EXECUTOR_TYPE = "deterministic_tool"
+_GROUNDED_ACQUISITION_NODE = "grounded_acquisition"
+_GROUNDED_EXTRACTION_NODE = "grounded_extraction"
+_GROUNDED_RERETRIEVAL_NODE = "grounded_reretrieval"
 
 
 @dataclass(frozen=True)
 class ResearchQuestionResult:
-    """The full, assembled outcome of one composed AI-O12 run.
+    """The full assembled outcome of one question-to-answer research session.
 
-    `narrative`/`verification`/`session_report` are all `None` together
-    when no evidence with a stated claim was retrieved to synthesize
-    from -- there is nothing to narrate, not a failure. `synthesis_error`
-    is set only when a narrative was attempted and the local LLM call
-    itself failed (e.g. Ollama unreachable, model not pulled); it is
-    `None` in the no-evidence case above. `close_result.status` is
-    `COMPLETED` only when all three ISA criteria passed; a verification
-    failure (or a workflow step failure) still produces a full result --
-    it never raises -- with `close_result.status` reporting `BLOCKED`
-    and `close_result.validation.unresolved_required_criteria` naming
-    exactly what did not pass, matching this project's "record failure,
-    don't stop" discipline. `discovery` is `None` whenever the caller did
-    not supply a `discovery_policy` (the default, reproducing this
-    module's pre-AI-FRD-3/4-wiring behavior exactly); otherwise it always
-    carries a `DiscoveryAugmentationResult` recording the coverage-gap
-    trigger decision that was made, even when the trigger did not fire --
-    never silently absent once a policy is in effect.
+    ``workflow`` always preserves the initial corpus retrieval result.
+    ``grounded_completion`` is present only when the caller opted into GQR-4/GQR-5.
+    When that completion produced a grounded ``reretrieval_report``, it is the report
+    used for synthesis, verification, and the session report. This keeps the original
+    retrieval auditable without letting a pre-grounding discovery result become an
+    answer source.
     """
 
     session_id: str
@@ -193,6 +89,7 @@ class ResearchQuestionResult:
     session_report: SessionReport | None
     close_result: SessionCloseResult
     trace: SessionTrace
+    grounded_completion: GroundedCompletionResult | None = None
 
     @property
     def narrative_releaseable(self) -> bool:
@@ -203,6 +100,26 @@ class ResearchQuestionResult:
             and self.verification is not None
             and self.verification.is_clean
             and self.close_result.status is SessionStatus.COMPLETED
+        )
+
+    @property
+    def effective_evidence_report(self) -> EvidenceReport | None:
+        """The exact report used for synthesis/verification in this session."""
+
+        if (
+            self.grounded_completion is not None
+            and self.grounded_completion.reretrieval_report is not None
+        ):
+            return self.grounded_completion.reretrieval_report
+        return self.workflow.evidence_report
+
+    @property
+    def used_reretrieved_evidence(self) -> bool:
+        """Whether grounded GQR-5 re-retrieval replaced the initial report for synthesis."""
+
+        return (
+            self.grounded_completion is not None
+            and self.grounded_completion.reretrieval_report is not None
         )
 
 
@@ -216,50 +133,23 @@ def run_research_question(
     limit: int = 5,
     external_discovery: ExternalDiscoveryCallable | None = None,
     discovery_policy: FederatedDiscoveryPolicy | None = None,
+    grounded_completion_policy: GroundedCompletionPolicy | None = None,
     research_question_id: str | None = None,
     answer_version: int = 1,
     supersedes_session_id: str | None = None,
     ke_executable: str = "ke",
     timeout_seconds: float | None = None,
 ) -> ResearchQuestionResult:
-    """Create a session, run the fixed workflow, synthesize, verify, close, trace.
+    """Create one session and run retrieval, optional grounded completion, and synthesis.
 
-    Concretely, in order: `session_repository.create_session`,
-    `run_fixed_evidence_workflow` (retrieval + Evidence Intelligence,
-    both branches), the AI-FRD-3/AI-FRD-4 coverage-gap discovery policy
-    (only when `discovery_policy` is supplied -- see `discovery_policy.py`),
-    `synthesize_answer` over the primary branch's report, `verify_synthesis`
-    (the Skeptic check), `build_session_report`, `attempt_session_close`
-    (the ISA close gate), `build_session_trace`. Never raises for an
-    ordinary "no evidence" or "verification found a problem" outcome --
-    see `ResearchQuestionResult`'s docstring for how each is represented
-    instead. The discovery policy step never raises either -- see
-    `evaluate_and_run_discovery_augmentation`'s own docstring.
-
-    `research_question_id` is the answer/session-versioning thread identity
-    `docs/roadmap/answer_session_versioning_design.md` scopes: the same
-    string `ke_client.federated_discover()`/`federated_discover_history()`
-    key on, so a later freshness check can find every federated-discovery
-    run tagged under this question's thread. When a caller supplies one, it
-    is used verbatim -- typically a stable per-question-thread identifier a
-    caller mints and persists on its own side. When omitted (the common
-    case today, until such a caller exists), one is derived deterministically
-    from the normalized question text, so separate calls that are really
-    "the same question, asked again" thread together even without a caller
-    coordinating an ID -- a named trade-off, not a guarantee of uniqueness
-    in a multi-tenant setting (see the design doc's "Origin" section). Always
-    set on the created `ResearchSession`, and forwarded to the discovery
-    step only when `discovery_policy` is also supplied.
-
-    `answer_version`/`supersedes_session_id` are the remaining two
-    answer/session-versioning fields: additive, default to `1`/`None` (a
-    thread's first version, replacing nothing), and set verbatim on the
-    created `ResearchSession` -- this function does no version-numbering or
-    thread-lookup logic itself. A caller minting version *N+1* (typically
-    `copilot.research_freshness.mint_next_version`, not a person calling
-    this function directly) supplies the prior version's
-    `answer_version + 1` and its `session_id`.
+    Grounded completion is fail-closed at configuration time: a caller cannot request
+    acquisition/extraction without also opting into discovery and its acquisition-plan
+    step, and both policies must point at the same federated-search ledger. The
+    completion itself remains evidence-safe: only its final grounded re-retrieval may
+    replace the initial corpus report as synthesis input.
     """
+
+    _validate_grounded_completion_configuration(discovery_policy, grounded_completion_policy)
 
     execution_budget = (
         ExecutionBudget.from_timeout(timeout_seconds) if timeout_seconds is not None else None
@@ -304,28 +194,60 @@ def run_research_question(
             research_question_id=resolved_research_question_id,
         )
 
+    grounded_completion: GroundedCompletionResult | None = None
+    synthesis_evidence_report = workflow_result.evidence_report
+    if grounded_completion_policy is not None:
+        # Configuration validation above guarantees a discovery policy, and therefore
+        # the augmentation result, exists on this opt-in path.
+        assert discovery_augmentation is not None
+        grounded_completion = complete_discovered_research(
+            question,
+            discovery=discovery_augmentation,
+            sources=sources,
+            evidence=evidence,
+            policy=grounded_completion_policy,
+            ke_executable=ke_executable,
+            execution_budget=execution_budget,
+        )
+        _record_grounded_completion_events(
+            session_repository,
+            session_id=session_id,
+            result=grounded_completion,
+        )
+        if grounded_completion.reretrieval_report is not None:
+            synthesis_evidence_report = grounded_completion.reretrieval_report
+
     narrative, synthesis_error = _synthesize(
         session_repository=session_repository,
         session_id=session_id,
-        evidence_report=workflow_result.evidence_report,
+        evidence_report=synthesis_evidence_report,
         llm=llm,
         execution_budget=execution_budget,
     )
 
     verification: VerificationResult | None = None
     session_report: SessionReport | None = None
-    if narrative is not None and workflow_result.evidence_report is not None:
-        verification = verify_synthesis(narrative, workflow_result.evidence_report)
-        session_report = build_session_report(
-            narrative, workflow_result.evidence_report, verification
-        )
+    if narrative is not None and synthesis_evidence_report is not None:
+        verification = verify_synthesis(narrative, synthesis_evidence_report)
+        session_report = build_session_report(narrative, synthesis_evidence_report, verification)
 
     session_repository.attach_research_isa(
         session_id,
-        _build_isa(session_id, question, discovery_policy_supplied=discovery_policy is not None),
+        _build_isa(
+            session_id,
+            question,
+            discovery_policy_supplied=discovery_policy is not None,
+            grounded_completion_policy_supplied=grounded_completion_policy is not None,
+        ),
     )
     recorded_at = _timestamp()
-    for result in _isa_criterion_results(workflow_result, verification, discovery_augmentation):
+    for result in _isa_criterion_results(
+        workflow_result,
+        verification,
+        discovery_augmentation,
+        grounded_completion,
+        grounded_completion_policy_supplied=grounded_completion_policy is not None,
+    ):
         session_repository.record_criterion_result(session_id, result, recorded_at=recorded_at)
 
     close_result = attempt_session_close(session_repository, session_id=session_id)
@@ -341,6 +263,7 @@ def run_research_question(
         question=question,
         workflow=workflow_result,
         discovery=discovery_augmentation,
+        grounded_completion=grounded_completion,
         narrative=narrative,
         synthesis_error=synthesis_error,
         verification=verification,
@@ -348,6 +271,26 @@ def run_research_question(
         close_result=close_result,
         trace=trace,
     )
+
+
+def _validate_grounded_completion_configuration(
+    discovery_policy: FederatedDiscoveryPolicy | None,
+    grounded_completion_policy: GroundedCompletionPolicy | None,
+) -> None:
+    if grounded_completion_policy is None:
+        return
+    if discovery_policy is None:
+        raise ValueError("grounded_completion_policy requires discovery_policy.")
+    if not discovery_policy.enable_acquisition_plan:
+        raise ValueError(
+            "grounded_completion_policy requires discovery_policy.enable_acquisition_plan=True."
+        )
+    discovery_ledger = discovery_policy.ledger_root.resolve(strict=False)
+    completion_ledger = grounded_completion_policy.ledger_root.resolve(strict=False)
+    if discovery_ledger != completion_ledger:
+        raise ValueError(
+            "discovery_policy and grounded_completion_policy must use the same ledger_root."
+        )
 
 
 def _synthesize(
@@ -358,17 +301,12 @@ def _synthesize(
     llm: LocalLLM,
     execution_budget: ExecutionBudget | None,
 ) -> tuple[str | None, str | None]:
-    """Run `synthesize_answer`, recording exactly one durable `ResearchEvent` either way.
-
-    Returns `(narrative, synthesis_error)`. Both `None` means there was
-    no evidence with a stated claim to synthesize from -- not an error.
-    `narrative` `None` with `synthesis_error` set means a narrative was
-    attempted and the local LLM call itself failed.
-    """
+    """Run synthesis and append exactly one durable synthesis event when a report exists."""
 
     if evidence_report is None:
         return None, None
 
+    source_ids, source_dois = _report_sources(evidence_report)
     start = time.monotonic()
     try:
         timeout_seconds = (
@@ -386,6 +324,8 @@ def _synthesize(
             output=None,
             error=str(exc),
             duration_ms=_elapsed_ms(start),
+            source_ids=source_ids,
+            source_dois=source_dois,
         )
         return None, str(exc)
 
@@ -396,6 +336,8 @@ def _synthesize(
             output="No evidence with a stated claim was retrieved to synthesize from.",
             error=None,
             duration_ms=_elapsed_ms(start),
+            source_ids=source_ids,
+            source_dois=source_dois,
         )
         return None, None
 
@@ -405,6 +347,8 @@ def _synthesize(
         output=narrative,
         error=None,
         duration_ms=_elapsed_ms(start),
+        source_ids=source_ids,
+        source_dois=source_dois,
     )
     return narrative, None
 
@@ -416,6 +360,8 @@ def _record_synthesis_event(
     output: str | None,
     error: str | None,
     duration_ms: int,
+    source_ids: tuple[str, ...] = (),
+    source_dois: tuple[str, ...] = (),
 ) -> None:
     session_repository.append_event(
         ResearchEvent(
@@ -426,13 +372,173 @@ def _record_synthesis_event(
             executor_type=_SYNTHESIS_EXECUTOR_TYPE,
             validation_status="succeeded" if error is None else "failed",
             output_hash=_hash(output) if output is not None else None,
+            source_ids=source_ids,
+            source_dois=source_dois,
             notes=error if error is not None else output,
             duration_ms=duration_ms,
         )
     )
 
 
-def _build_isa(session_id: str, question: str, *, discovery_policy_supplied: bool) -> ResearchISA:
+def _record_grounded_completion_events(
+    session_repository: SessionRepository,
+    *,
+    session_id: str,
+    result: GroundedCompletionResult,
+) -> None:
+    acquisition_status = _grounded_acquisition_status(result)
+    acquisition_notes = _grounded_acquisition_notes(result)
+    _record_grounded_event(
+        session_repository,
+        session_id=session_id,
+        workflow_node=_GROUNDED_ACQUISITION_NODE,
+        tool_name="ke general-question-acquire-*",
+        validation_status=acquisition_status,
+        notes=acquisition_notes,
+    )
+
+    extraction_status = _grounded_extraction_status(result)
+    extraction_notes = _grounded_extraction_notes(result)
+    _record_grounded_event(
+        session_repository,
+        session_id=session_id,
+        workflow_node=_GROUNDED_EXTRACTION_NODE,
+        tool_name="ke extraction-review / evidence-review-automate",
+        validation_status=extraction_status,
+        notes=extraction_notes,
+    )
+
+    reretrieval_status = _grounded_reretrieval_status(result)
+    reretrieval_notes = _grounded_reretrieval_notes(result)
+    source_ids: tuple[str, ...] = ()
+    source_dois: tuple[str, ...] = ()
+    output_schema_version: int | None = None
+    if result.reretrieval_report is not None:
+        source_ids, source_dois = _report_sources(result.reretrieval_report)
+        output_schema_version = result.reretrieval_report.schema_version
+    _record_grounded_event(
+        session_repository,
+        session_id=session_id,
+        workflow_node=_GROUNDED_RERETRIEVAL_NODE,
+        tool_name="ke evidence-report",
+        validation_status=reretrieval_status,
+        notes=reretrieval_notes,
+        output_schema_version=output_schema_version,
+        source_ids=source_ids,
+        source_dois=source_dois,
+    )
+
+
+def _record_grounded_event(
+    session_repository: SessionRepository,
+    *,
+    session_id: str,
+    workflow_node: str,
+    tool_name: str,
+    validation_status: str,
+    notes: str,
+    output_schema_version: int | None = None,
+    source_ids: tuple[str, ...] = (),
+    source_dois: tuple[str, ...] = (),
+) -> None:
+    session_repository.append_event(
+        ResearchEvent(
+            event_id=str(uuid.uuid4()),
+            session_id=session_id,
+            timestamp=_timestamp(),
+            workflow_node=workflow_node,
+            executor_type=_GROUNDED_EXECUTOR_TYPE,
+            validation_status=validation_status,
+            output_schema_version=output_schema_version,
+            output_hash=_hash(notes),
+            tool_name=tool_name,
+            source_ids=source_ids,
+            source_dois=source_dois,
+            notes=notes,
+        )
+    )
+
+
+def _grounded_acquisition_status(result: GroundedCompletionResult) -> str:
+    if not result.attempted:
+        return "skipped"
+    if result.paper_ids:
+        return "succeeded"
+    if any(route.error for route in result.acquisition_routes):
+        return "failed"
+    return "skipped"
+
+
+def _grounded_extraction_status(result: GroundedCompletionResult) -> str:
+    if not result.attempted or not result.paper_ids:
+        return "skipped"
+    if result.extraction_error is not None:
+        return "failed"
+    return "succeeded"
+
+
+def _grounded_reretrieval_status(result: GroundedCompletionResult) -> str:
+    if result.reretrieval_error is not None:
+        return "failed"
+    if result.reretrieval_report is not None:
+        return "succeeded"
+    return "skipped"
+
+
+def _grounded_acquisition_notes(result: GroundedCompletionResult) -> str:
+    if not result.attempted:
+        return f"Grounded acquisition skipped: {result.skipped_reason or 'no acquisition plan.'}"
+    route_failures = tuple(
+        f"{route.route}: {route.error}" for route in result.acquisition_routes if route.error
+    )
+    persisted = sum(route.persisted_count for route in result.acquisition_routes)
+    reused = sum(route.reused_count for route in result.acquisition_routes)
+    return (
+        f"search_run_id={result.search_run_id}; papers_available={len(result.paper_ids)}; "
+        f"new_papers={persisted}; reused_papers={reused}; "
+        f"already_indexed={len(result.already_indexed_paper_ids)}; "
+        f"route_failures={list(route_failures)}. "
+        "Acquired/reused Papers are not yet answer evidence."
+    )
+
+
+def _grounded_extraction_notes(result: GroundedCompletionResult) -> str:
+    if not result.attempted or not result.paper_ids:
+        return (
+            "Grounded extraction skipped because no persisted/reusable paper reached the "
+            "extraction stage."
+        )
+    if result.extraction_error is not None:
+        return f"Grounded extraction failed: {result.extraction_error}"
+    return (
+        f"draft_items={result.draft_item_count}; classified_items={result.classified_item_count}; "
+        f"staged={len(result.staged_record_ids)}; grounded={len(result.grounded_record_ids)}; "
+        f"promoted={len(result.promoted_record_ids)}; "
+        f"grounding_failures={list(result.grounding_failures)}. "
+        "Only grounded/reviewed records were eligible for durable promotion."
+    )
+
+
+def _grounded_reretrieval_notes(result: GroundedCompletionResult) -> str:
+    if result.reretrieval_error is not None:
+        return f"Original-question grounded re-retrieval failed: {result.reretrieval_error}"
+    if result.reretrieval_report is None:
+        reason = result.skipped_reason or "no newly promoted grounded EvidenceRecord"
+        return f"Grounded re-retrieval skipped: {reason}."
+    source_ids, _ = _report_sources(result.reretrieval_report)
+    return (
+        f"Grounded re-retrieval succeeded with {len(result.reretrieval_report.papers)} paper(s) "
+        f"and {len(source_ids)} EvidenceRecord(s). This report is eligible for synthesis."
+    )
+
+
+def _build_isa(
+    session_id: str,
+    question: str,
+    *,
+    discovery_policy_supplied: bool,
+    grounded_completion_policy_supplied: bool = False,
+) -> ResearchISA:
     criteria: tuple[IdealStateCriterion, ...] = (
         IdealStateCriterion(
             criterion_id=_WORKFLOW_INTEGRITY_CRITERION_ID,
@@ -451,20 +557,29 @@ def _build_isa(session_id: str, question: str, *, discovery_policy_supplied: boo
         ),
     )
     if discovery_policy_supplied:
-        # AI-FRD-2: optional (`required=False`) -- a degraded federated-discovery
-        # broadening must never silently block session close, but it must also
-        # never be silently omitted from the ISA once discovery is in play.
         criteria = (
             *criteria,
             IdealStateCriterion(
                 criterion_id=_DISCOVERY_COVERAGE_CRITERION_ID,
                 claim=(
-                    "If federated discovery was triggered to broaden thin corpus "
-                    "coverage, every attempted provider succeeded; a genuine provider "
-                    "failure is reported explicitly, never silently as complete coverage."
+                    "If federated discovery was triggered to broaden thin corpus coverage, "
+                    "every attempted provider succeeded; provider failures remain explicit."
                 ),
                 probe="discovery_augmentation: federated_discovery.completeness == 'complete'",
                 required=False,
+            ),
+        )
+    if grounded_completion_policy_supplied:
+        criteria = (
+            *criteria,
+            IdealStateCriterion(
+                criterion_id=_GROUNDED_COMPLETION_INTEGRITY_CRITERION_ID,
+                claim=(
+                    "Requested grounded completion was either unnecessary or reached its "
+                    "furthest applicable stage without a hard acquisition, extraction, or "
+                    "re-retrieval execution failure."
+                ),
+                probe="grounded_completion: no hard pipeline error",
             ),
         )
     return ResearchISA(
@@ -472,9 +587,9 @@ def _build_isa(session_id: str, question: str, *, discovery_policy_supplied: boo
         run_id=f"run-{session_id}",
         question=question,
         ideal_state=(
-            "A synthesized answer whose every citation is grounded in the retrieved "
-            "evidence, and which does not silently omit contradicting or qualifying "
-            "evidence, or an honest statement that no evidence was available to answer."
+            "A synthesized answer whose every citation is grounded in retrieved evidence and "
+            "which does not silently omit contradicting or qualifying evidence, or an honest "
+            "statement that the bounded research path found no usable evidence."
         ),
         criteria=criteria,
     )
@@ -484,6 +599,9 @@ def _isa_criterion_results(
     workflow_result: WorkflowResult,
     verification: VerificationResult | None,
     discovery_augmentation: DiscoveryAugmentationResult | None,
+    grounded_completion: GroundedCompletionResult | None = None,
+    *,
+    grounded_completion_policy_supplied: bool = False,
 ) -> tuple[CriterionResult, ...]:
     failed_workflow_nodes = tuple(
         step.workflow_node for step in workflow_result.steps if not step.succeeded
@@ -501,7 +619,7 @@ def _isa_criterion_results(
 
     if verification is None:
         evidence = "No narrative was produced this run; nothing to verify."
-        results = (
+        results: tuple[CriterionResult, ...] = (
             workflow_result_record,
             CriterionResult(_CITATION_INTEGRITY_CRITERION_ID, CriterionStatus.PASSED, evidence),
             CriterionResult(_CONTRADICTION_REVIEW_CRITERION_ID, CriterionStatus.PASSED, evidence),
@@ -518,14 +636,12 @@ def _isa_criterion_results(
                 f"ungrounded_numbers={list(verification.ungrounded_numbers)}"
             )
         )
-
         contradiction_clean = not verification.missed_qualifiers
         contradiction_evidence = (
             "No qualifying/contradicting evidence record was omitted from the narrative."
             if contradiction_clean
             else f"missed_qualifiers={list(verification.missed_qualifiers)}"
         )
-
         results = (
             workflow_result_record,
             CriterionResult(
@@ -540,25 +656,103 @@ def _isa_criterion_results(
             ),
         )
 
+    if discovery_augmentation is not None:
+        results = (*results, _discovery_coverage_result(discovery_augmentation))
+    if grounded_completion_policy_supplied:
+        results = (
+            *results,
+            _grounded_completion_integrity_result(discovery_augmentation, grounded_completion),
+        )
+    return results
+
+
+def _grounded_completion_integrity_result(
+    discovery_augmentation: DiscoveryAugmentationResult | None,
+    grounded_completion: GroundedCompletionResult | None,
+) -> CriterionResult:
     if discovery_augmentation is None:
-        return results
-    return (*results, _discovery_coverage_result(discovery_augmentation))
+        return CriterionResult(
+            _GROUNDED_COMPLETION_INTEGRITY_CRITERION_ID,
+            CriterionStatus.FAILED,
+            "Grounded completion was requested but no discovery augmentation was recorded.",
+        )
+
+    if not discovery_augmentation.triggered:
+        return CriterionResult(
+            _GROUNDED_COMPLETION_INTEGRITY_CRITERION_ID,
+            CriterionStatus.PASSED,
+            "Initial evidence coverage was sufficient; grounded completion was unnecessary.",
+        )
+
+    if discovery_augmentation.federated_discovery_error is not None:
+        return CriterionResult(
+            _GROUNDED_COMPLETION_INTEGRITY_CRITERION_ID,
+            CriterionStatus.FAILED,
+            "Federated discovery failed before grounded completion could run: "
+            f"{discovery_augmentation.federated_discovery_error}",
+        )
+    if discovery_augmentation.acquisition_plan_error is not None:
+        return CriterionResult(
+            _GROUNDED_COMPLETION_INTEGRITY_CRITERION_ID,
+            CriterionStatus.FAILED,
+            "Acquisition planning failed before grounded completion could run: "
+            f"{discovery_augmentation.acquisition_plan_error}",
+        )
+    if grounded_completion is None:
+        return CriterionResult(
+            _GROUNDED_COMPLETION_INTEGRITY_CRITERION_ID,
+            CriterionStatus.FAILED,
+            "Grounded completion was requested but produced no completion result.",
+        )
+    if grounded_completion.extraction_error is not None:
+        return CriterionResult(
+            _GROUNDED_COMPLETION_INTEGRITY_CRITERION_ID,
+            CriterionStatus.FAILED,
+            f"Grounded extraction failed: {grounded_completion.extraction_error}",
+        )
+    if grounded_completion.reretrieval_error is not None:
+        return CriterionResult(
+            _GROUNDED_COMPLETION_INTEGRITY_CRITERION_ID,
+            CriterionStatus.FAILED,
+            f"Grounded re-retrieval failed: {grounded_completion.reretrieval_error}",
+        )
+
+    route_failures = tuple(
+        f"{route.route}: {route.error}"
+        for route in grounded_completion.acquisition_routes
+        if route.error is not None
+    )
+    if grounded_completion.attempted and not grounded_completion.paper_ids and route_failures:
+        return CriterionResult(
+            _GROUNDED_COMPLETION_INTEGRITY_CRITERION_ID,
+            CriterionStatus.FAILED,
+            f"Every usable acquisition path failed: {list(route_failures)}",
+        )
+
+    if grounded_completion.reretrieval_report is not None:
+        evidence = (
+            f"Grounded completion promoted {len(grounded_completion.promoted_record_ids)} "
+            "EvidenceRecord(s) and re-ran the original question successfully."
+        )
+    elif grounded_completion.attempted:
+        evidence = (
+            "Grounded completion ran without a hard execution failure but produced no newly "
+            "promoted evidence eligible for re-retrieval."
+        )
+    else:
+        evidence = grounded_completion.skipped_reason or (
+            "Discovery produced no acquisition plan/candidate requiring grounded completion."
+        )
+    return CriterionResult(
+        _GROUNDED_COMPLETION_INTEGRITY_CRITERION_ID,
+        CriterionStatus.PASSED,
+        evidence,
+    )
 
 
 def _discovery_coverage_result(
     discovery_augmentation: DiscoveryAugmentationResult,
 ) -> CriterionResult:
-    """AI-FRD-2: deterministic coverage criterion over this run's discovery augmentation.
-
-    Never re-derives provider success/failure -- Core's own `completeness`
-    (already computed only from *attempted* providers, excluding disabled/
-    skipped ones) is the single source of truth. `NOT_APPLICABLE` when
-    discovery was not triggered at all (coverage was already sufficient, or
-    primary retrieval failed and is already blocked by `workflow_integrity`),
-    so this criterion never fabricates a "searched broadly" pass for a run
-    that never broadened its search.
-    """
-
     if not discovery_augmentation.triggered:
         return CriterionResult(
             _DISCOVERY_COVERAGE_CRITERION_ID,
@@ -610,6 +804,18 @@ def _discovery_coverage_result(
     )
 
 
+def _report_sources(report: EvidenceReport) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Deduplicate EvidenceRecord IDs and retain each record's paper DOI in parallel."""
+
+    pairs: dict[str, str] = {}
+    for paper in report.papers:
+        for record in paper.evidence_records:
+            evidence_record_id = record.evidence_record_id
+            if evidence_record_id and evidence_record_id not in pairs:
+                pairs[evidence_record_id] = paper.doi
+    return tuple(pairs), tuple(pairs.values())
+
+
 def _timestamp() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
@@ -623,17 +829,6 @@ def _hash(text: str) -> str:
 
 
 def _derive_research_question_id(question: str) -> str:
-    """Deterministically derive a thread identity from question text alone.
-
-    A different prefix/truncation than `_hash`'s own `sha256:` output,
-    since this is a thread identity meant to be reused across separate
-    calls asking "the same question," not a tamper-evidence value for one
-    call's own output. Deliberately not a fresh `uuid4()` -- see
-    `docs/roadmap/answer_session_versioning_design.md`'s "Origin" section
-    for why derivation from the question text, not randomness, is the
-    right default here, and the named trade-off that comes with it.
-    """
-
     normalized = question.strip().lower()
     return f"rq-{hashlib.sha256(normalized.encode('utf-8')).hexdigest()[:16]}"
 
