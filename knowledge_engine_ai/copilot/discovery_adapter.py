@@ -53,17 +53,14 @@ class DiscoveryAdapterBudget:
 
     def __post_init__(self) -> None:
         if not 1 <= self.max_variant_calls <= MAX_TOTAL_VARIANTS:
-            raise ValueError(
-                f"max_variant_calls must be between 1 and {MAX_TOTAL_VARIANTS}."
-            )
+            raise ValueError(f"max_variant_calls must be between 1 and {MAX_TOTAL_VARIANTS}.")
         if not 1 <= self.max_provider_attempts <= MAX_PROVIDER_ATTEMPTS:
             raise ValueError(
                 f"max_provider_attempts must be between 1 and {MAX_PROVIDER_ATTEMPTS}."
             )
         if not 1 <= self.per_variant_limit <= MAX_CANDIDATES_PER_VARIANT:
             raise ValueError(
-                "per_variant_limit must be between 1 and "
-                f"{MAX_CANDIDATES_PER_VARIANT}."
+                f"per_variant_limit must be between 1 and {MAX_CANDIDATES_PER_VARIANT}."
             )
 
 
@@ -180,9 +177,7 @@ def execute_general_query_plan_discovery(
     _validate_optional_id("research_question_id", research_question_id)
 
     if budget.max_variant_calls < len(plan.tracks):
-        raise ValueError(
-            "Discovery budget must allow at least one variant call per search track."
-        )
+        raise ValueError("Discovery budget must allow at least one variant call per search track.")
 
     selected = _select_variants(plan, budget.max_variant_calls)
     provider_attempt_count = len(selected) * len(providers)
@@ -245,9 +240,7 @@ def _select_variants(plan: GeneralQueryPlan, max_variant_calls: int) -> tuple[Qu
 
     for track in plan.tracks:
         variant = next(
-            candidate
-            for candidate in plan.query_variants
-            if candidate.track_id == track.track_id
+            candidate for candidate in plan.query_variants if candidate.track_id == track.track_id
         )
         selected.append(variant)
         selected_ids.add(variant.variant_id)
