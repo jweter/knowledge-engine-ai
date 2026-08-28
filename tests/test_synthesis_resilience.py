@@ -80,18 +80,26 @@ def test_zero_citation_model_output_falls_back_to_complete_evidence_summary() ->
     assert verify_synthesis(answer, _report()).is_clean is True
 
 
-def test_missing_qualifier_is_appended_without_rewriting_cited_model_answer() -> None:
-    answer = synthesize_answer(
-        _report(),
-        _FakeLLM("Music increased time to exhaustion by 8% [ev-support]."),
-    )
+def test_cited_model_answer_is_not_repaired_before_verification() -> None:
+    model_answer = "Music increased time to exhaustion by 8% [ev-support]."
 
-    assert answer is not None
-    assert answer.startswith("Music increased time to exhaustion by 8% [ev-support].")
-    assert "Required evidence qualifications:" in answer
-    assert "[ev-qualifier]" in answer
-    assert "The subgroup sample was small." in answer
-    assert verify_synthesis(answer, _report()).is_clean is True
+    answer = synthesize_answer(_report(), _FakeLLM(model_answer))
+
+    assert answer == model_answer
+    verification = verify_synthesis(answer, _report())
+    assert verification.missed_qualifiers == ("ev-qualifier",)
+    assert verification.is_clean is False
+
+
+def test_unknown_citation_is_preserved_for_verifier_to_reject() -> None:
+    model_answer = "Music improves endurance [ev-invented]."
+
+    answer = synthesize_answer(_report(), _FakeLLM(model_answer))
+
+    assert answer == model_answer
+    verification = verify_synthesis(answer, _report())
+    assert verification.hallucinated_citations == ("ev-invented",)
+    assert verification.is_clean is False
 
 
 def test_local_model_failure_uses_deterministic_grounded_fallback() -> None:
