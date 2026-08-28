@@ -17,12 +17,13 @@ from __future__ import annotations
 
 import json
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from knowledge_engine_ai.copilot.discovery_policy import DiscoveryAugmentationResult
-from knowledge_engine_ai.execution import ExecutionBudget
+from knowledge_engine_ai.execution import ExecutionBudget, ExecutionBudgetExceeded
 from knowledge_engine_ai.ke_client import (
     GeneralQuestionAcquisitionPlanResult,
     KeCommandError,
@@ -91,7 +92,12 @@ class GroundedCompletionPolicy:
 
 @dataclass(frozen=True)
 class AcquisitionRouteResult:
-    """One acquisition route's durable outcome."""
+    """One acquisition attempt's durable outcome.
+
+    A route may yield multiple results when the caller intentionally isolates
+    candidates to keep one strict Core validation failure from discarding other
+    independently valid papers on the same route.
+    """
 
     route: str
     candidate_ids: tuple[str, ...]
@@ -184,7 +190,10 @@ def complete_discovered_research(
     """Acquire, ground, promote, and re-retrieve one discovery augmentation.
 
     Acquisition-route failures are retained as degraded route results and do not
-    erase successful routes. Extraction failure stops the new-evidence path before
+    erase successful routes. PMC candidates are deliberately isolated because Core's
+    PMC executor is validation-atomic: one candidate that no longer has independently
+    verified reusable full text must not discard other candidates that still pass
+    Core's strict verification. Extraction failure stops the new-evidence path before
     re-retrieval, preventing an ungrounded staged record from entering synthesis.
     """
 
@@ -209,24 +218,17 @@ def complete_discovered_research(
     route_results: list[AcquisitionRouteResult] = []
     acquired_paper_ids: list[int] = []
     for route, candidate_ids in _route_candidates(plan)[: policy.max_acquisition_routes]:
-        try:
-            result = _execute_acquisition_route(
-                plan,
-                route=route,
-                candidate_ids=candidate_ids,
-                policy=policy,
-                ke_executable=ke_executable,
-                execution_budget=execution_budget,
-            )
-        except (KeCommandError, GroundedCompletionContractError) as exc:
-            result = AcquisitionRouteResult(
-                route=route,
-                candidate_ids=candidate_ids,
-                attempted=True,
-                error=str(exc),
-            )
-        route_results.append(result)
-        acquired_paper_ids.extend(result.paper_ids)
+        results = _execute_acquisition_route_attempts(
+            plan,
+            route=route,
+            candidate_ids=candidate_ids,
+            policy=policy,
+            ke_executable=ke_executable,
+            execution_budget=execution_budget,
+        )
+        route_results.extend(results)
+        for result in results:
+            acquired_paper_ids.extend(result.paper_ids)
 
     paper_ids = tuple(dict.fromkeys((*already_indexed, *acquired_paper_ids)))
     if not paper_ids:
@@ -320,6 +322,99 @@ def _route_candidates(
     return tuple((route, tuple(grouped[route])) for route in _ROUTE_COMMANDS if route in grouped)
 
 
+def _execute_acquisition_route_attempts(
+    plan: GeneralQuestionAcquisitionPlanResult,
+    *,
+    route: str,
+    candidate_ids: tuple[str, ...],
+    policy: GroundedCompletionPolicy,
+    ke_executable: str,
+    execution_budget: ExecutionBudget | None,
+) -> tuple[AcquisitionRouteResult, ...]:
+    """Execute one planned route, isolating PMC candidates under one route deadline."""
+
+    bounded_ids = candidate_ids[: policy.max_candidates_per_route]
+    if not bounded_ids:
+        return ()
+
+    if route != "pmc_oa":
+        try:
+            result = _execute_acquisition_route(
+                plan,
+                route=route,
+                candidate_ids=bounded_ids,
+                policy=policy,
+                ke_executable=ke_executable,
+                execution_budget=execution_budget,
+            )
+        except (KeCommandError, GroundedCompletionContractError, ExecutionBudgetExceeded) as exc:
+            result = AcquisitionRouteResult(
+                route=route,
+                candidate_ids=bounded_ids,
+                attempted=True,
+                error=str(exc),
+            )
+        return (result,)
+
+    isolated_ids = bounded_ids[: policy.max_full_text_acquisitions_per_route]
+    route_deadline = time.monotonic() + policy.max_elapsed_seconds_per_route
+    if execution_budget is not None:
+        route_deadline = min(route_deadline, execution_budget.deadline_monotonic)
+
+    results: list[AcquisitionRouteResult] = []
+    for candidate_id in isolated_ids:
+        route_budget = ExecutionBudget(deadline_monotonic=route_deadline)
+        try:
+            remaining_seconds = route_budget.remaining_seconds()
+        except ExecutionBudgetExceeded as exc:
+            results.append(
+                AcquisitionRouteResult(
+                    route=route,
+                    candidate_ids=(candidate_id,),
+                    attempted=False,
+                    error=f"{candidate_id}: {exc}",
+                )
+            )
+            break
+
+        request_elapsed_seconds = max(
+            1,
+            min(policy.max_elapsed_seconds_per_route, int(remaining_seconds)),
+        )
+        try:
+            result = _execute_acquisition_route(
+                plan,
+                route=route,
+                candidate_ids=(candidate_id,),
+                policy=policy,
+                ke_executable=ke_executable,
+                execution_budget=route_budget,
+                max_elapsed_seconds=request_elapsed_seconds,
+            )
+        except ExecutionBudgetExceeded as exc:
+            results.append(
+                AcquisitionRouteResult(
+                    route=route,
+                    candidate_ids=(candidate_id,),
+                    attempted=True,
+                    error=f"{candidate_id}: {exc}",
+                )
+            )
+            break
+        except (KeCommandError, GroundedCompletionContractError) as exc:
+            results.append(
+                AcquisitionRouteResult(
+                    route=route,
+                    candidate_ids=(candidate_id,),
+                    attempted=True,
+                    error=f"{candidate_id}: {exc}",
+                )
+            )
+            continue
+        results.append(result)
+    return tuple(results)
+
+
 def _execute_acquisition_route(
     plan: GeneralQuestionAcquisitionPlanResult,
     *,
@@ -328,9 +423,11 @@ def _execute_acquisition_route(
     policy: GroundedCompletionPolicy,
     ke_executable: str,
     execution_budget: ExecutionBudget | None,
+    max_elapsed_seconds: int | None = None,
 ) -> AcquisitionRouteResult:
     command_name = _ROUTE_COMMANDS[route]
     bounded_ids = candidate_ids[: policy.max_candidates_per_route]
+    elapsed_limit = max_elapsed_seconds or policy.max_elapsed_seconds_per_route
     request_payload = {
         "schema_version": 1,
         "search_run_id": plan.search_run_id,
@@ -340,7 +437,7 @@ def _execute_acquisition_route(
         "max_full_text_acquisitions": min(
             len(bounded_ids), policy.max_full_text_acquisitions_per_route
         ),
-        "max_elapsed_seconds": policy.max_elapsed_seconds_per_route,
+        "max_elapsed_seconds": elapsed_limit,
         "allow_metadata_only": True,
     }
 
