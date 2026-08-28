@@ -43,9 +43,23 @@ def build_synthesis_prompt(report: EvidenceReport) -> str:
     left out rather than padding the prompt with retrieval metadata.
     """
 
-    evidence_blocks = list(_evidence_blocks(report.papers))
+    records = _grounded_records(report.papers)
+    evidence_blocks = [_render_evidence_record(record) for record in records]
+    mandatory_ids = tuple(
+        record.evidence_record_id for record in records if _requires_explicit_coverage(record)
+    )
 
-    lines = [_SYSTEM_INSTRUCTIONS, "", f"Question: {report.question}", "", "Evidence:"]
+    lines = [_SYSTEM_INSTRUCTIONS, "", f"Question: {report.question}"]
+    if mandatory_ids:
+        lines.extend(
+            (
+                "",
+                "Mandatory qualification citations: "
+                + ", ".join(f"[{record_id}]" for record_id in mandatory_ids),
+                "The final answer is incomplete unless every mandatory citation above appears.",
+            )
+        )
+    lines.extend(("", "Evidence:"))
     lines.extend(evidence_blocks)
     lines.append("")
     lines.append("Answer:")
