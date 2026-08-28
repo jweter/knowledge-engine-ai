@@ -41,6 +41,13 @@ than allowed to abort the other, the same "one step's failure does not
 stop the remaining fixed steps" discipline AI-O3's `run_fixed_evidence_workflow`
 already established.
 
+BT-5a adds conservative process-local reuse around those successful
+indexed retrievals. A cached branch is reusable only when the normalized
+query, limit, source/evidence file revisions, paths, working directory,
+and Core executable all match. Failed retrievals are never cached, and a
+content change automatically produces a different key. External discovery
+still runs independently even when both indexed branches are cache hits.
+
 External discovery is optional and, in this first cut, deliberately
 unwired to any concrete `core` capability: the only real external-discovery
 command `core` exposes, `ke discovery-cycle-run`, advances a persisted
@@ -65,6 +72,11 @@ from pathlib import Path
 from knowledge_engine_ai.execution import ExecutionBudget
 from knowledge_engine_ai.ke_client import KeCommandError, enriched_evidence_report
 from knowledge_engine_ai.models import EvidenceReport
+from knowledge_engine_ai.orchestrator.retrieval_cache import (
+    build_retrieval_cache_key,
+    get_cached_retrieval_report,
+    store_cached_retrieval_report,
+)
 
 CONTRADICTION_SIGNAL_PHRASES: tuple[str, ...] = (
     "no significant",
@@ -107,6 +119,7 @@ class RetrievalBranchResult:
     query: str
     report: EvidenceReport | None
     error: str | None
+    cache_hit: bool = False
 
 
 @dataclass(frozen=True)
@@ -228,6 +241,22 @@ def _run_branch(
     ke_executable: str,
     execution_budget: ExecutionBudget | None,
 ) -> RetrievalBranchResult:
+    cache_key = build_retrieval_cache_key(
+        query,
+        sources=sources,
+        evidence=evidence,
+        limit=limit,
+        ke_executable=ke_executable,
+    )
+    cached_report = get_cached_retrieval_report(cache_key)
+    if cached_report is not None:
+        return RetrievalBranchResult(
+            query=query,
+            report=cached_report,
+            error=None,
+            cache_hit=True,
+        )
+
     try:
         report = enriched_evidence_report(
             query,
@@ -237,9 +266,11 @@ def _run_branch(
             ke_executable=ke_executable,
             execution_budget=execution_budget,
         )
-        return RetrievalBranchResult(query=query, report=report, error=None)
     except KeCommandError as exc:
         return RetrievalBranchResult(query=query, report=None, error=str(exc))
+
+    store_cached_retrieval_report(cache_key, report)
+    return RetrievalBranchResult(query=query, report=report, error=None, cache_hit=False)
 
 
 def _evidence_record_ids(report: EvidenceReport | None) -> frozenset[str]:
