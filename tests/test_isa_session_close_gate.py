@@ -161,7 +161,10 @@ def test_close_gate_completes_only_after_all_required_probes_pass() -> None:
     session = repository.get_session("session-isa-1")
     assert session is not None
     assert session.status is SessionStatus.COMPLETED
-    assert repository.list_events("session-isa-1")[-1].validation_status == "passed"
+    close_event = repository.list_events("session-isa-1")[-1]
+    assert close_event.validation_status == "passed"
+    assert close_event.duration_ms is not None
+    assert close_event.duration_ms >= 0
 
 
 def test_close_gate_fails_closed_when_session_has_no_isa() -> None:

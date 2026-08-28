@@ -395,6 +395,7 @@ def _record_grounded_completion_events(
         tool_name="ke general-question-acquire-*",
         validation_status=acquisition_status,
         notes=acquisition_notes,
+        duration_ms=result.acquisition_duration_ms,
     )
 
     extraction_status = _grounded_extraction_status(result)
@@ -406,6 +407,7 @@ def _record_grounded_completion_events(
         tool_name="ke extraction-review / evidence-review-automate",
         validation_status=extraction_status,
         notes=extraction_notes,
+        duration_ms=result.extraction_duration_ms,
     )
 
     reretrieval_status = _grounded_reretrieval_status(result)
@@ -426,6 +428,7 @@ def _record_grounded_completion_events(
         output_schema_version=output_schema_version,
         source_ids=source_ids,
         source_dois=source_dois,
+        duration_ms=result.reretrieval_duration_ms,
     )
 
 
@@ -440,6 +443,7 @@ def _record_grounded_event(
     output_schema_version: int | None = None,
     source_ids: tuple[str, ...] = (),
     source_dois: tuple[str, ...] = (),
+    duration_ms: int | None = None,
 ) -> None:
     session_repository.append_event(
         ResearchEvent(
@@ -455,6 +459,7 @@ def _record_grounded_event(
             source_ids=source_ids,
             source_dois=source_dois,
             notes=notes,
+            duration_ms=duration_ms,
         )
     )
 

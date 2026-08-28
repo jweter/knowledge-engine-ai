@@ -8,6 +8,7 @@ keep the session open and make the unresolved criteria explicit.
 
 from __future__ import annotations
 
+import time
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -48,6 +49,7 @@ def attempt_session_close(
     auditable and resumable.
     """
 
+    started = time.monotonic()
     session = session_repository.get_session(session_id)
     if session is None:
         raise UnknownSessionError(f"No session with session_id {session_id!r}.")
@@ -76,6 +78,7 @@ def attempt_session_close(
                 else "Unresolved required criteria: "
                 + ", ".join(validation.unresolved_required_criteria)
             ),
+            duration_ms=round((time.monotonic() - started) * 1000),
         )
     )
 
