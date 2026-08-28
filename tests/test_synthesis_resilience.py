@@ -3,6 +3,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import cast
 
+import pytest
+
 from knowledge_engine_ai.llm import LocalLLMError
 from knowledge_engine_ai.models import EvidenceReport
 from knowledge_engine_ai.orchestrator.verification import verify_synthesis
@@ -102,13 +104,25 @@ def test_unknown_citation_is_preserved_for_verifier_to_reject() -> None:
     assert verification.is_clean is False
 
 
-def test_local_model_failure_uses_deterministic_grounded_fallback() -> None:
-    llm = _FakeLLM(error="model timed out")
+def test_local_model_timeout_uses_deterministic_grounded_fallback() -> None:
+    llm = _FakeLLM(
+        error=(
+            "Ollama at http://127.0.0.1:11434/api/chat did not respond within 11s. "
+            "The model may still be generating."
+        )
+    )
 
-    answer = synthesize_answer(_report(), llm, timeout_seconds=1.0)
+    answer = synthesize_answer(_report(), llm, timeout_seconds=11.0)
 
     assert llm.calls == 1
     assert answer is not None
     assert "[ev-support]" in answer
     assert "[ev-qualifier]" in answer
     assert verify_synthesis(answer, _report()).is_clean is True
+
+
+def test_non_timeout_model_failure_remains_explicit() -> None:
+    llm = _FakeLLM(error="Could not reach Ollama.")
+
+    with pytest.raises(LocalLLMError, match="Could not reach Ollama"):
+        synthesize_answer(_report(), llm)
