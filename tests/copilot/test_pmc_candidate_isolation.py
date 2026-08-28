@@ -10,6 +10,7 @@ from knowledge_engine_ai.copilot.grounded_completion import (
     GroundedCompletionPolicy,
     complete_discovered_research,
 )
+from knowledge_engine_ai.execution import ExecutionBudget
 from knowledge_engine_ai.ke_client import (
     GeneralQuestionAcquisitionIdentity,
     GeneralQuestionAcquisitionItem,
@@ -131,7 +132,7 @@ def test_one_invalid_pmc_candidate_does_not_discard_valid_neighbors(
         request = json.loads(Path(command[2]).read_text(encoding="utf-8"))
         requests.append(request)
         budget = kwargs["execution_budget"]
-        assert isinstance(budget, module.ExecutionBudget)
+        assert isinstance(budget, ExecutionBudget)
         route_deadlines.append(budget.deadline_monotonic)
         candidate_id = str(request["candidate_ids"][0])
         if candidate_id == "pmc-bad":
