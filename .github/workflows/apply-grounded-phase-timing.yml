@@ -1,0 +1,156 @@
+name: Apply grounded phase timing patch
+
+on:
+  push:
+    branches:
+      - agent/grounded-phase-timing
+    paths:
+      - .github/workflows/apply-grounded-phase-timing.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: agent/grounded-phase-timing
+
+      - name: Apply grounded phase timing instrumentation
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: Path, old: str, new: str) -> None:
+              text = path.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one match, found {count}: {old[:80]!r}")
+              path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          grounded = Path("knowledge_engine_ai/copilot/grounded_completion.py")
+
+          replace_once(
+              grounded,
+              '''    extraction_error: str | None = None\n    reretrieval_report: EvidenceReport | None = None\n    reretrieval_error: str | None = None\n    skipped_reason: str | None = None\n''',
+              '''    extraction_error: str | None = None\n    reretrieval_report: EvidenceReport | None = None\n    reretrieval_error: str | None = None\n    acquisition_duration_ms: int | None = None\n    extraction_duration_ms: int | None = None\n    reretrieval_duration_ms: int | None = None\n    skipped_reason: str | None = None\n''',
+          )
+          replace_once(
+              grounded,
+              '''            "extraction_error": self.extraction_error,\n            "reretrieval_error": self.reretrieval_error,\n            "completed_with_new_evidence": self.completed_with_new_evidence,\n''',
+              '''            "extraction_error": self.extraction_error,\n            "reretrieval_error": self.reretrieval_error,\n            "acquisition_duration_ms": self.acquisition_duration_ms,\n            "extraction_duration_ms": self.extraction_duration_ms,\n            "reretrieval_duration_ms": self.reretrieval_duration_ms,\n            "completed_with_new_evidence": self.completed_with_new_evidence,\n''',
+          )
+          replace_once(
+              grounded,
+              '''    already_indexed = _already_indexed_paper_ids(plan)\n    route_results: list[AcquisitionRouteResult] = []\n''',
+              '''    acquisition_start = time.monotonic()\n    already_indexed = _already_indexed_paper_ids(plan)\n    route_results: list[AcquisitionRouteResult] = []\n''',
+          )
+          replace_once(
+              grounded,
+              '''        for result in results:\n            acquired_paper_ids.extend(result.paper_ids)\n\n    paper_ids = tuple(dict.fromkeys((*already_indexed, *acquired_paper_ids)))\n''',
+              '''        for result in results:\n            acquired_paper_ids.extend(result.paper_ids)\n\n    acquisition_duration_ms = _elapsed_ms(acquisition_start)\n    paper_ids = tuple(dict.fromkeys((*already_indexed, *acquired_paper_ids)))\n''',
+          )
+          replace_once(
+              grounded,
+              '''            research_question_id=plan.research_question_id,\n            acquisition_routes=tuple(route_results),\n            skipped_reason="no persisted or reusable paper was available for grounded extraction",\n''',
+              '''            research_question_id=plan.research_question_id,\n            acquisition_routes=tuple(route_results),\n            acquisition_duration_ms=acquisition_duration_ms,\n            skipped_reason="no persisted or reusable paper was available for grounded extraction",\n''',
+          )
+          replace_once(
+              grounded,
+              '''    try:\n        extraction = _extract_ground_promote(\n''',
+              '''    extraction_start = time.monotonic()\n    try:\n        extraction = _extract_ground_promote(\n''',
+          )
+          replace_once(
+              grounded,
+              '''            paper_ids=paper_ids,\n            extraction_error=str(exc),\n        )\n\n    reretrieval: EvidenceReport | None = None\n''',
+              '''            paper_ids=paper_ids,\n            acquisition_duration_ms=acquisition_duration_ms,\n            extraction_duration_ms=_elapsed_ms(extraction_start),\n            extraction_error=str(exc),\n        )\n\n    extraction_duration_ms = _elapsed_ms(extraction_start)\n    reretrieval: EvidenceReport | None = None\n''',
+          )
+          replace_once(
+              grounded,
+              '''    reretrieval: EvidenceReport | None = None\n    reretrieval_error: str | None = None\n    if extraction.promoted_record_ids:\n        try:\n''',
+              '''    reretrieval: EvidenceReport | None = None\n    reretrieval_error: str | None = None\n    reretrieval_duration_ms: int | None = None\n    if extraction.promoted_record_ids:\n        reretrieval_start = time.monotonic()\n        try:\n''',
+          )
+          replace_once(
+              grounded,
+              '''        except KeCommandError as exc:\n            reretrieval_error = str(exc)\n\n    return GroundedCompletionResult(\n''',
+              '''        except KeCommandError as exc:\n            reretrieval_error = str(exc)\n        reretrieval_duration_ms = _elapsed_ms(reretrieval_start)\n\n    return GroundedCompletionResult(\n''',
+          )
+          replace_once(
+              grounded,
+              '''        reretrieval_report=reretrieval,\n        reretrieval_error=reretrieval_error,\n        skipped_reason=(\n''',
+              '''        reretrieval_report=reretrieval,\n        reretrieval_error=reretrieval_error,\n        acquisition_duration_ms=acquisition_duration_ms,\n        extraction_duration_ms=extraction_duration_ms,\n        reretrieval_duration_ms=reretrieval_duration_ms,\n        skipped_reason=(\n''',
+          )
+
+          grounded_text = grounded.read_text(encoding="utf-8")
+          if "def _elapsed_ms(start: float) -> int:" not in grounded_text:
+              grounded_text += '''\n\ndef _elapsed_ms(start: float) -> int:\n    return round((time.monotonic() - start) * 1000)\n'''
+              grounded.write_text(grounded_text, encoding="utf-8")
+
+          run_question = Path("knowledge_engine_ai/copilot/run_research_question.py")
+          replace_once(
+              run_question,
+              '''        validation_status=acquisition_status,\n        notes=acquisition_notes,\n    )\n''',
+              '''        validation_status=acquisition_status,\n        notes=acquisition_notes,\n        duration_ms=result.acquisition_duration_ms,\n    )\n''',
+          )
+          replace_once(
+              run_question,
+              '''        validation_status=extraction_status,\n        notes=extraction_notes,\n    )\n''',
+              '''        validation_status=extraction_status,\n        notes=extraction_notes,\n        duration_ms=result.extraction_duration_ms,\n    )\n''',
+          )
+          replace_once(
+              run_question,
+              '''        source_ids=source_ids,\n        source_dois=source_dois,\n    )\n''',
+              '''        source_ids=source_ids,\n        source_dois=source_dois,\n        duration_ms=result.reretrieval_duration_ms,\n    )\n''',
+          )
+          replace_once(
+              run_question,
+              '''    source_ids: tuple[str, ...] = (),\n    source_dois: tuple[str, ...] = (),\n) -> None:\n''',
+              '''    source_ids: tuple[str, ...] = (),\n    source_dois: tuple[str, ...] = (),\n    duration_ms: int | None = None,\n) -> None:\n''',
+          )
+          replace_once(
+              run_question,
+              '''            source_dois=source_dois,\n            notes=notes,\n        )\n''',
+              '''            source_dois=source_dois,\n            notes=notes,\n            duration_ms=duration_ms,\n        )\n''',
+          )
+
+          close_gate = Path("knowledge_engine_ai/orchestrator/close_gate.py")
+          replace_once(close_gate, "import uuid\n", "import time\nimport uuid\n")
+          replace_once(
+              close_gate,
+              '''    session = session_repository.get_session(session_id)\n''',
+              '''    started = time.monotonic()\n    session = session_repository.get_session(session_id)\n''',
+          )
+          replace_once(
+              close_gate,
+              '''            notes=(\n                "All required Research ISA criteria passed."\n                if validation.complete\n                else "Unresolved required criteria: "\n                + ", ".join(validation.unresolved_required_criteria)\n            ),\n        )\n''',
+              '''            notes=(\n                "All required Research ISA criteria passed."\n                if validation.complete\n                else "Unresolved required criteria: "\n                + ", ".join(validation.unresolved_required_criteria)\n            ),\n            duration_ms=round((time.monotonic() - started) * 1000),\n        )\n''',
+          )
+
+          close_test = Path("tests/test_isa_session_close_gate.py")
+          replace_once(
+              close_test,
+              '''    assert repository.list_events("session-isa-1")[-1].validation_status == "passed"\n''',
+              '''    close_event = repository.list_events("session-isa-1")[-1]\n    assert close_event.validation_status == "passed"\n    assert close_event.duration_ms is not None\n    assert close_event.duration_ms >= 0\n''',
+          )
+
+          timing_test = Path("tests/copilot/test_grounded_phase_timing.py")
+          timing_test.write_text(
+              '''from __future__ import annotations\n\nfrom knowledge_engine_ai.copilot.grounded_completion import GroundedCompletionResult\nfrom knowledge_engine_ai.copilot.run_research_question import _record_grounded_completion_events\nfrom knowledge_engine_ai.sessions.models import ResearchSession, SessionStatus\nfrom knowledge_engine_ai.sessions.repository import SessionRepository, new_connection\n\n\ndef test_grounded_completion_durations_are_persisted_on_session_events() -> None:\n    repository = SessionRepository(new_connection(":memory:"))\n    repository.create_session(\n        ResearchSession(\n            schema_version=1,\n            session_id="session-timing",\n            created_at="2026-08-28T00:00:00Z",\n            updated_at="2026-08-28T00:00:00Z",\n            user_question_original="Does music improve endurance?",\n            status=SessionStatus.RUNNING,\n        )\n    )\n    result = GroundedCompletionResult(\n        attempted=True,\n        search_run_id="search-1",\n        research_question_id="rq-1",\n        acquisition_duration_ms=1200,\n        extraction_duration_ms=3400,\n        reretrieval_duration_ms=5600,\n    )\n\n    _record_grounded_completion_events(repository, session_id="session-timing", result=result)\n\n    events = repository.list_events("session-timing")\n    assert [event.workflow_node for event in events] == [\n        "grounded_acquisition",\n        "grounded_extraction",\n        "grounded_reretrieval",\n    ]\n    assert [event.duration_ms for event in events] == [1200, 3400, 5600]\n\n\ndef test_grounded_completion_to_dict_exposes_phase_timings() -> None:\n    result = GroundedCompletionResult(\n        attempted=True,\n        search_run_id="search-1",\n        research_question_id="rq-1",\n        acquisition_duration_ms=12,\n        extraction_duration_ms=34,\n        reretrieval_duration_ms=56,\n    )\n\n    payload = result.to_dict()\n\n    assert payload["acquisition_duration_ms"] == 12\n    assert payload["extraction_duration_ms"] == 34\n    assert payload["reretrieval_duration_ms"] == 56\n''',
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Commit timing instrumentation
+        run: |
+          git rm .github/workflows/apply-grounded-phase-timing.yml
+          git add knowledge_engine_ai/copilot/grounded_completion.py \
+                  knowledge_engine_ai/copilot/run_research_question.py \
+                  knowledge_engine_ai/orchestrator/close_gate.py \
+                  tests/test_isa_session_close_gate.py \
+                  tests/copilot/test_grounded_phase_timing.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Measure grounded completion phase timings"
+          git push origin HEAD:agent/grounded-phase-timing
