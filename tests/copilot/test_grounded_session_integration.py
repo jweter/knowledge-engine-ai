@@ -280,7 +280,9 @@ def test_grounded_extraction_failure_is_durable_and_blocks_session_close(
     )
 
     events = repository.list_events(result.session_id)
-    extraction_event = next(event for event in events if event.workflow_node == "grounded_extraction")
+    extraction_event = next(
+        event for event in events if event.workflow_node == "grounded_extraction"
+    )
     assert extraction_event.validation_status == "failed"
     assert extraction_event.notes == "Grounded extraction failed: grounded extraction failed"
     assert "grounded_extraction" in [event.workflow_node for event in result.trace.failed_events]
