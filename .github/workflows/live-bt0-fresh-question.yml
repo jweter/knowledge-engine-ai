@@ -135,9 +135,35 @@ jobs:
             --providers pubmed,semantic_scholar \
             --repeats 2 \
             --timeout-seconds 240 \
-            --scenario-id fresh-music-endurance-zero-yield-broadening \
+            --scenario-id fresh-music-endurance-acquisition-diagnostics \
             --output "${RUNNER_TEMP}/bt0/benchmark.json" \
             2>&1 | tee "${RUNNER_TEMP}/bt0/benchmark.log"
+
+      - name: Print durable research event diagnostics
+        if: always()
+        run: |
+          python - <<'PY' | tee "${RUNNER_TEMP}/bt0/event-diagnostics.log"
+          import os
+          import sqlite3
+          from pathlib import Path
+
+          db_path = Path(os.environ["RUNNER_TEMP"]) / "bt0" / "sessions.sqlite3"
+          if not db_path.exists():
+              print("SESSION_DB_MISSING")
+              raise SystemExit(0)
+
+          connection = sqlite3.connect(db_path)
+          rows = connection.execute(
+              """
+              SELECT session_id, sequence_number, workflow_node,
+                     validation_status, tool_name, notes
+              FROM research_events
+              ORDER BY session_id, sequence_number
+              """
+          ).fetchall()
+          for row in rows:
+              print(" | ".join("" if value is None else str(value) for value in row))
+          PY
 
       - name: Print benchmark result
         if: always()
@@ -153,11 +179,13 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: bt0-fresh-music-endurance-zero-yield-broadening
+          name: bt0-fresh-music-endurance-acquisition-diagnostics
           path: |
             ${{ runner.temp }}/bt0/core-empty-report.json
             ${{ runner.temp }}/bt0/retrieval-diagnostics.log
             ${{ runner.temp }}/bt0/benchmark.json
             ${{ runner.temp }}/bt0/benchmark.log
+            ${{ runner.temp }}/bt0/event-diagnostics.log
+            ${{ runner.temp }}/bt0/sessions.sqlite3
             ${{ runner.temp }}/bt0/ollama-tail.log
           if-no-files-found: warn
