@@ -171,7 +171,9 @@ def test_grounded_reretrieval_used_for_releaseable_answer_is_researched_answer()
     assert state.promoted_evidence_record_count == 1
 
 
-def test_releaseable_researched_answer_with_degraded_provider_coverage_is_provider_degraded() -> None:
+def test_releaseable_researched_answer_with_degraded_provider_coverage_is_provider_degraded() -> (
+    None
+):
     completion = GroundedCompletionResult(
         attempted=True,
         search_run_id="run-1",
