@@ -36,6 +36,7 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             knowledge_engine
+            README.md
             pyproject.toml
             poetry.lock
             data/corpora/glp1_weight_loss/sources.csv
