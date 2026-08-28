@@ -125,7 +125,9 @@ class SessionBottleneckReport:
             "adjusted_known_duration_ms": self.adjusted_known_duration_ms,
             "parallel_overlap_adjustment_ms": self.parallel_overlap_adjustment_ms,
             "slowest_stage": self.slowest_stage.value if self.slowest_stage is not None else None,
-            "slowest_event": self.slowest_event.to_dict() if self.slowest_event is not None else None,
+            "slowest_event": self.slowest_event.to_dict()
+            if self.slowest_event is not None
+            else None,
             "failed_event_ids": list(self.failed_event_ids),
             "untimed_event_ids": list(self.untimed_event_ids),
             "stages": [stage.to_dict() for stage in self.stages],
@@ -178,15 +180,26 @@ def classify_workflow_node(workflow_node: str) -> ResearchPipelineStage:
         return ResearchPipelineStage.RERETRIEVAL
     if any(token in normalized for token in ("adequacy", "coverage_gap", "sufficiency")):
         return ResearchPipelineStage.ADEQUACY
-    if any(token in normalized for token in ("federated", "discovery", "snowball", "provider_search")):
+    if any(
+        token in normalized for token in ("federated", "discovery", "snowball", "provider_search")
+    ):
         return ResearchPipelineStage.DISCOVERY
     if any(token in normalized for token in ("acquisition", "acquire", "full_text")):
         return ResearchPipelineStage.ACQUISITION
-    if any(token in normalized for token in ("extract", "grounding", "promotion", "promote", "parse_paper")):
+    if any(
+        token in normalized
+        for token in ("extract", "grounding", "promotion", "promote", "parse_paper")
+    ):
         return ResearchPipelineStage.EXTRACTION_PROMOTION
-    if any(token in normalized for token in ("synthesis", "verification", "verify", "evidence_map", "statistical")):
+    if any(
+        token in normalized
+        for token in ("synthesis", "verification", "verify", "evidence_map", "statistical")
+    ):
         return ResearchPipelineStage.SYNTHESIS_VERIFICATION
-    if any(token in normalized for token in ("session_report", "report", "close_gate", "session_close", "isa_close")):
+    if any(
+        token in normalized
+        for token in ("session_report", "report", "close_gate", "session_close", "isa_close")
+    ):
         return ResearchPipelineStage.REPORT_CLOSE
     if "retrieval" in normalized or "retrieve" in normalized:
         return ResearchPipelineStage.INDEXED_RETRIEVAL
@@ -208,11 +221,13 @@ def build_session_bottleneck_report(trace: SessionTrace) -> SessionBottleneckRep
             continue
         stage_timings.append(_build_stage_timing(stage, tuple(stage_events)))
 
-    known_stage_timings = [
-        stage for stage in stage_timings if stage.known_duration_ms is not None
-    ]
+    known_stage_timings = [stage for stage in stage_timings if stage.known_duration_ms is not None]
     adjusted_known_duration_ms = (
-        sum(stage.known_duration_ms for stage in known_stage_timings if stage.known_duration_ms is not None)
+        sum(
+            stage.known_duration_ms
+            for stage in known_stage_timings
+            if stage.known_duration_ms is not None
+        )
         if known_stage_timings
         else None
     )
@@ -237,7 +252,9 @@ def build_session_bottleneck_report(trace: SessionTrace) -> SessionBottleneckRep
     timed_events = tuple(event for event in trace.events if event.duration_ms is not None)
     slowest_event = None
     if timed_events:
-        event = max(timed_events, key=lambda item: item.duration_ms if item.duration_ms is not None else -1)
+        event = max(
+            timed_events, key=lambda item: item.duration_ms if item.duration_ms is not None else -1
+        )
         assert event.duration_ms is not None  # narrowed by timed_events
         slowest_event = SlowestEvent(
             event_id=event.event_id,
@@ -258,7 +275,9 @@ def build_session_bottleneck_report(trace: SessionTrace) -> SessionBottleneckRep
         slowest_stage=slowest_stage,
         slowest_event=slowest_event,
         failed_event_ids=tuple(event.event_id for event in trace.events if not event.succeeded),
-        untimed_event_ids=tuple(event.event_id for event in trace.events if event.duration_ms is None),
+        untimed_event_ids=tuple(
+            event.event_id for event in trace.events if event.duration_ms is None
+        ),
     )
 
 
