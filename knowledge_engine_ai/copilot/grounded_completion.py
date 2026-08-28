@@ -140,6 +140,9 @@ class GroundedCompletionResult:
     extraction_error: str | None = None
     reretrieval_report: EvidenceReport | None = None
     reretrieval_error: str | None = None
+    acquisition_duration_ms: int | None = None
+    extraction_duration_ms: int | None = None
+    reretrieval_duration_ms: int | None = None
     skipped_reason: str | None = None
 
     @property
@@ -162,6 +165,9 @@ class GroundedCompletionResult:
             "grounding_failures": list(self.grounding_failures),
             "extraction_error": self.extraction_error,
             "reretrieval_error": self.reretrieval_error,
+            "acquisition_duration_ms": self.acquisition_duration_ms,
+            "extraction_duration_ms": self.extraction_duration_ms,
+            "reretrieval_duration_ms": self.reretrieval_duration_ms,
             "completed_with_new_evidence": self.completed_with_new_evidence,
             "skipped_reason": self.skipped_reason,
         }
@@ -214,6 +220,7 @@ def complete_discovered_research(
             ),
         )
 
+    acquisition_start = time.monotonic()
     already_indexed = _already_indexed_paper_ids(plan)
     route_results: list[AcquisitionRouteResult] = []
     acquired_paper_ids: list[int] = []
@@ -230,6 +237,7 @@ def complete_discovered_research(
         for result in results:
             acquired_paper_ids.extend(result.paper_ids)
 
+    acquisition_duration_ms = _elapsed_ms(acquisition_start)
     paper_ids = tuple(dict.fromkeys((*already_indexed, *acquired_paper_ids)))
     if not paper_ids:
         return GroundedCompletionResult(
@@ -237,9 +245,11 @@ def complete_discovered_research(
             search_run_id=plan.search_run_id,
             research_question_id=plan.research_question_id,
             acquisition_routes=tuple(route_results),
+            acquisition_duration_ms=acquisition_duration_ms,
             skipped_reason="no persisted or reusable paper was available for grounded extraction",
         )
 
+    extraction_start = time.monotonic()
     try:
         extraction = _extract_ground_promote(
             paper_ids,
@@ -256,12 +266,17 @@ def complete_discovered_research(
             already_indexed_paper_ids=already_indexed,
             acquisition_routes=tuple(route_results),
             paper_ids=paper_ids,
+            acquisition_duration_ms=acquisition_duration_ms,
+            extraction_duration_ms=_elapsed_ms(extraction_start),
             extraction_error=str(exc),
         )
 
+    extraction_duration_ms = _elapsed_ms(extraction_start)
     reretrieval: EvidenceReport | None = None
     reretrieval_error: str | None = None
+    reretrieval_duration_ms: int | None = None
     if extraction.promoted_record_ids:
+        reretrieval_start = time.monotonic()
         try:
             reretrieval = evidence_report(
                 question,
@@ -274,6 +289,7 @@ def complete_discovered_research(
             )
         except KeCommandError as exc:
             reretrieval_error = str(exc)
+        reretrieval_duration_ms = _elapsed_ms(reretrieval_start)
 
     return GroundedCompletionResult(
         attempted=True,
@@ -290,6 +306,9 @@ def complete_discovered_research(
         grounding_failures=extraction.grounding_failures,
         reretrieval_report=reretrieval,
         reretrieval_error=reretrieval_error,
+        acquisition_duration_ms=acquisition_duration_ms,
+        extraction_duration_ms=extraction_duration_ms,
+        reretrieval_duration_ms=reretrieval_duration_ms,
         skipped_reason=(
             "no automatically classified record passed grounded review"
             if not extraction.promoted_record_ids
@@ -749,3 +768,7 @@ __all__ = [
     "GroundedCompletionResult",
     "complete_discovered_research",
 ]
+
+
+def _elapsed_ms(start: float) -> int:
+    return round((time.monotonic() - start) * 1000)
