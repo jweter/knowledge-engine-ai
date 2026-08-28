@@ -339,6 +339,7 @@ def test_missed_qualifying_evidence_is_appended_before_session_close(
     assert result.close_result.status is SessionStatus.COMPLETED
     assert result.narrative_releaseable is True
 
+
 def test_session_id_is_generated_and_events_are_durable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
