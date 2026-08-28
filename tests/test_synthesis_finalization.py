@@ -1,3 +1,5 @@
+"""Regression coverage for release-safe synthesis finalization."""
+
 from __future__ import annotations
 
 from knowledge_engine_ai.llm import LocalLLMTimeoutError
