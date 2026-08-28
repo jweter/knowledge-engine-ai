@@ -27,6 +27,7 @@ _SYSTEM_INSTRUCTIONS = (
     "without those qualification boundaries."
 )
 _CITATION_TOKEN_RE = re.compile(r"\[[A-Za-z0-9_\-]+\]")
+_TIMEOUT_ERROR_FRAGMENT = "did not respond within"
 
 
 def build_synthesis_prompt(report: EvidenceReport) -> str:
@@ -61,12 +62,13 @@ def synthesize_answer(
 ) -> str | None:
     """Return grounded model prose or a deterministic evidence-only fallback.
 
-    A local-model execution failure, timeout, or completely uncited response cannot
-    consume the whole answer: the already-grounded EvidenceRecords are rendered into
-    a deterministic citation-complete summary. If the model emits any citation token,
-    however, its output is returned unchanged so the independent verifier can still
-    detect hallucinated citations and missed qualifiers. The fallback never repairs or
-    masks a cited model answer before verification.
+    A model timeout caused by the shared execution budget, or a completely uncited
+    response, cannot consume the whole answer: already-grounded EvidenceRecords are
+    rendered into a deterministic citation-complete summary. Other model failures are
+    re-raised unchanged so missing models, connectivity failures, and malformed model
+    responses remain explicit operational failures. If the model emits any citation
+    token, its output is returned unchanged so the independent verifier can still
+    detect hallucinated citations and missed qualifiers.
     """
 
     if not _evidence_blocks(report.papers):
@@ -75,7 +77,9 @@ def synthesize_answer(
     prompt = build_synthesis_prompt(report)
     try:
         narrative = llm.generate(prompt, max_tokens=max_tokens, timeout_seconds=timeout_seconds)
-    except LocalLLMError:
+    except LocalLLMError as exc:
+        if _TIMEOUT_ERROR_FRAGMENT not in str(exc):
+            raise
         return build_deterministic_evidence_summary(report)
 
     if not _CITATION_TOKEN_RE.search(narrative):
