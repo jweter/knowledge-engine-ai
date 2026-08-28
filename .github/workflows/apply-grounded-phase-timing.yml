@@ -106,8 +106,8 @@ jobs:
           )
           replace_once(
               run_question,
-              '''    source_ids: tuple[str, ...] = (),\n    source_dois: tuple[str, ...] = (),\n) -> None:\n''',
-              '''    source_ids: tuple[str, ...] = (),\n    source_dois: tuple[str, ...] = (),\n    duration_ms: int | None = None,\n) -> None:\n''',
+              '''def _record_grounded_event(\n    session_repository: SessionRepository,\n    *,\n    session_id: str,\n    workflow_node: str,\n    tool_name: str,\n    validation_status: str,\n    notes: str,\n    output_schema_version: int | None = None,\n    source_ids: tuple[str, ...] = (),\n    source_dois: tuple[str, ...] = (),\n) -> None:\n''',
+              '''def _record_grounded_event(\n    session_repository: SessionRepository,\n    *,\n    session_id: str,\n    workflow_node: str,\n    tool_name: str,\n    validation_status: str,\n    notes: str,\n    output_schema_version: int | None = None,\n    source_ids: tuple[str, ...] = (),\n    source_dois: tuple[str, ...] = (),\n    duration_ms: int | None = None,\n) -> None:\n''',
           )
           replace_once(
               run_question,
