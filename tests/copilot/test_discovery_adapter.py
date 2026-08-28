@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -13,6 +12,7 @@ from knowledge_engine_ai.copilot.discovery_adapter import (
 from knowledge_engine_ai.general_query_plan import (
     ConceptGroup,
     EvidenceScope,
+    GeneralQueryPlan,
     SearchTrack,
     compile_general_query_plan,
 )
@@ -23,7 +23,7 @@ from knowledge_engine_ai.ke_client import (
 )
 
 
-def _plan() -> Any:
+def _plan() -> GeneralQueryPlan:
     return compile_general_query_plan(
         "Do energy drinks affect blood pressure?",
         concepts=(
@@ -123,12 +123,15 @@ def test_adapter_executes_bounded_variants_and_preserves_provenance(tmp_path: Pa
         assert call["project_id"] == "project-1"
         assert call["research_question_id"] == "rq-1"
 
-    payload = result.to_dict()
-    first_run = payload["runs"][0]  # type: ignore[index]
-    assert first_run["track_id"] == "direct"  # type: ignore[index]
-    assert first_run["scope"] == "direct"  # type: ignore[index]
-    assert first_run["search_run_id"] == "search-run-1"  # type: ignore[index]
-    assert first_run["provider_outcomes"][0]["provider"] == "pubmed"  # type: ignore[index]
+    assert result.runs[0].track_id == "direct"
+    assert result.runs[0].scope is EvidenceScope.DIRECT
+    assert result.runs[0].result.search_run_id == "search-run-1"
+    assert result.runs[0].result.provider_statuses[0].provider == "pubmed"
+    assert result.to_dict()["search_run_ids"] == [
+        "search-run-1",
+        "search-run-2",
+        "search-run-3",
+    ]
 
 
 def test_adapter_refuses_budget_that_would_starve_a_search_track(tmp_path: Path) -> None:
