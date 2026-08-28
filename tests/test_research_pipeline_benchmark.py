@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -97,10 +98,20 @@ def _report() -> EvidenceReport:
     )
 
 
-def _workflow(*, indexed_ids: tuple[str, ...]) -> WorkflowResult:
-    primary = RetrievalBranchResult(query=QUESTION, report=None, error=None)
+def _workflow(
+    *,
+    indexed_ids: tuple[str, ...],
+    primary_cache_hit: bool = False,
+    contradiction_cache_hit: bool = False,
+) -> WorkflowResult:
+    primary = RetrievalBranchResult(
+        query=QUESTION, report=None, error=None, cache_hit=primary_cache_hit
+    )
     contradiction = RetrievalBranchResult(
-        query=f"{QUESTION} contradiction", report=None, error=None
+        query=f"{QUESTION} contradiction",
+        report=None,
+        error=None,
+        cache_hit=contradiction_cache_hit,
     )
     parallel = ParallelRetrievalResult(
         question=QUESTION,
@@ -354,6 +365,30 @@ def test_repeat_suite_reports_speedup_and_reuse() -> None:
     assert suite.warm_run_reuse_observed is True
     assert suite.runs[1].funnel.reuse_hit is True
     assert suite.to_dict()["run_count"] == 2
+
+
+def test_benchmark_reports_per_branch_indexed_retrieval_cache_hits() -> None:
+    result = _result()
+    cached_result = dataclasses.replace(
+        result,
+        workflow=_workflow(
+            indexed_ids=(),
+            primary_cache_hit=True,
+            contradiction_cache_hit=True,
+        ),
+    )
+
+    run = build_research_benchmark_run(
+        cached_result,
+        scenario_id="fresh-music-endurance",
+        run_number=2,
+        run_temperature="warm",
+        wall_clock_duration_ms=1200,
+    )
+
+    assert run.funnel.primary_indexed_retrieval_cache_hit is True
+    assert run.funnel.contradiction_indexed_retrieval_cache_hit is True
+    assert run.funnel.reuse_hit is True
 
 
 def test_unknown_or_untimed_grounded_stage_keeps_first_information_time_unknown() -> None:

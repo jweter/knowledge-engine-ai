@@ -165,6 +165,7 @@ def run_fixed_evidence_workflow(
             output_hash=_retrieval_output_hash(report) if report is not None else None,
             output_schema_version=report.schema_version if report is not None else None,
             error=parallel_result.primary.error,
+            notes=_cache_hit_note(parallel_result.primary.cache_hit),
             duration_ms=retrieval_duration_ms,
             source_ids=_evidence_record_ids(report) if report is not None else (),
             source_dois=_evidence_record_dois(report) if report is not None else (),
@@ -191,6 +192,7 @@ def run_fixed_evidence_workflow(
                 contradiction_report.schema_version if contradiction_report is not None else None
             ),
             error=parallel_result.contradiction.error,
+            notes=_cache_hit_note(parallel_result.contradiction.cache_hit),
             duration_ms=retrieval_duration_ms,
             source_ids=(
                 _evidence_record_ids(contradiction_report)
@@ -359,6 +361,20 @@ def _elapsed_ms(start: float) -> int:
     return round((time.monotonic() - start) * 1000)
 
 
+def _cache_hit_note(cache_hit: bool) -> str:
+    """A short, greppable `ResearchEvent.notes` value for a retrieval branch's cache status.
+
+    BT-5a: this is how a successful indexed-retrieval branch's cache
+    reuse becomes workflow-level observability -- `_record_step` below
+    only keeps this when the branch actually succeeded (an `error`
+    always wins), matching AI-O2's existing "notes carries the one
+    diagnostic string worth keeping" precedent rather than adding a new
+    dedicated field to `ResearchEvent`.
+    """
+
+    return f"retrieval_cache_hit={str(cache_hit).lower()}"
+
+
 def _record_step(
     session_repository: SessionRepository,
     *,
@@ -369,6 +385,7 @@ def _record_step(
     output_hash: str | None,
     output_schema_version: int | None,
     error: str | None,
+    notes: str | None = None,
     duration_ms: int | None = None,
     source_ids: tuple[str, ...] = (),
     source_dois: tuple[str, ...] = (),
@@ -383,7 +400,7 @@ def _record_step(
         output_schema_version=output_schema_version,
         output_hash=output_hash,
         tool_name=tool_name,
-        notes=error,
+        notes=error if error is not None else notes,
         duration_ms=duration_ms,
         source_ids=source_ids,
         source_dois=source_dois,

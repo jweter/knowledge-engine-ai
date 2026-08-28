@@ -89,6 +89,8 @@ class ResearchConversionFunnel:
     promoted_evidence_record_count: int
     grounding_failure_count: int
     reretrieval_attempt_count: int
+    primary_indexed_retrieval_cache_hit: bool
+    contradiction_indexed_retrieval_cache_hit: bool
     reuse_hit: bool
 
     def to_dict(self) -> dict[str, object]:
@@ -114,6 +116,10 @@ class ResearchConversionFunnel:
             "promoted_evidence_record_count": self.promoted_evidence_record_count,
             "grounding_failure_count": self.grounding_failure_count,
             "reretrieval_attempt_count": self.reretrieval_attempt_count,
+            "primary_indexed_retrieval_cache_hit": self.primary_indexed_retrieval_cache_hit,
+            "contradiction_indexed_retrieval_cache_hit": (
+                self.contradiction_indexed_retrieval_cache_hit
+            ),
             "reuse_hit": self.reuse_hit,
         }
 
@@ -307,6 +313,14 @@ def _build_conversion_funnel(
     plan_items = plan.items if plan is not None else ()
     dispositions = Counter(item.disposition for item in plan_items)
 
+    parallel_retrieval = result.workflow.parallel_retrieval
+    primary_cache_hit = (
+        parallel_retrieval.primary.cache_hit if parallel_retrieval is not None else False
+    )
+    contradiction_cache_hit = (
+        parallel_retrieval.contradiction.cache_hit if parallel_retrieval is not None else False
+    )
+
     completion = result.grounded_completion
     routes = completion.acquisition_routes if completion is not None else ()
     attempted_routes = tuple(route for route in routes if route.attempted)
@@ -353,7 +367,14 @@ def _build_conversion_funnel(
         ),
         grounding_failure_count=len(completion.grounding_failures) if completion is not None else 0,
         reretrieval_attempt_count=reretrieval_attempt_count,
-        reuse_hit=(reused_paper_count > 0 or dispositions.get("already_indexed", 0) > 0),
+        primary_indexed_retrieval_cache_hit=primary_cache_hit,
+        contradiction_indexed_retrieval_cache_hit=contradiction_cache_hit,
+        reuse_hit=(
+            reused_paper_count > 0
+            or dispositions.get("already_indexed", 0) > 0
+            or primary_cache_hit
+            or contradiction_cache_hit
+        ),
     )
 
 
