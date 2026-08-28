@@ -26,11 +26,11 @@ jobs:
           ref: agent/bt0-empty-json-acceptance
           path: ai
 
-      - name: Check out Core empty-retrieval fix
+      - name: Check out Core clean-JSON fix
         uses: actions/checkout@v7
         with:
           repository: jweter/knowledge-engine-core
-          ref: 314ff33a1189b3014e7e7241da1015f3b8df02ec
+          ref: 2b772151f7d245821fe4f10e08f18d70b3c19123
           path: core
           filter: blob:none
           sparse-checkout-cone-mode: false
@@ -90,12 +90,12 @@ jobs:
           from pathlib import Path
           path = Path(os.environ["RUNNER_TEMP"]) / "bt0" / "core-empty-report.json"
           payload = json.loads(path.read_text(encoding="utf-8"))
-          print("CORE_EMPTY_EXIT_OK=1")
-          print("CORE_EMPTY_PAPERS=", len(payload["papers"]))
-          print("CORE_EMPTY_SCHEMA=", payload["schema_version"])
+          assert payload["schema_version"] == 1
+          assert payload["papers"] == []
+          print("CORE_EMPTY_JSON_OK=1")
           PY
 
-      - name: Expose AI retrieval branch errors
+      - name: Verify AI retrieval branches
         working-directory: core
         run: |
           python - <<'PY' | tee "${RUNNER_TEMP}/bt0/retrieval-diagnostics.log"
@@ -115,6 +115,8 @@ jobs:
               print(f"{name}_ERROR={branch.error!r}")
               print(f"{name}_REPORT_PRESENT={branch.report is not None}")
               print(f"{name}_PAPERS={len(branch.report.papers) if branch.report is not None else 'NA'}")
+              assert branch.error is None
+              assert branch.report is not None
           PY
 
       - name: Run fresh question cold then warm
@@ -133,7 +135,7 @@ jobs:
             --providers pubmed,semantic_scholar \
             --repeats 2 \
             --timeout-seconds 240 \
-            --scenario-id fresh-music-endurance-empty-json-fix \
+            --scenario-id fresh-music-endurance-clean-json \
             --output "${RUNNER_TEMP}/bt0/benchmark.json" \
             2>&1 | tee "${RUNNER_TEMP}/bt0/benchmark.log"
 
@@ -151,7 +153,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: bt0-fresh-music-endurance-empty-json-fix
+          name: bt0-fresh-music-endurance-clean-json
           path: |
             ${{ runner.temp }}/bt0/core-empty-report.json
             ${{ runner.temp }}/bt0/retrieval-diagnostics.log
