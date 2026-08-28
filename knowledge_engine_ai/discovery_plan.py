@@ -197,7 +197,11 @@ def execute_discovery_plan(
         execution_budget=execution_budget,
     )
 
-    if research_question_id is None or result.candidates or not _can_repair_with_broader_query(result):
+    if (
+        research_question_id is None
+        or result.candidates
+        or not _can_repair_with_broader_query(result)
+    ):
         return result
 
     broadened_queries = compile_zero_yield_broadening_queries(
