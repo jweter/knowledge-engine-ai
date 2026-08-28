@@ -9,6 +9,21 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **BT-7: early stop on adequacy (issue #92).** `complete_discovered_research`
+  (GQR-4/GQR-5) now extracts/grounds/promotes already-indexed candidates
+  first, before any network acquisition. If that alone promotes at least
+  `GroundedCompletionPolicy.min_promoted_records_for_early_stop` (default `3`)
+  grounded EvidenceRecords, every configured acquisition route is skipped --
+  recorded as an explicit `AcquisitionRouteResult(attempted=False,
+  skipped_reason=...)`, never silently omitted -- and the bounded research
+  path proceeds straight to a single final re-retrieval. Otherwise acquisition
+  runs across every configured route exactly as before, with the newly
+  acquired papers extracted in one additional bounded batch merged with the
+  already-indexed batch's results. `GroundedCompletionResult` gained
+  `acquisition_skipped_for_adequacy`. All new fields default to preserve prior
+  behavior when indexed coverage alone is not adequate; no existing field was
+  renamed or removed. See `docs/roadmap/bt7_early_stop_on_adequacy.md`.
+
 - **Executable PMC persistence client (issue #69 Stage 4)**: `ke_client.general_question_acquire_pmc()` reaches Core's shipped, approval-gated `ke general-question-acquire-pmc` boundary with explicit papers/Core working directories and strictly parses Paper/ImportRun/ImportItem lineage. Acquisition-plan items now preserve Core's `acquisition_route`. It is not enabled on any existing session path; acquired Papers remain non-evidence until grounded extraction, validation, and re-retrieval.
 
 - **Acquisition-plan orchestration wiring (issue #69 Stage 4, second

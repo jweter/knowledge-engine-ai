@@ -242,7 +242,16 @@ actually cross the discovery-to-evidence boundary automatically.
 
 Only after BT-1/BT-2 provide evidence, compare before/after traces for caching,
 warming, persistent Core hosting, provider concurrency, acquisition batching, and
-search-run reuse.
+search-run reuse. BT-5a (indexed retrieval cache, `docs/roadmap/bt5a_indexed_retrieval_cache.md`)
+and the batched grounded-review perf slice (`docs/roadmap/bt5_batch_grounded_review.md`)
+are implemented.
+
+### BT-7 — early stop on adequacy
+
+`complete_discovered_research` now extracts/promotes already-indexed candidates
+first, before any network acquisition, and skips every configured acquisition
+route once that alone meets the adequacy threshold. See
+`docs/roadmap/bt7_early_stop_on_adequacy.md`.
 
 ### BT-6 — progressive Web report
 
