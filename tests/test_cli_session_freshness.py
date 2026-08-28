@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -29,12 +30,12 @@ def _unwrapped(output: str) -> str:
 
 def _coverage(
     search_run_id: str = "run-1",
-    created_at: str = "2026-08-21T00:00:00Z",
+    created_at: str | None = None,
     completeness: str = "complete",
 ) -> SearchCoverageReport:
     return SearchCoverageReport(
         search_run_id=search_run_id,
-        created_at=created_at,
+        created_at=created_at or datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         query_text="does semaglutide reduce body weight",
         year_from=None,
         year_to=None,
