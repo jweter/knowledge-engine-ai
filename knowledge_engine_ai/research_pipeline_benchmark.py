@@ -36,13 +36,26 @@ BENCHMARK_SCHEMA_VERSION = 1
 class BenchmarkResearchResult(Protocol):
     """Minimal completed research-result surface needed by the benchmark."""
 
-    session_id: str
-    question: str
-    workflow: WorkflowResult
-    discovery: DiscoveryAugmentationResult | None
-    grounded_completion: GroundedCompletionResult | None
-    close_result: SessionCloseResult
-    trace: SessionTrace
+    @property
+    def session_id(self) -> str: ...
+
+    @property
+    def question(self) -> str: ...
+
+    @property
+    def workflow(self) -> WorkflowResult: ...
+
+    @property
+    def discovery(self) -> DiscoveryAugmentationResult | None: ...
+
+    @property
+    def grounded_completion(self) -> GroundedCompletionResult | None: ...
+
+    @property
+    def close_result(self) -> SessionCloseResult: ...
+
+    @property
+    def trace(self) -> SessionTrace: ...
 
     @property
     def narrative_releaseable(self) -> bool: ...
