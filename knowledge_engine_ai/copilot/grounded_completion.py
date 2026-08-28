@@ -536,7 +536,9 @@ def _extract_ground_promote(
             execution_budget=execution_budget,
         )
         reviewed_records = _read_jsonl(staged_path)
-        ready_records = tuple(record for record in reviewed_records if _is_grounded_reviewed(record))
+        ready_records = tuple(
+            record for record in reviewed_records if _is_grounded_reviewed(record)
+        )
         grounded_ids = _record_ids(ready_records)
         if not ready_records:
             return _ExtractionResult(
@@ -625,9 +627,7 @@ def _write_jsonl(path: Path, records: tuple[dict[str, Any], ...]) -> None:
 
 def _record_ids(records: tuple[dict[str, Any], ...]) -> tuple[str, ...]:
     return tuple(
-        str(record["evidence_record_id"])
-        for record in records
-        if record.get("evidence_record_id")
+        str(record["evidence_record_id"]) for record in records if record.get("evidence_record_id")
     )
 
 
