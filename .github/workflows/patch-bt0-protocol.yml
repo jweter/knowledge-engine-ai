@@ -1,0 +1,80 @@
+name: Patch BT-0 protocol
+
+on:
+  push:
+    branches:
+      - agent/bt0-research-benchmark
+    paths:
+      - .github/workflows/patch-bt0-protocol.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: agent/bt0-research-benchmark
+      - name: Patch read-only protocol properties
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('knowledge_engine_ai/research_pipeline_benchmark.py')
+          text = path.read_text(encoding='utf-8')
+          old = '''    session_id: str
+              question: str
+              workflow: WorkflowResult
+              discovery: DiscoveryAugmentationResult | None
+              grounded_completion: GroundedCompletionResult | None
+              close_result: SessionCloseResult
+              trace: SessionTrace
+
+              @property
+              def narrative_releaseable(self) -> bool: ...
+
+              @property
+              def used_reretrieved_evidence(self) -> bool: ...
+          '''.replace('          ', '')
+          new = '''    @property
+              def session_id(self) -> str: ...
+
+              @property
+              def question(self) -> str: ...
+
+              @property
+              def workflow(self) -> WorkflowResult: ...
+
+              @property
+              def discovery(self) -> DiscoveryAugmentationResult | None: ...
+
+              @property
+              def grounded_completion(self) -> GroundedCompletionResult | None: ...
+
+              @property
+              def close_result(self) -> SessionCloseResult: ...
+
+              @property
+              def trace(self) -> SessionTrace: ...
+
+              @property
+              def narrative_releaseable(self) -> bool: ...
+
+              @property
+              def used_reretrieved_evidence(self) -> bool: ...
+          '''.replace('          ', '')
+          if old not in text:
+              raise SystemExit('protocol block not found')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+          python -m pip install ruff==0.16.4
+          ruff format knowledge_engine_ai/research_pipeline_benchmark.py
+      - name: Commit patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add knowledge_engine_ai/research_pipeline_benchmark.py
+          git commit -m "Fix BT-0 benchmark protocol typing"
+          git push origin HEAD:agent/bt0-research-benchmark
