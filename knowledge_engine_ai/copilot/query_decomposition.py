@@ -142,8 +142,8 @@ Rules:
   clinical population/intervention/comparator/outcome question.
 - Never force PICO onto chemistry, materials science, physics, astronomy,
   machine learning, or general biology.
-- Do not include provider names or source identifiers. Provider selection and
-  known seed sources are caller-owned.
+- Do not include provider names or source identifiers.
+- Provider selection and known seed sources are caller-owned.
 
 User question:
 {question}
