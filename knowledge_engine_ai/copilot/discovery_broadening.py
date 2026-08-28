@@ -178,9 +178,7 @@ def compile_zero_yield_broadening_queries(
     if not question.strip():
         raise ValueError("question must not be blank.")
     if not 0 <= max_queries <= MAX_ZERO_YIELD_BROADENING_QUERIES:
-        raise ValueError(
-            f"max_queries must be between 0 and {MAX_ZERO_YIELD_BROADENING_QUERIES}."
-        )
+        raise ValueError(f"max_queries must be between 0 and {MAX_ZERO_YIELD_BROADENING_QUERIES}.")
     if max_queries == 0:
         return ()
 
