@@ -1,6 +1,6 @@
 schema_version: 1
 project: knowledge-engine-ai
-updated_at: "2026-08-27T22:45:00Z"
+updated_at: "2026-08-27T23:32:05Z"
 status_source: "Verified repository state plus docs/roadmap/future_ai_orchestration_plan.md; this file is a continuity cache and never overrides higher-authority evidence."
 
 product:
@@ -34,7 +34,7 @@ automation_contract:
   advisory_review_unavailable_is_not_failure: true
 
 verified_repository_state:
-  checked_at: "2026-08-27T22:45:00Z"
+  checked_at: "2026-08-27T23:32:05Z"
   note: "Live PR/check/issue state is intentionally not cached as authoritative counts here. Scheduled runs must query GitHub directly before acting."
   open_prs: 0
   open_issues: "#69 (General Question Research Loop v1: arbitrary-question orchestration) and #79 (Golden research case: Monster Energy (2 cans/day) and 1-year blood pressure) are open as of this check."
@@ -51,10 +51,11 @@ secondary_track:
   action_2026_08_24: "Core CORE-GQR-3 and the PMC portion of CORE-GQR-4 are now merged upstream. Added GeneralQuestionAcquisitionItem.acquisition_route plus ke_client.general_question_acquire_pmc(), an explicit wrapper that strictly preserves Paper/ImportRun/ImportItem receipt lineage. It remains unwired: existing callers download nothing, and acquired Papers are not Evidence Records before grounded extraction, validation, and re-retrieval. Other route executors and CORE-GQR-5 remain future work."
   action_2026_08_25: "Implemented the dependency-safe GQR-1 AI research-state contract: stable ResearchState values, deterministic derivation from indexed retrieval/discovery/acquisition-plan/provider/close-gate facts, versioned JSON serialization, and regression coverage. Discovery candidates remain leads and a triggered weak-coverage session cannot be mislabeled indexed_answer. The synchronous pipeline reserves researching for the later durable asynchronous acquisition/extraction workflow rather than fabricating progress."
   action_2026_08_27: "Issue #79 now has the first deterministic GQR golden research-case scaffold in knowledge_engine_ai/research_case_benchmark.py. It keeps the existing reviewed-EvidenceRecord retrieval benchmark separate, encodes Zero Ultra vs Original exposures, acute/chronic/incident-hypertension/measurement dimensions, required search tracks, all issue-seeded PMIDs as discovery targets, explicit null/counter-evidence targets, scholarly-provider coverage, long-term evidence-gap disclosure, claim-linking and inference guards, plus focused tests and documentation. Discovery seeds remain non-evidence and no preferred scientific conclusion is encoded."
+  action_2026_08_27_gqr2: "Implemented the first deterministic GQR-2 query-plan compiler slice in knowledge_engine_ai/general_query_plan.py plus the issue #79 golden fixture in research_case_query_plan.py. The plan is versioned and inspectable, bounds concepts/synonyms/tracks/query counts and query length, preserves at least one canonical query per track before round-robin synonym expansion, supports explicit direct/class/indirect/guidance/counterevidence scopes, keeps PICO opt-in rather than forcing it on unrelated domains, and carries issue #79 answer dimensions plus PMID seed identities as non-evidence search artifacts."
 
 next_continuation:
   priority: "P5-highest-value-authorized-roadmap"
-  action: "Complete the issue #79 benchmark integration only from durable structured GQR artifacts: GQR-2 must be able to produce inspectable bounded query/search variants, and GQR-4/GQR-5 must provide grounded acquisition/extraction/promotion plus re-retrieval before newly found literature can become citable evidence or an end-to-end benchmark snapshot. Do not grade the benchmark by scraping narrative prose, and keep discovery candidates non-evidence."
+  action: "Finish GQR-2 by producing validated structured concept/synonym/search-track decompositions from arbitrary questions and map compiled query variants into bounded Core federated-discovery runs while preserving track identity, provider coverage, and cost ceilings. For issue #79, use the golden query plan as the regression fixture. Newly found literature still requires GQR-4/GQR-5 grounded extraction/promotion plus re-retrieval before it may affect synthesis."
   selection_rule: "Before beginning roadmap work, query live PR state. Handle failed, green, blocked, conflicted, or pending existing work according to docs/agent-development-policy.md and knowledge-engine-core's shared policy document."
 
 human_decision_required: null
