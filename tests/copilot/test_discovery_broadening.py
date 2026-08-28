@@ -31,13 +31,14 @@ def test_nonrepeating_question_uses_edge_concepts_without_question_scaffolding()
     assert all("does" not in query for query in queries)
 
 
-def test_repeated_inflectional_family_is_used_as_an_anchor() -> None:
+def test_repeated_inflectional_family_is_used_once_as_an_anchor() -> None:
     question = "Does exercise while exercising with music change musical endurance?"
 
     queries = compile_zero_yield_broadening_queries(question)
 
+    assert queries[0].split().count("exercise") == 1
+    assert "exercising" not in queries[0]
     assert queries[0].startswith("exercise")
-    assert "endurance" in queries[0]
 
 
 def test_max_queries_zero_disables_broadening() -> None:
