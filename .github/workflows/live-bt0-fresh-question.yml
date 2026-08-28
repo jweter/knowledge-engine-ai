@@ -20,17 +20,17 @@ jobs:
       KE_LLM_MODEL: qwen2.5:0.5b
       KE_OLLAMA_HOST: http://127.0.0.1:11434
     steps:
-      - name: Check out AI acceptance branch
+      - name: Check out AI zero-yield broadening PR head
         uses: actions/checkout@v7
         with:
-          ref: agent/bt0-empty-json-acceptance
+          ref: agent/gqr-zero-yield-discovery-broadening
           path: ai
 
-      - name: Check out Core clean-JSON fix
+      - name: Check out current Core main
         uses: actions/checkout@v7
         with:
           repository: jweter/knowledge-engine-core
-          ref: 2b772151f7d245821fe4f10e08f18d70b3c19123
+          ref: 655edebc2349be058247e2b68893685a6e4e8cf7
           path: core
           filter: blob:none
           sparse-checkout-cone-mode: false
@@ -135,7 +135,7 @@ jobs:
             --providers pubmed,semantic_scholar \
             --repeats 2 \
             --timeout-seconds 240 \
-            --scenario-id fresh-music-endurance-clean-json \
+            --scenario-id fresh-music-endurance-zero-yield-broadening \
             --output "${RUNNER_TEMP}/bt0/benchmark.json" \
             2>&1 | tee "${RUNNER_TEMP}/bt0/benchmark.log"
 
@@ -153,7 +153,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: bt0-fresh-music-endurance-clean-json
+          name: bt0-fresh-music-endurance-zero-yield-broadening
           path: |
             ${{ runner.temp }}/bt0/core-empty-report.json
             ${{ runner.temp }}/bt0/retrieval-diagnostics.log
