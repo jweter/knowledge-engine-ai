@@ -2,36 +2,67 @@
 
 ## Status
 
-First deterministic compiler slice implemented for General Question Research Loop v1
-(issue #69), with issue #79 as the first golden research-case fixture.
+GQR-2 now has both halves required before provider execution:
+
+1. a validated arbitrary-question decomposition producer; and
+2. a deterministic, bounded provider-neutral query compiler.
+
+Issue #79 remains the first golden research-case fixture.
 
 ## Purpose
 
-`knowledge_engine_ai.general_query_plan` turns a structured question decomposition
-into a bounded, provider-neutral, inspectable set of search queries.
-
-It sits between high-level research planning and Core's federated discovery layer.
+The GQR-2 path turns arbitrary user text into a bounded, inspectable literature-search
+plan without allowing model output to become evidence.
 
 ```text
 user question
-  -> structured concepts / synonyms / search tracks
+  -> local-model search decomposition proposal
+  -> strict structural validation
   -> GQR-2 deterministic query-plan compiler
   -> bounded provider-neutral query variants
-  -> later discovery executor / Core federated discovery
+  -> later discovery adapter / Core federated discovery
 ```
 
-This module does **not** execute provider calls, acquire papers, extract Evidence
+This layer does **not** execute provider calls, acquire papers, extract Evidence
 Records, or decide scientific truth.
+
+## Arbitrary-question decomposition producer
+
+`knowledge_engine_ai.copilot.query_decomposition.query_plan_from_question()` is the
+validated producer in front of the deterministic compiler.
+
+The local model may propose only:
+
+- a domain hint;
+- generic vs explicit PICO framing;
+- answer dimensions;
+- canonical search concepts;
+- bounded aliases/synonyms;
+- search tracks;
+- the evidence-scope label for each track.
+
+The model may **not** provide source identities. `seed_source_ids` is deliberately
+absent from the model-owned JSON schema. Known PMIDs/DOIs can be supplied only by
+the caller after the proposal validates. Unknown top-level fields are rejected, so a
+model cannot smuggle a fabricated PMID/DOI into a privileged planning field.
+
+The producer performs no retries or autonomous repairs. Malformed JSON, invalid
+evidence scopes, unknown concept references, incompatible PICO framing, excessive
+synonyms, excessive variants, or other compiler-bound violations fail closed with
+the raw local-model output retained in the error for debugging.
+
+The original user question is also caller-owned. It is never taken back from model
+output and remains the text attached to the resulting `GeneralQueryPlan`.
 
 ## Contracts
 
-The plan records:
+The final plan records:
 
 - original question;
 - optional domain hint;
 - explicit framing type (`generic` by default, `pico` only when requested);
 - answer dimensions that later synthesis must keep distinct;
-- known source/PMID seeds that should be inspected;
+- caller-owned known source/PMID seeds that should be inspected;
 - canonical concepts and bounded synonym sets;
 - search tracks with a declared evidence scope;
 - compiled provider-neutral query variants;
@@ -73,12 +104,13 @@ aliases.
 
 The default frame is `generic`.
 
-A caller may supply an explicit `PicoFrame` and request `frame_type="pico"` when
-PICO is appropriate. The compiler rejects a PICO frame attached to a generic
-plan and rejects PICO mode without an explicit PICO frame.
+Both the producer prompt and deterministic compiler require PICO to be explicit.
+The compiler rejects a PICO frame attached to a generic plan and rejects PICO mode
+without an explicit `PicoFrame`.
 
-Tests exercise chemistry/materials, physics/astronomy, machine learning, and
-general biology questions to ensure they remain generic by default.
+Regression tests cover chemistry/materials, physics/astronomy, machine learning,
+and general biology questions as generic plans. A clinical comparison test proves
+that PICO remains available when it is actually appropriate.
 
 ## Issue #79 golden fixture
 
@@ -110,13 +142,14 @@ plan or provider result is not an Evidence Record.
 
 ## Current boundary
 
-This slice closes the deterministic query-contract/compiler part of GQR-2. It
-does not yet produce the structured decomposition from arbitrary free text on
-its own and it does not execute the compiled variants.
+GQR-2 question interpretation and bounded query compilation are now implemented.
+The compiled variants still do not execute automatically.
 
-The next integration step should connect a validated question-decomposition
-producer to this compiler, then map the resulting variants into bounded Core
-federated-discovery runs while preserving track identity and provider coverage.
+The next integration slice is a bounded discovery adapter that maps
+`GeneralQueryPlan.query_variants` into Core federated-discovery calls while retaining
+`variant_id`, `track_id`, evidence scope, provider outcomes, and `search_run_id`
+provenance. That adapter must prevent a large plan from multiplying provider calls
+without an explicit execution budget.
 
-Newly discovered papers still cannot affect synthesis until GQR-4/GQR-5
-grounded extraction, validation/promotion, and re-retrieval are complete.
+Newly discovered papers still cannot affect synthesis until GQR-4/GQR-5 grounded
+extraction, validation/promotion, and re-retrieval are complete.
