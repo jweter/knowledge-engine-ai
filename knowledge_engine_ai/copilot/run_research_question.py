@@ -197,6 +197,8 @@ def run_research_question(
     grounded_completion: GroundedCompletionResult | None = None
     synthesis_evidence_report = workflow_result.evidence_report
     if grounded_completion_policy is not None:
+        # Configuration validation above guarantees a discovery policy, and therefore
+        # the augmentation result, exists on this opt-in path.
         assert discovery_augmentation is not None
         grounded_completion = complete_discovered_research(
             question,
@@ -251,7 +253,7 @@ def run_research_question(
     close_result = attempt_session_close(session_repository, session_id=session_id)
 
     session = session_repository.get_session(session_id)
-    if session is None:  # pragma: no cover
+    if session is None:  # pragma: no cover - created above; existence is invariant here.
         raise RuntimeError(f"Session {session_id!r} vanished mid-run.")
     events = tuple(session_repository.list_events(session_id))
     trace = build_session_trace(session, events)
@@ -299,7 +301,7 @@ def _synthesize(
     llm: LocalLLM,
     execution_budget: ExecutionBudget | None,
 ) -> tuple[str | None, str | None]:
-    """Run synthesis and append one durable synthesis event when a report exists."""
+    """Run synthesis and append exactly one durable synthesis event when a report exists."""
 
     if evidence_report is None:
         return None, None
@@ -384,23 +386,30 @@ def _record_grounded_completion_events(
     session_id: str,
     result: GroundedCompletionResult,
 ) -> None:
+    acquisition_status = _grounded_acquisition_status(result)
+    acquisition_notes = _grounded_acquisition_notes(result)
     _record_grounded_event(
         session_repository,
         session_id=session_id,
         workflow_node=_GROUNDED_ACQUISITION_NODE,
         tool_name="ke general-question-acquire-*",
-        validation_status=_grounded_acquisition_status(result),
-        notes=_grounded_acquisition_notes(result),
+        validation_status=acquisition_status,
+        notes=acquisition_notes,
     )
+
+    extraction_status = _grounded_extraction_status(result)
+    extraction_notes = _grounded_extraction_notes(result)
     _record_grounded_event(
         session_repository,
         session_id=session_id,
         workflow_node=_GROUNDED_EXTRACTION_NODE,
         tool_name="ke extraction-review / evidence-review-automate",
-        validation_status=_grounded_extraction_status(result),
-        notes=_grounded_extraction_notes(result),
+        validation_status=extraction_status,
+        notes=extraction_notes,
     )
 
+    reretrieval_status = _grounded_reretrieval_status(result)
+    reretrieval_notes = _grounded_reretrieval_notes(result)
     source_ids: tuple[str, ...] = ()
     source_dois: tuple[str, ...] = ()
     output_schema_version: int | None = None
@@ -412,8 +421,8 @@ def _record_grounded_completion_events(
         session_id=session_id,
         workflow_node=_GROUNDED_RERETRIEVAL_NODE,
         tool_name="ke evidence-report",
-        validation_status=_grounded_reretrieval_status(result),
-        notes=_grounded_reretrieval_notes(result),
+        validation_status=reretrieval_status,
+        notes=reretrieval_notes,
         output_schema_version=output_schema_version,
         source_ids=source_ids,
         source_dois=source_dois,
@@ -488,7 +497,8 @@ def _grounded_acquisition_notes(result: GroundedCompletionResult) -> str:
         f"search_run_id={result.search_run_id}; papers_available={len(result.paper_ids)}; "
         f"new_papers={persisted}; reused_papers={reused}; "
         f"already_indexed={len(result.already_indexed_paper_ids)}; "
-        f"route_failures={list(route_failures)}. Acquired/reused Papers are not yet answer evidence."
+        f"route_failures={list(route_failures)}. "
+        "Acquired/reused Papers are not yet answer evidence."
     )
 
 
@@ -666,12 +676,14 @@ def _grounded_completion_integrity_result(
             CriterionStatus.FAILED,
             "Grounded completion was requested but no discovery augmentation was recorded.",
         )
+
     if not discovery_augmentation.triggered:
         return CriterionResult(
             _GROUNDED_COMPLETION_INTEGRITY_CRITERION_ID,
             CriterionStatus.PASSED,
             "Initial evidence coverage was sufficient; grounded completion was unnecessary.",
         )
+
     if discovery_augmentation.federated_discovery_error is not None:
         return CriterionResult(
             _GROUNDED_COMPLETION_INTEGRITY_CRITERION_ID,
@@ -747,6 +759,7 @@ def _discovery_coverage_result(
             CriterionStatus.NOT_APPLICABLE,
             discovery_augmentation.trigger_reason,
         )
+
     if not discovery_augmentation.federated_discovery_attempted:
         return CriterionResult(
             _DISCOVERY_COVERAGE_CRITERION_ID,
@@ -767,6 +780,7 @@ def _discovery_coverage_result(
                 f"{discovery_augmentation.federated_discovery_error}"
             ),
         )
+
     if federated_result.completeness == "complete":
         return CriterionResult(
             _DISCOVERY_COVERAGE_CRITERION_ID,
