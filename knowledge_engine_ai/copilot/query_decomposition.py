@@ -131,12 +131,19 @@ Rules:
 - Every track may reference only concept_ids declared in this same object.
 - Use scope="direct" for the exact exposure/entity/comparison in the question.
 - Use scope="class_level" only for a broader but still closely related class.
-- Use scope="indirect_context" for evidence that can inform but cannot directly prove the main claim.
+- Use scope="indirect_context" for evidence that can inform but cannot
+  directly prove the main claim.
 - Use scope="guidance" for measurement, methods, or professional guidance searches.
-- Use scope="counterevidence" for null, negative, contradictory, or tolerance findings when relevant.
-- Keep answer_dimensions distinct when the question contains materially different outcomes, timescales, variants, or mechanisms.
-- Default to frame_type="generic". Use PICO only when the question is genuinely a clinical population/intervention/comparator/outcome question. Never force PICO onto chemistry, materials science, physics, astronomy, machine learning, or general biology.
-- Do not include provider names or source identifiers. Provider selection and known seed sources are caller-owned.
+- Use scope="counterevidence" for null, negative, contradictory, or tolerance
+  findings when relevant.
+- Keep answer_dimensions distinct when the question contains materially different
+  outcomes, timescales, variants, or mechanisms.
+- Default to frame_type="generic". Use PICO only when the question is genuinely a
+  clinical population/intervention/comparator/outcome question.
+- Never force PICO onto chemistry, materials science, physics, astronomy,
+  machine learning, or general biology.
+- Do not include provider names or source identifiers. Provider selection and
+  known seed sources are caller-owned.
 
 User question:
 {question}
