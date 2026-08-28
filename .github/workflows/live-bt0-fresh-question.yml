@@ -75,6 +75,48 @@ jobs:
           cp core/data/corpora/glp1_weight_loss/sources.csv "${RUNNER_TEMP}/bt0/sources.csv"
           cp core/data/corpora/glp1_weight_loss/evidence_records.jsonl "${RUNNER_TEMP}/bt0/evidence.jsonl"
 
+      - name: Verify raw Core empty JSON contract
+        working-directory: core
+        run: |
+          QUESTION='In healthy adults, does listening to music during exercise improve endurance performance compared with exercising without music?'
+          ke evidence-report "$QUESTION" \
+            --sources "${RUNNER_TEMP}/bt0/sources.csv" \
+            --evidence "${RUNNER_TEMP}/bt0/evidence.jsonl" \
+            --format json \
+            > "${RUNNER_TEMP}/bt0/core-empty-report.json"
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          path = Path(os.environ["RUNNER_TEMP"]) / "bt0" / "core-empty-report.json"
+          payload = json.loads(path.read_text(encoding="utf-8"))
+          print("CORE_EMPTY_EXIT_OK=1")
+          print("CORE_EMPTY_PAPERS=", len(payload["papers"]))
+          print("CORE_EMPTY_SCHEMA=", payload["schema_version"])
+          PY
+
+      - name: Expose AI retrieval branch errors
+        working-directory: core
+        run: |
+          python - <<'PY' | tee "${RUNNER_TEMP}/bt0/retrieval-diagnostics.log"
+          import os
+          from pathlib import Path
+          from knowledge_engine_ai.orchestrator.parallel_retrieval import run_parallel_retrieval
+
+          question = "In healthy adults, does listening to music during exercise improve endurance performance compared with exercising without music?"
+          root = Path(os.environ["RUNNER_TEMP"]) / "bt0"
+          result = run_parallel_retrieval(
+              question,
+              sources=root / "sources.csv",
+              evidence=root / "evidence.jsonl",
+              ke_executable="ke",
+          )
+          for name, branch in (("PRIMARY", result.primary), ("CONTRADICTION", result.contradiction)):
+              print(f"{name}_ERROR={branch.error!r}")
+              print(f"{name}_REPORT_PRESENT={branch.report is not None}")
+              print(f"{name}_PAPERS={len(branch.report.papers) if branch.report is not None else 'NA'}")
+          PY
+
       - name: Run fresh question cold then warm
         working-directory: core
         run: |
@@ -111,6 +153,8 @@ jobs:
         with:
           name: bt0-fresh-music-endurance-empty-json-fix
           path: |
+            ${{ runner.temp }}/bt0/core-empty-report.json
+            ${{ runner.temp }}/bt0/retrieval-diagnostics.log
             ${{ runner.temp }}/bt0/benchmark.json
             ${{ runner.temp }}/bt0/benchmark.log
             ${{ runner.temp }}/bt0/ollama-tail.log
