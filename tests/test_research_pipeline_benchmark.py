@@ -99,7 +99,9 @@ def _report() -> EvidenceReport:
 
 def _workflow(*, indexed_ids: tuple[str, ...]) -> WorkflowResult:
     primary = RetrievalBranchResult(query=QUESTION, report=None, error=None)
-    contradiction = RetrievalBranchResult(query=f"{QUESTION} contradiction", report=None, error=None)
+    contradiction = RetrievalBranchResult(
+        query=f"{QUESTION} contradiction", report=None, error=None
+    )
     parallel = ParallelRetrievalResult(
         question=QUESTION,
         primary=primary,

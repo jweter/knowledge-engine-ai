@@ -325,7 +325,9 @@ def _build_conversion_funnel(
         already_indexed_candidate_count=dispositions.get("already_indexed", 0),
         eligible_full_text_candidate_count=dispositions.get("eligible_full_text", 0),
         acquisition_route_attempt_count=len(attempted_routes),
-        acquisition_candidate_attempt_count=sum(len(route.candidate_ids) for route in attempted_routes),
+        acquisition_candidate_attempt_count=sum(
+            len(route.candidate_ids) for route in attempted_routes
+        ),
         persisted_paper_count=persisted_paper_count,
         reused_paper_count=reused_paper_count,
         available_paper_count=len(completion.paper_ids) if completion is not None else 0,
