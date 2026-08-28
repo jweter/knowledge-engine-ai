@@ -9,6 +9,7 @@ Nothing discovered-but-unacquired, unreviewed, or outside the report may enter i
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator
 
 from knowledge_engine_ai.llm import LocalLLM, LocalLLMError
@@ -25,6 +26,7 @@ _SYSTEM_INSTRUCTIONS = (
     "limitation, citing that item's evidence_record_id. Do not present an overall conclusion "
     "without those qualification boundaries."
 )
+_CITATION_TOKEN_RE = re.compile(r"\[[A-Za-z0-9_\-]+\]")
 
 
 def build_synthesis_prompt(report: EvidenceReport) -> str:
@@ -57,13 +59,14 @@ def synthesize_answer(
     max_tokens: int = 600,
     timeout_seconds: float | None = None,
 ) -> str | None:
-    """Return a grounded answer while remaining useful when local narration degrades.
+    """Return grounded model prose or a deterministic evidence-only fallback.
 
-    The model is still preferred. If it fails, or returns text with no evidence citation
-    at all, a deterministic evidence-only summary is returned instead. If the model
-    cites evidence but omits a required qualifying/contradicting record or limitation,
-    the missing Core-grounded material is appended deterministically. Verification is
-    still responsible for the final release decision; this function does not bypass it.
+    A local-model execution failure, timeout, or completely uncited response cannot
+    consume the whole answer: the already-grounded EvidenceRecords are rendered into
+    a deterministic citation-complete summary. If the model emits any citation token,
+    however, its output is returned unchanged so the independent verifier can still
+    detect hallucinated citations and missed qualifiers. The fallback never repairs or
+    masks a cited model answer before verification.
     """
 
     if not _evidence_blocks(report.papers):
@@ -75,9 +78,9 @@ def synthesize_answer(
     except LocalLLMError:
         return build_deterministic_evidence_summary(report)
 
-    if not _cited_record_ids(narrative, report):
+    if not _CITATION_TOKEN_RE.search(narrative):
         return build_deterministic_evidence_summary(report)
-    return _append_missing_qualifier_coverage(narrative, report)
+    return narrative
 
 
 def build_deterministic_evidence_summary(report: EvidenceReport) -> str | None:
@@ -96,24 +99,6 @@ def build_deterministic_evidence_summary(report: EvidenceReport) -> str | None:
     return "\n".join(lines)
 
 
-def _append_missing_qualifier_coverage(narrative: str, report: EvidenceReport) -> str:
-    cited_ids = set(_cited_record_ids(narrative, report))
-    missing = tuple(
-        record
-        for record in _claim_records(report)
-        if _is_required_qualifier(record)
-        and record.evidence_record_id is not None
-        and record.evidence_record_id not in cited_ids
-    )
-    if not missing:
-        return narrative
-
-    lines = [narrative.rstrip(), "", "Required evidence qualifications:"]
-    for record in missing:
-        lines.extend(_record_summary_lines(record))
-    return "\n".join(lines)
-
-
 def _record_summary_lines(record: EvidenceRecord) -> list[str]:
     record_id = record.evidence_record_id
     if not record_id or not record.claim_text:
@@ -127,14 +112,6 @@ def _record_summary_lines(record: EvidenceRecord) -> list[str]:
     if record.limitations:
         lines.append(f"  Limitations: {'; '.join(record.limitations)}. {citation}")
     return lines
-
-
-def _cited_record_ids(narrative: str, report: EvidenceReport) -> tuple[str, ...]:
-    return tuple(
-        record.evidence_record_id
-        for record in _claim_records(report)
-        if record.evidence_record_id is not None and f"[{record.evidence_record_id}]" in narrative
-    )
 
 
 def _required_qualifier_ids(report: EvidenceReport) -> tuple[str, ...]:
