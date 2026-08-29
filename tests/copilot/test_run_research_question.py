@@ -978,6 +978,5 @@ def test_zero_evidence_with_discovery_triggered_is_research_required_not_insuffi
     assert result.progress_report is not None
     assert result.progress_report.indexed_evidence_record_ids == ()
     assert result.progress_report.progress_stage is ResearchProgressStage.RESEARCH_REQUIRED
-    assert result.progress_report.progress_stage is not ResearchProgressStage.INSUFFICIENT_EVIDENCE
     assert result.progress_report.final is False
     assert result.progress_report.wait_reason is not None

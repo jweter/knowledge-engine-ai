@@ -389,7 +389,6 @@ def test_zero_indexed_evidence_with_discovery_triggered_is_not_final_insufficien
 
     assert report.indexed_evidence_record_ids == ()
     assert report.progress_stage is ResearchProgressStage.RESEARCH_REQUIRED
-    assert report.progress_stage is not ResearchProgressStage.INSUFFICIENT_EVIDENCE
     assert report.final is False
     assert report.wait_reason is not None
 
