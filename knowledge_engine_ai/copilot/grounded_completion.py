@@ -727,6 +727,8 @@ def _extract_ground_promote(
                     str(staged_path),
                     "--model",
                     policy.grounding_model,
+                    "--limit",
+                    str(len(staged_ids)),
                 ],
                 operation="ke evidence-review-automate (batch)",
                 policy=policy,
