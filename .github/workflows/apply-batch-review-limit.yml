@@ -27,37 +27,19 @@ jobs:
 
           source = Path("knowledge_engine_ai/copilot/grounded_completion.py")
           text = source.read_text(encoding="utf-8")
-          old = '''                    "--model",
-                    policy.grounding_model,
-                ],
-                operation="ke evidence-review-automate (batch)",'''
-          new = '''                    "--model",
-                    policy.grounding_model,
-                    "--limit",
-                    str(len(staged_ids)),
-                ],
-                operation="ke evidence-review-automate (batch)",'''
+          old = '"--model",\n                    policy.grounding_model,\n                ],\n                operation="ke evidence-review-automate (batch)",'
+          new = '"--model",\n                    policy.grounding_model,\n                    "--limit",\n                    str(len(staged_ids)),\n                ],\n                operation="ke evidence-review-automate (batch)",'
           if text.count(old) != 1:
               raise SystemExit(f"expected one source match, found {text.count(old)}")
           source.write_text(text.replace(old, new), encoding="utf-8")
 
           test = Path("tests/copilot/test_grounded_completion.py")
           text = test.read_text(encoding="utf-8")
-          old = '''        elif operation == "evidence-review-automate":
-            staged = Path(command[command.index("--evidence") + 1])
-            assert "--evidence-record-id" not in command
-            records = [json.loads(line) for line in staged.read_text().splitlines() if line]
-            for record in records:'''
-          new = '''        elif operation == "evidence-review-automate":
-            staged = Path(command[command.index("--evidence") + 1])
-            assert "--evidence-record-id" not in command
-            records = [json.loads(line) for line in staged.read_text().splitlines() if line]
-            assert command[command.index("--limit") + 1] == str(len(records))
-            for record in records:'''
+          old = '            assert "--evidence-record-id" not in command\n            records = [json.loads(line) for line in staged.read_text().splitlines() if line]\n            for record in records:'
+          new = '            assert "--evidence-record-id" not in command\n            records = [json.loads(line) for line in staged.read_text().splitlines() if line]\n            assert command[command.index("--limit") + 1] == str(len(records))\n            for record in records:'
           if text.count(old) < 1:
               raise SystemExit("expected test grounding branch not found")
-          text = text.replace(old, new, 1)
-          test.write_text(text, encoding="utf-8")
+          test.write_text(text.replace(old, new, 1), encoding="utf-8")
           PY
       - name: Focused checks
         run: |
