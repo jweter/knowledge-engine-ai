@@ -394,9 +394,7 @@ def test_zero_indexed_evidence_with_discovery_triggered_is_not_final_insufficien
     assert report.wait_reason is not None
 
 
-def test_zero_indexed_evidence_after_completed_bounded_research_is_final_insufficient_evidence() -> (
-    None
-):
+def test_zero_indexed_evidence_after_completed_research_is_final_insufficient_evidence() -> None:
     """Contrast case: only once the bounded research path actually completed (a
     `GroundedCompletionResult` exists) without producing a releaseable answer may this
     resolve to a *final* `insufficient_evidence`.

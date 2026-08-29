@@ -945,7 +945,7 @@ def test_discovery_triggered_with_releaseable_indexed_answer_progress_report_is_
     assert result.progress_report.wait_reason is None
 
 
-def test_zero_evidence_with_discovery_triggered_progress_report_is_research_required_not_insufficient(
+def test_zero_evidence_with_discovery_triggered_is_research_required_not_insufficient(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """BT-6 product invariant (issue #90), exercised through the real wiring: a
