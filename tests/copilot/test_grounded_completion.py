@@ -262,6 +262,7 @@ def test_completion_acquires_grounds_promotes_and_reretrieves(
             staged = Path(command[command.index("--evidence") + 1])
             assert "--evidence-record-id" not in command
             records = [json.loads(line) for line in staged.read_text().splitlines() if line]
+            assert command[command.index("--limit") + 1] == str(len(records))
             for record in records:
                 record["extraction_method"] = "m69-llm-grounded-pico-v1"
                 record["review_checklist"] = {
