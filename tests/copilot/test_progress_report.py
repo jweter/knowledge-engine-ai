@@ -45,9 +45,7 @@ class _Result:
     effective_evidence_report: EvidenceReport | None = None
 
 
-def _event(
-    node: str, *, duration_ms: int | None = None, succeeded: bool = True
-) -> EventTrace:
+def _event(node: str, *, duration_ms: int | None = None, succeeded: bool = True) -> EventTrace:
     return EventTrace(
         event_id=f"evt-{node}",
         workflow_node=node,
@@ -347,9 +345,7 @@ def test_provider_degraded_without_reretrieval_is_partial_answer() -> None:
     assert report.provider_degraded is True
 
 
-def test_blocked_primary_retrieval_failure_is_insufficient_evidence_at_indexed_retrieval() -> (
-    None
-):
+def test_blocked_primary_retrieval_failure_is_insufficient_evidence_at_indexed_retrieval() -> None:
     report = build_research_progress_report(
         _Result(
             session_id="session-1",

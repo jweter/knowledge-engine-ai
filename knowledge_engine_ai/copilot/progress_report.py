@@ -344,7 +344,9 @@ def _indexed_evidence_record_ids(workflow: WorkflowResult) -> tuple[str, ...]:
     parallel = workflow.parallel_retrieval
     if parallel is not None:
         return tuple(
-            sorted(parallel.primary_evidence_record_ids | parallel.contradiction_evidence_record_ids)
+            sorted(
+                parallel.primary_evidence_record_ids | parallel.contradiction_evidence_record_ids
+            )
         )
     report = workflow.evidence_report
     if report is None:
