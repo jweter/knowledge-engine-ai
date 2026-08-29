@@ -259,6 +259,18 @@ Web should show stage + elapsed time + bounded counts/reason for waiting. Avoid 
 percent-complete bars. A provider failure degrades coverage; it should not blank an
 otherwise grounded answer.
 
+**Status: AI-side contract implemented.** `run_research_question` now returns a
+`ResearchProgressReport` (`knowledge_engine_ai.copilot.progress_report`, issue #90)
+carrying current stage, overlap-adjusted elapsed time, indexed-vs-newly-acquired
+EvidenceRecord IDs, provider coverage/degradation, an explicit wait reason,
+citations/limitations, and a `final` gate mapped onto `knowledge-engine-web#93`'s
+8 named progress states -- see `docs/roadmap/bt6_progressive_report_contract.md`.
+Web's own rendering of this contract remains tracked in
+`jweter/knowledge-engine-web#93` and is separate follow-up work; a later durable/
+polling caller is still needed before the mid-flight states
+(`discovering_sources`, `acquiring_sources`, `validating_extracting_evidence`,
+`reretrieving`) can actually be emitted rather than reserved.
+
 ## Definition of streamlined v1
 
 A previously unseen research question can be entered in Web and:
