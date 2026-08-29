@@ -9,6 +9,7 @@ import pytest
 
 import knowledge_engine_ai.copilot.discovery_policy as discovery_policy
 from knowledge_engine_ai.copilot.discovery_policy import FederatedDiscoveryPolicy
+from knowledge_engine_ai.copilot.progress_report import ResearchProgressStage
 from knowledge_engine_ai.copilot.run_research_question import run_research_question
 from knowledge_engine_ai.ke_client import (
     CitationSnowballResult,
@@ -865,3 +866,118 @@ def test_discovery_coverage_criterion_not_applicable_when_federated_discovery_di
     # reported as a provider FAILURE, only as not applicable.
     assert criterion_result.status.value == "not_applicable"
     assert result.close_result.status is SessionStatus.COMPLETED
+
+
+# --- BT-6 progressive report contract wiring (issue #90) ---------------------
+
+
+def test_full_run_populates_a_final_answer_progress_report(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(subprocess, "run", _fake_run(_payload(evidence_records=[_GROUNDED_RECORD])))
+    repository = _repository()
+
+    result = run_research_question(
+        "does semaglutide reduce body weight",
+        session_repository=repository,
+        sources=tmp_path / "s.csv",
+        evidence=tmp_path / "e.jsonl",
+        llm=_FakeLLM(),
+    )
+
+    assert result.progress_report is not None
+    assert result.progress_report.session_id == result.session_id
+    assert result.progress_report.progress_stage is ResearchProgressStage.FINAL_ANSWER
+    assert result.progress_report.final is True
+    assert result.progress_report.answer_available is True
+    assert result.progress_report.indexed_evidence_record_ids == ("ev-1",)
+    assert result.progress_report.newly_acquired_evidence_record_ids == ()
+    assert [claim.evidence_record_id for claim in result.progress_report.citations] == ["ev-1"]
+
+
+def test_no_retrievable_evidence_progress_report_is_final_insufficient_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(subprocess, "run", _fake_run(_payload(papers=False)))
+    repository = _repository()
+
+    result = run_research_question(
+        "a question with no matching evidence",
+        session_repository=repository,
+        sources=tmp_path / "s.csv",
+        evidence=tmp_path / "e.jsonl",
+        llm=_FakeLLM(),
+    )
+
+    assert result.progress_report is not None
+    assert result.progress_report.progress_stage is ResearchProgressStage.INSUFFICIENT_EVIDENCE
+    assert result.progress_report.final is True
+    assert result.progress_report.answer_available is False
+
+
+def test_discovery_triggered_with_releaseable_indexed_answer_progress_report_is_partial(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(discovery_policy, "execute_discovery_plan", _federated_discovery_stub)
+    monkeypatch.setattr(discovery_policy, "citation_snowball", _citation_snowball_stub)
+    monkeypatch.setattr(subprocess, "run", _fake_run(_payload(evidence_records=[_GROUNDED_RECORD])))
+    repository = _repository()
+    policy = FederatedDiscoveryPolicy(
+        ledger_root=tmp_path / "ledger", min_evidence_record_coverage=5
+    )
+
+    result = run_research_question(
+        "does semaglutide reduce body weight",
+        session_repository=repository,
+        sources=tmp_path / "s.csv",
+        evidence=tmp_path / "e.jsonl",
+        llm=_FakeLLM(),
+        discovery_policy=policy,
+    )
+
+    assert result.discovery is not None
+    assert result.discovery.triggered is True
+    assert result.grounded_completion is None
+    assert result.progress_report is not None
+    assert result.progress_report.progress_stage is ResearchProgressStage.PARTIAL_ANSWER
+    assert result.progress_report.final is False
+    assert result.progress_report.answer_available is True
+    assert result.progress_report.wait_reason is None
+
+
+def test_zero_evidence_with_discovery_triggered_progress_report_is_research_required_not_insufficient(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """BT-6 product invariant (issue #90), exercised through the real wiring: a
+    zero-record initial indexed retrieval with discovery triggered but not carried
+    through a grounded-completion attempt this call must resolve to
+    `research_required`, never a final `insufficient_evidence`.
+    """
+
+    monkeypatch.setattr(discovery_policy, "execute_discovery_plan", _federated_discovery_stub)
+    monkeypatch.setattr(discovery_policy, "citation_snowball", _citation_snowball_stub)
+    monkeypatch.setattr(subprocess, "run", _fake_run(_payload(papers=False)))
+    repository = _repository()
+    policy = FederatedDiscoveryPolicy(
+        ledger_root=tmp_path / "ledger", min_evidence_record_coverage=1
+    )
+
+    result = run_research_question(
+        "a question with no matching evidence",
+        session_repository=repository,
+        sources=tmp_path / "s.csv",
+        evidence=tmp_path / "e.jsonl",
+        llm=_FakeLLM(),
+        discovery_policy=policy,
+    )
+
+    assert result.discovery is not None
+    assert result.discovery.triggered is True
+    assert result.grounded_completion is None
+    assert result.narrative is None
+    assert result.progress_report is not None
+    assert result.progress_report.indexed_evidence_record_ids == ()
+    assert result.progress_report.progress_stage is ResearchProgressStage.RESEARCH_REQUIRED
+    assert result.progress_report.progress_stage is not ResearchProgressStage.INSUFFICIENT_EVIDENCE
+    assert result.progress_report.final is False
+    assert result.progress_report.wait_reason is not None
