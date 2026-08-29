@@ -9,6 +9,28 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **BT-6: progressive research report contract for Web (issue #90).**
+  `knowledge_engine_ai.copilot.progress_report` adds `ResearchProgressReport`,
+  a stable, additive projection of `run_research_question`'s already-recorded
+  facts into the structured contract Web needs to render progress instead of
+  stopping at the first local corpus miss. It carries `progress_stage`
+  (mapped onto `knowledge-engine-web#93`'s 8 named UI states), `current_stage`
+  (the fixed pipeline stage the outcome is anchored to, reusing
+  `bottleneck_report.ResearchPipelineStage`), `elapsed_ms` (the same
+  overlap-adjusted total `bottleneck_report.py` already computes),
+  `answer_available`/`wait_reason`, separated `indexed_evidence_record_ids`
+  vs `newly_acquired_evidence_record_ids`, provider coverage/degradation,
+  citations/limitations, and a `final` gate that only becomes `True` for a
+  genuine final answer or a *post-research* `insufficient_evidence` -- never
+  merely because the initial indexed retrieval returned zero records.
+  `run_research_question` now populates `ResearchQuestionResult.progress_report`
+  automatically; the field defaults to `None` and no existing field changed,
+  so `knowledge-engine-web`'s current git-pinned revision is unaffected until
+  it opts into the new field. See
+  `docs/roadmap/bt6_progressive_report_contract.md`. Web's own consumption of
+  this contract remains tracked separately in
+  `jweter/knowledge-engine-web#93` and is out of scope for this change.
+
 - **BT-7: early stop on adequacy (issue #92).** `complete_discovered_research`
   (GQR-4/GQR-5) now extracts/grounds/promotes already-indexed candidates
   first, before any network acquisition. If that alone promotes at least
