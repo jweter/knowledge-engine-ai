@@ -20,17 +20,17 @@ jobs:
       KE_LLM_MODEL: qwen2.5:0.5b
       KE_OLLAMA_HOST: http://127.0.0.1:11434
     steps:
-      - name: Check out AI PR head
+      - name: Check out merged AI main
         uses: actions/checkout@v7
         with:
-          ref: agent/batch-grounded-review
+          ref: main
           path: ai
 
-      - name: Check out current Core main
+      - name: Check out Core SQLite concurrency PR
         uses: actions/checkout@v7
         with:
           repository: jweter/knowledge-engine-core
-          ref: 9c6ce6dc153454d966cb00ffbbaa55175e111d68
+          ref: agent/sqlite-concurrent-initialize
           path: core
           filter: blob:none
           sparse-checkout-cone-mode: false
@@ -71,7 +71,7 @@ jobs:
           cp core/data/corpora/glp1_weight_loss/sources.csv "${RUNNER_TEMP}/bt5/sources.csv"
           cp core/data/corpora/glp1_weight_loss/evidence_records.jsonl "${RUNNER_TEMP}/bt5/evidence.jsonl"
 
-      - name: Run unchanged cold and warm benchmark
+      - name: Run unchanged cold benchmark
         working-directory: core
         run: |
           set -o pipefail
@@ -85,40 +85,39 @@ jobs:
             --llm-model qwen2.5:0.5b \
             --ke-executable "$(command -v ke)" \
             --providers pubmed,semantic_scholar \
-            --repeats 2 \
+            --repeats 1 \
             --timeout-seconds 240 \
-            --scenario-id fresh-music-endurance-batch-grounded-review \
+            --scenario-id fresh-music-endurance-batch-grounded-review-sqlite-fix \
             --output "${RUNNER_TEMP}/bt5/benchmark.json" \
             2>&1 | tee "${RUNNER_TEMP}/bt5/benchmark.log"
 
-      - name: Report extraction timings and release status
-        if: always()
+      - name: Require releaseable answer and report timing
         run: |
           python - <<'PY' | tee "${RUNNER_TEMP}/bt5/summary.log"
           import json, os
           from pathlib import Path
           path = Path(os.environ["RUNNER_TEMP"]) / "bt5" / "benchmark.json"
-          if not path.exists():
-              print("BENCHMARK_MISSING")
-              raise SystemExit(0)
           payload = json.loads(path.read_text())
-          for run in payload["runs"]:
-              stages = run["bottleneck_report"]["stages"]
-              extraction = next((s for s in stages if s["stage"] == "extraction_promotion"), None)
-              print({
-                  "temperature": run["run_temperature"],
-                  "wall_ms": run["wall_clock_duration_ms"],
-                  "releaseable": run["narrative_releaseable"],
-                  "extraction_ms": extraction["duration_ms"] if extraction else None,
-                  "promoted": run["funnel"]["promoted_evidence_record_count"],
-              })
+          run = payload["runs"][0]
+          stages = run["bottleneck_report"]["stages"]
+          extraction = next((s for s in stages if s["stage"] == "extraction_promotion"), None)
+          summary = {
+              "wall_ms": run["wall_clock_duration_ms"],
+              "releaseable": run["narrative_releaseable"],
+              "final_state": run["final_state"]["state"],
+              "extraction_ms": extraction["duration_ms"] if extraction else None,
+              "promoted": run["funnel"]["promoted_evidence_record_count"],
+          }
+          print(summary)
+          assert run["narrative_releaseable"] is True, run
+          assert run["final_state"]["state"] not in {"blocked", "insufficient_evidence"}, run
           PY
 
       - name: Upload benchmark diagnostics
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: bt5-batch-grounded-review
+          name: bt5-batch-grounded-review-sqlite-fix
           path: |
             ${{ runner.temp }}/bt5/benchmark.json
             ${{ runner.temp }}/bt5/benchmark.log
