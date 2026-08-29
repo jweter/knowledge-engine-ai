@@ -1,5 +1,6 @@
 name: Live Core SQLite parallel retrieval
 
+# Rerun acceptance against BEGIN IMMEDIATE schema initialization.
 on:
   push:
     branches:
