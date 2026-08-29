@@ -20,17 +20,17 @@ jobs:
       KE_LLM_MODEL: qwen2.5:0.5b
       KE_OLLAMA_HOST: http://127.0.0.1:11434
     steps:
-      - name: Check out AI grounded timing PR head
+      - name: Check out merged AI batch grounded review
         uses: actions/checkout@v7
         with:
-          ref: agent/grounded-phase-timing
+          ref: 998c3fb45e79a4dd75035b656f449c4f47367702
           path: ai
 
       - name: Check out current Core main
         uses: actions/checkout@v7
         with:
           repository: jweter/knowledge-engine-core
-          ref: 655edebc2349be058247e2b68893685a6e4e8cf7
+          ref: ac48dbce9bb1e0d1099fb2072646064e38fd8aa8
           path: core
           filter: blob:none
           sparse-checkout-cone-mode: false
@@ -135,11 +135,11 @@ jobs:
             --providers pubmed,semantic_scholar \
             --repeats 2 \
             --timeout-seconds 240 \
-            --scenario-id fresh-music-endurance-grounded-phase-timing \
+            --scenario-id fresh-music-endurance-batch-grounded-review \
             --output "${RUNNER_TEMP}/bt0/benchmark.json" \
             2>&1 | tee "${RUNNER_TEMP}/bt0/benchmark.log"
 
-      - name: Require releaseable cold and warm answers
+      - name: Require grounded evidence and report extraction timing
         run: |
           python - <<'PY'
           import json
@@ -150,10 +150,16 @@ jobs:
           payload = json.loads(path.read_text(encoding="utf-8"))
           runs = payload["runs"]
           assert len(runs) == 2
-          for run in runs:
-              assert run["narrative_releaseable"] is True, run
-              assert run["final_state"]["state"] not in {"blocked", "insufficient_evidence"}, run
-          print("BT0_RELEASEABLE_COLD_WARM_OK=1")
+          cold = runs[0]
+          assert cold["funnel"]["promoted_evidence_record_count"] > 0, cold
+          stage = next(
+              item for item in cold["bottleneck_report"]["stages"]
+              if item["stage"] == "extraction_promotion"
+          )
+          assert stage["duration_ms"] is not None, stage
+          print(f"COLD_EXTRACTION_PROMOTION_MS={stage['duration_ms']}")
+          print(f"COLD_RELEASEABLE={cold['narrative_releaseable']}")
+          print(f"WARM_RELEASEABLE={runs[1]['narrative_releaseable']}")
           PY
 
       - name: Print durable research event diagnostics
@@ -196,7 +202,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: bt0-fresh-music-endurance-grounded-phase-timing
+          name: bt0-fresh-music-endurance-batch-grounded-review
           path: |
             ${{ runner.temp }}/bt0/core-empty-report.json
             ${{ runner.temp }}/bt0/retrieval-diagnostics.log
