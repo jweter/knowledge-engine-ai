@@ -19,7 +19,7 @@ from __future__ import annotations
 import hashlib
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -38,6 +38,10 @@ from knowledge_engine_ai.copilot.intent import (
     CriterionStatus,
     IdealStateCriterion,
     ResearchISA,
+)
+from knowledge_engine_ai.copilot.progress_report import (
+    ResearchProgressReport,
+    build_research_progress_report,
 )
 from knowledge_engine_ai.execution import ExecutionBudget, ExecutionBudgetExceeded
 from knowledge_engine_ai.llm import LocalLLM, LocalLLMError
@@ -77,6 +81,15 @@ class ResearchQuestionResult:
     used for synthesis, verification, and the session report. This keeps the original
     retrieval auditable without letting a pre-grounding discovery result become an
     answer source.
+
+    ``progress_report`` (BT-6, issue #90) is a stable, additive projection of this
+    same result into the structured progress/report contract Web renders --
+    current stage, elapsed time, partial-answer availability, indexed-vs-newly-
+    acquired EvidenceRecord IDs, provider coverage/degradation, and the final
+    completion/insufficient-evidence gate. Always populated by ``run_research_question``
+    itself; the ``None`` default exists only so a caller constructing this dataclass
+    directly (e.g. a test fixture built before this field existed) is not required to
+    supply it. See ``docs/roadmap/bt6_progressive_report_contract.md``.
     """
 
     session_id: str
@@ -90,6 +103,7 @@ class ResearchQuestionResult:
     close_result: SessionCloseResult
     trace: SessionTrace
     grounded_completion: GroundedCompletionResult | None = None
+    progress_report: ResearchProgressReport | None = None
 
     @property
     def narrative_releaseable(self) -> bool:
@@ -258,7 +272,7 @@ def run_research_question(
     events = tuple(session_repository.list_events(session_id))
     trace = build_session_trace(session, events)
 
-    return ResearchQuestionResult(
+    question_result = ResearchQuestionResult(
         session_id=session_id,
         question=question,
         workflow=workflow_result,
@@ -271,6 +285,13 @@ def run_research_question(
         close_result=close_result,
         trace=trace,
     )
+    # BT-6 (issue #90): derive the stable, additive progress/report contract from
+    # the same facts this call just produced -- pure read-side projection, never a
+    # second source of truth. See `docs/roadmap/bt6_progressive_report_contract.md`.
+    progress_report = build_research_progress_report(
+        question_result, research_question_id=resolved_research_question_id
+    )
+    return replace(question_result, progress_report=progress_report)
 
 
 def _validate_grounded_completion_configuration(
