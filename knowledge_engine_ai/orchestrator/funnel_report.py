@@ -230,7 +230,10 @@ def build_research_conversion_funnel_report(
     time_to_first = _time_to_first_grounded_information_ms(
         bottleneck,
         indexed_available=indexed_count > 0,
-        reretrieval_succeeded=reretrieval_succeeded,
+        # Gate on the re-retrieval report actually carrying evidence records,
+        # not command success alone -- a successful re-retrieval call that
+        # happens to return an empty report produced no grounded information.
+        reretrieval_succeeded=reretrieval_succeeded and reretrieval_evidence_record_count > 0,
     )
 
     return ResearchConversionFunnelReport(

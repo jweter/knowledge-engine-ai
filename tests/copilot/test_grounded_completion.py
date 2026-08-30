@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import cast
 
@@ -512,3 +513,170 @@ def test_completion_does_not_persist_an_ungrounded_staged_record(
     assert result.promoted_record_ids == ()
     assert result.reretrieval_report is None
     assert not evidence.exists()
+
+
+def test_extraction_duration_does_not_double_count_the_acquisition_interval(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression test for a Codex review finding on PR #125: extraction timing
+    used to start its clock before the intervening acquisition call and stop it
+    after, so `extraction_duration_ms` fully re-included `acquisition_duration_ms`
+    whenever already-indexed evidence alone was inadequate and acquisition ran.
+    Callers that sum per-stage durations (`bottleneck_report.py`,
+    `funnel_report.py`) would then double-count that interval. This drives the
+    same already-indexed-then-acquire-then-extract-again path as
+    `test_completion_acquires_grounds_promotes_and_reretrieves` above, but with a
+    non-pmc route (no internal per-candidate budget polling) and a fake
+    monotonic clock advancing by a fixed step on every call, so each phase's
+    measured duration is exactly predictable.
+    """
+
+    from knowledge_engine_ai.copilot import grounded_completion as module
+
+    policy = _policy(tmp_path, min_promoted_records_for_early_stop=2)
+    evidence = tmp_path / "evidence.jsonl"
+    sources = tmp_path / "sources.csv"
+    sources.write_text("title,doi\n", encoding="utf-8")
+    plan = _plan(
+        _item("existing", disposition="already_indexed", paper_id=7),
+        _item("new-core", disposition="eligible_full_text", route="core"),
+    )
+    id_counter = {"n": 0}
+
+    def next_id() -> str:
+        id_counter["n"] += 1
+        return f"ev-{id_counter['n']}"
+
+    def fake_run(command: list[str], **kwargs: object) -> _Completed:
+        operation = command[1]
+        if operation == "general-question-acquire-core":
+            request = json.loads(Path(command[2]).read_text(encoding="utf-8"))
+            receipt_path = Path(command[command.index("--receipt") + 1])
+            receipt_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "search_run_id": request["search_run_id"],
+                        "research_question_id": request["research_question_id"],
+                        "acquisition_route": "core",
+                        "import_run_id": "import-1",
+                        "parsed_count": 1,
+                        "persisted_count": 1,
+                        "reused_count": 0,
+                        "items": [
+                            {
+                                "candidate_id": "new-core",
+                                "paper_id": 9,
+                                "persistence_status": "persisted",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+        elif operation == "extraction-review-batch-generate":
+            output = Path(command[command.index("--output") + 1])
+            requested = _requested_paper_ids(command)
+            _write_jsonl(output, [_CLAIMS_BY_PAPER_ID[paper_id] for paper_id in requested])
+        elif operation == "extraction-review-autoclassify":
+            input_path = Path(command[command.index("--input") + 1])
+            output = Path(command[command.index("--output") + 1])
+            drafts = [json.loads(line) for line in input_path.read_text().splitlines() if line]
+            classified = []
+            for index, draft in enumerate(drafts, start=1):
+                classified.append(
+                    {
+                        **draft,
+                        "schema_version": None,
+                        "evidence_record_id": None,
+                        "extraction_method": "m52-evidence-classification-v1",
+                        "extraction_status": "draft_review_required",
+                        "source_doi": f"10.1000/paper-{index}",
+                        "source_title": f"Paper {index}",
+                        "source_type": "paper",
+                        "study_type": "randomized_controlled_trial",
+                        "research_question": "Mechanical paper question",
+                        "evidence_direction": "supports",
+                        "population": "adults",
+                        "intervention": "energy drink",
+                        "comparator": "control",
+                        "outcome": "blood pressure",
+                        "limitations": [],
+                        "uncertainty_notes": "automated",
+                        "confidence_note": "no confidence rating",
+                        "provenance": {"created_by": "test"},
+                        "created_for_milestone": "M52",
+                        "review_status": "draft",
+                        "review_checklist": {"automated_classification": True},
+                    }
+                )
+            _write_jsonl(output, classified)
+        elif operation == "extraction-review-promote":
+            input_path = Path(command[command.index("--input") + 1])
+            output = Path(command[command.index("--output") + 1])
+            input_records = [
+                json.loads(line) for line in input_path.read_text().splitlines() if line
+            ]
+            existing = (
+                [json.loads(line) for line in output.read_text().splitlines() if line]
+                if output.exists()
+                else []
+            )
+            existing_ids = {record.get("evidence_record_id") for record in existing}
+            promoted = []
+            for record in input_records:
+                completed = dict(record)
+                completed["schema_version"] = completed.get("schema_version") or "0.1"
+                completed["evidence_record_id"] = completed.get("evidence_record_id") or next_id()
+                completed["review_status"] = completed.get("review_status") or "draft"
+                if completed["evidence_record_id"] not in existing_ids:
+                    promoted.append(completed)
+            _write_jsonl(output, [*existing, *promoted])
+        elif operation == "evidence-review-automate":
+            staged = Path(command[command.index("--evidence") + 1])
+            records = [json.loads(line) for line in staged.read_text().splitlines() if line]
+            for record in records:
+                record["extraction_method"] = "m69-llm-grounded-pico-v1"
+                record["review_checklist"] = {
+                    **record.get("review_checklist", {}),
+                    "llm_grounded": True,
+                    "human_reviewed": False,
+                }
+            _write_jsonl(staged, records)
+        elif operation == "evidence-record-review-promote":
+            staged = Path(command[command.index("--evidence") + 1])
+            records = [json.loads(line) for line in staged.read_text().splitlines() if line]
+            for record in records:
+                if record.get("review_checklist", {}).get("llm_grounded") is True:
+                    record["review_status"] = "reviewed"
+            _write_jsonl(staged, records)
+        return _Completed()
+
+    # Every `time.monotonic()` call anywhere in `complete_discovered_research`
+    # advances by exactly 1.0 simulated second. The non-pmc "core" route makes
+    # the call sequence fully deterministic (8 calls total: already-indexed
+    # extraction start/stop, acquisition start/stop, acquired-papers extraction
+    # start/stop, re-retrieval start/stop), so each phase's duration is
+    # predictable to the millisecond.
+    clock = iter(float(tick) for tick in range(20))
+    monkeypatch.setattr(time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(module, "_run_ke_command", fake_run)
+    monkeypatch.setattr(module, "_resolve_ke_executable", lambda name: name)
+    monkeypatch.setattr(
+        module, "evidence_report", lambda *args, **kwargs: cast(EvidenceReport, object())
+    )
+
+    result = complete_discovered_research(
+        "Does Monster Energy raise blood pressure?",
+        discovery=_discovery(plan),
+        sources=sources,
+        evidence=evidence,
+        policy=policy,
+    )
+
+    assert result.acquisition_duration_ms == 1000
+    # Before the fix this was 2000ms extra (the acquisition interval counted a
+    # second time): the two extraction batches alone take 1000ms each, summing
+    # to 2000ms -- never inflated by `acquisition_duration_ms`.
+    assert result.extraction_duration_ms == 2000
+    assert result.reretrieval_duration_ms == 1000

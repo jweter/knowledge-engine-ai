@@ -532,6 +532,33 @@ def test_time_to_first_grounded_information_is_none_without_grounded_evidence() 
     assert report.time_to_first_grounded_information_ms is None
 
 
+def test_time_to_first_grounded_information_is_none_when_reretrieval_report_is_empty() -> None:
+    """Regression test for a Codex review finding on PR #125: `reretrieval_report
+    is not None` alone does not mean grounded information was actually returned --
+    a successful re-retrieval call can still come back with zero evidence records.
+    The timing must gate on the evidence-record count, not command success alone.
+    """
+
+    events = (
+        _event("retrieval_and_evidence_intelligence", duration_ms=50),
+        _event("grounded_reretrieval", duration_ms=80),
+    )
+    empty_report = _evidence_report(())
+    completion = _completion(promoted_record_ids=("ev-new-1",), reretrieval_report=empty_report)
+    report = build_research_conversion_funnel_report(
+        _Result(
+            session_id="session-1",
+            discovery=_discovery(),
+            grounded_completion=completion,
+            progress_report=_progress(events=events),
+        )
+    )
+
+    assert report.reretrieval_succeeded is True
+    assert report.reretrieval_evidence_record_count == 0
+    assert report.time_to_first_grounded_information_ms is None
+
+
 # --- serialization --------------------------------------------------------------
 
 

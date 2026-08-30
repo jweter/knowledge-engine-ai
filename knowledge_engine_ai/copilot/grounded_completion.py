@@ -257,10 +257,15 @@ def complete_discovered_research(
     extraction = _ExtractionResult(0, 0, (), (), ())
     extraction_error: str | None = None
     processed_paper_ids: list[int] = []
-    extraction_duration_start = time.monotonic()
+    # Summed across each individual extraction call below, never as one wall-clock
+    # span across the whole function -- an intervening acquisition call (which
+    # records its own `acquisition_duration_ms`) would otherwise be counted
+    # twice when a caller sums per-stage durations (see `bottleneck_report.py`).
+    extraction_duration_ms_total = 0
 
     if already_indexed:
         processed_paper_ids.extend(already_indexed)
+        already_indexed_extraction_start = time.monotonic()
         try:
             extraction = _extract_ground_promote(
                 already_indexed,
@@ -271,6 +276,7 @@ def complete_discovered_research(
             )
         except KeCommandError as exc:
             extraction_error = str(exc)
+        extraction_duration_ms_total += _elapsed_ms(already_indexed_extraction_start)
 
     adequate_from_indexed = extraction_error is None and (
         len(extraction.promoted_record_ids) >= policy.min_promoted_records_for_early_stop
@@ -315,6 +321,7 @@ def complete_discovered_research(
             )
             if newly_acquired:
                 processed_paper_ids.extend(newly_acquired)
+                acquired_extraction_start = time.monotonic()
                 try:
                     acquired_extraction = _extract_ground_promote(
                         newly_acquired,
@@ -326,6 +333,7 @@ def complete_discovered_research(
                     extraction = _merge_extraction_results(extraction, acquired_extraction)
                 except KeCommandError as exc:
                     extraction_error = str(exc)
+                extraction_duration_ms_total += _elapsed_ms(acquired_extraction_start)
 
     paper_ids = tuple(processed_paper_ids)
     if not paper_ids:
@@ -338,7 +346,7 @@ def complete_discovered_research(
             skipped_reason="no persisted or reusable paper was available for grounded extraction",
         )
 
-    extraction_duration_ms = _elapsed_ms(extraction_duration_start)
+    extraction_duration_ms = extraction_duration_ms_total
     if extraction_error is not None and not extraction.promoted_record_ids:
         return GroundedCompletionResult(
             attempted=True,
