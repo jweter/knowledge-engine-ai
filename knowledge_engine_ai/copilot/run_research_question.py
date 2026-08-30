@@ -47,6 +47,10 @@ from knowledge_engine_ai.execution import ExecutionBudget, ExecutionBudgetExceed
 from knowledge_engine_ai.llm import LocalLLM, LocalLLMError
 from knowledge_engine_ai.models import EvidenceReport
 from knowledge_engine_ai.orchestrator.close_gate import SessionCloseResult, attempt_session_close
+from knowledge_engine_ai.orchestrator.funnel_report import (
+    ResearchConversionFunnelReport,
+    build_research_conversion_funnel_report,
+)
 from knowledge_engine_ai.orchestrator.observability import SessionTrace, build_session_trace
 from knowledge_engine_ai.orchestrator.parallel_retrieval import ExternalDiscoveryCallable
 from knowledge_engine_ai.orchestrator.session_report import SessionReport, build_session_report
@@ -90,6 +94,14 @@ class ResearchQuestionResult:
     itself; the ``None`` default exists only so a caller constructing this dataclass
     directly (e.g. a test fixture built before this field existed) is not required to
     supply it. See ``docs/roadmap/bt6_progressive_report_contract.md``.
+
+    ``conversion_funnel_report`` (BT-2, issue #88) is a further additive
+    projection built from ``progress_report``, ``discovery``, and
+    ``grounded_completion``: durable candidate/paper/EvidenceRecord counts at
+    each stage of the arbitrary-question research funnel, plus time-to-first-
+    grounded-information and time-to-final-report. Always populated by
+    ``run_research_question`` itself; the ``None`` default exists for the same
+    pre-existing-fixture reason as ``progress_report``.
     """
 
     session_id: str
@@ -104,6 +116,7 @@ class ResearchQuestionResult:
     trace: SessionTrace
     grounded_completion: GroundedCompletionResult | None = None
     progress_report: ResearchProgressReport | None = None
+    conversion_funnel_report: ResearchConversionFunnelReport | None = None
 
     @property
     def narrative_releaseable(self) -> bool:
@@ -291,7 +304,12 @@ def run_research_question(
     progress_report = build_research_progress_report(
         question_result, research_question_id=resolved_research_question_id
     )
-    return replace(question_result, progress_report=progress_report)
+    question_result = replace(question_result, progress_report=progress_report)
+    # BT-2 (issue #88): derive the conversion-funnel report from the same facts
+    # this call just produced, including the progress report just built above.
+    # See `docs/roadmap/research_pipeline_bottlenecks.md`'s BT-2 section.
+    conversion_funnel_report = build_research_conversion_funnel_report(question_result)
+    return replace(question_result, conversion_funnel_report=conversion_funnel_report)
 
 
 def _validate_grounded_completion_configuration(

@@ -218,20 +218,19 @@ fixes the known parallel-retrieval double-counting problem.
 
 ### BT-2 — research conversion funnel
 
-Add durable counts/statuses for:
-
-```text
-discovered
- -> deduplicated
- -> already indexed
- -> acquisition attempted
- -> full text acquired
- -> extraction attempted
- -> EvidenceRecords promoted/rejected
- -> re-retrieval cycles
- -> first grounded information
- -> final report
-```
+**Status: implemented.** `knowledge_engine_ai.orchestrator.funnel_report`
+projects `run_research_question`'s already-recorded facts into a
+`ResearchConversionFunnelReport`: federated-discovery/citation-snowball
+candidate counts (Core already returns these deduplicated); the
+acquisition plan's already-indexed/full-text-eligible/metadata-only/
+skipped-budget/missing disposition counts; acquisition-route attempted/
+skipped/failed and persisted/reused paper counts; the draft/classified/
+staged/grounded/promoted extraction funnel with a derived rejected-after-
+classification count; re-retrieval attempted/succeeded status and
+evidence-record count; and time-to-first-grounded-information/time-to-
+final-report, both summed from BT-1's per-stage durations. Wired into
+`run_research_question` as `ResearchQuestionResult.conversion_funnel_report`.
+Web's own rendering of this contract is separate follow-up work.
 
 ### BT-3/BT-4 — remove dead ends
 

@@ -9,6 +9,30 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **BT-2: research conversion-funnel report (issue #88).**
+  `knowledge_engine_ai.orchestrator.funnel_report` adds
+  `ResearchConversionFunnelReport`, a pure read-side projection -- the same
+  posture `bottleneck_report.py` (BT-1) and `progress_report.py` (BT-6)
+  already established -- over facts `run_research_question` already
+  computed. It reports, per session: federated-discovery/citation-snowball
+  candidate counts; the acquisition plan's already-indexed/full-text-
+  eligible/metadata-only/skipped-budget/missing disposition counts;
+  acquisition-route attempted/skipped/failed counts and persisted/reused
+  paper counts; the draft/classified/staged/grounded/promoted extraction
+  funnel plus a derived rejected-after-classification count; re-retrieval
+  attempted/succeeded status and evidence-record count; and time-to-first-
+  grounded-information/time-to-final-report, both summed from BT-1's
+  already-computed per-stage durations up to the pipeline stage where
+  grounded evidence first existed. Nothing here re-derives evidence
+  quality, adequacy, or timing -- only arithmetic already implied by
+  durable facts. Wired into `run_research_question` as
+  `ResearchQuestionResult.conversion_funnel_report`, built immediately
+  after BT-6's `progress_report`, whose already-derived indexed-evidence
+  IDs and bottleneck report it reuses rather than re-deriving. 21 new tests
+  in `tests/orchestrator/test_funnel_report.py` plus 3 wiring tests in
+  `tests/copilot/test_run_research_question.py`. See
+  `docs/roadmap/research_pipeline_bottlenecks.md`'s BT-2 section.
+
 - **BT-6: progressive research report contract for Web (issue #90).**
   `knowledge_engine_ai.copilot.progress_report` adds `ResearchProgressReport`,
   a stable, additive projection of `run_research_question`'s already-recorded
