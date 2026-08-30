@@ -18,7 +18,11 @@ from knowledge_engine_ai.ke_client import (
 )
 from knowledge_engine_ai.llm import LocalLLMError
 from knowledge_engine_ai.sessions.models import SessionStatus
-from knowledge_engine_ai.sessions.repository import SessionRepository, new_connection
+from knowledge_engine_ai.sessions.repository import (
+    DuplicateSessionError,
+    SessionRepository,
+    new_connection,
+)
 
 
 def _payload(
@@ -162,6 +166,90 @@ def test_full_run_produces_a_clean_verified_narrative_and_completes(
     assert result.trace.session_id == result.session_id
     assert "synthesis" in [event.workflow_node for event in result.trace.events]
     assert result.trace.all_succeeded
+
+
+def test_caller_supplied_session_id_is_persisted_and_returned(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(subprocess, "run", _fake_run(_payload(evidence_records=[_GROUNDED_RECORD])))
+    repository = _repository()
+
+    result = run_research_question(
+        "does semaglutide reduce body weight",
+        session_repository=repository,
+        sources=tmp_path / "s.csv",
+        evidence=tmp_path / "e.jsonl",
+        llm=_FakeLLM(),
+        session_id="web-session-123",
+    )
+
+    assert result.session_id == "web-session-123"
+    session = repository.get_session("web-session-123")
+    assert session is not None
+    assert session.session_id == "web-session-123"
+
+
+def test_omitted_session_id_still_generates_unique_identities(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(subprocess, "run", _fake_run(_payload(evidence_records=[_GROUNDED_RECORD])))
+    repository = _repository()
+
+    first = run_research_question(
+        "does semaglutide reduce body weight",
+        session_repository=repository,
+        sources=tmp_path / "s.csv",
+        evidence=tmp_path / "e.jsonl",
+        llm=_FakeLLM(),
+    )
+    second = run_research_question(
+        "does semaglutide reduce body weight",
+        session_repository=repository,
+        sources=tmp_path / "s.csv",
+        evidence=tmp_path / "e.jsonl",
+        llm=_FakeLLM(),
+    )
+
+    assert first.session_id
+    assert second.session_id
+    assert first.session_id != second.session_id
+
+
+def test_blank_caller_session_id_is_rejected_before_execution(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="session_id must be non-blank"):
+        run_research_question(
+            "does semaglutide reduce body weight",
+            session_repository=_repository(),
+            sources=tmp_path / "s.csv",
+            evidence=tmp_path / "e.jsonl",
+            llm=_FakeLLM(),
+            session_id="   ",
+        )
+
+
+def test_duplicate_caller_session_id_fails_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(subprocess, "run", _fake_run(_payload(evidence_records=[_GROUNDED_RECORD])))
+    repository = _repository()
+
+    run_research_question(
+        "does semaglutide reduce body weight",
+        session_repository=repository,
+        sources=tmp_path / "s.csv",
+        evidence=tmp_path / "e.jsonl",
+        llm=_FakeLLM(),
+        session_id="web-session-duplicate",
+    )
+    with pytest.raises(DuplicateSessionError):
+        run_research_question(
+            "does semaglutide reduce body weight",
+            session_repository=repository,
+            sources=tmp_path / "s.csv",
+            evidence=tmp_path / "e.jsonl",
+            llm=_FakeLLM(),
+            session_id="web-session-duplicate",
+        )
 
 
 def test_full_run_shares_one_execution_budget_across_core_and_ollama(

@@ -162,6 +162,7 @@ def run_research_question(
     discovery_policy: FederatedDiscoveryPolicy | None = None,
     grounded_completion_policy: GroundedCompletionPolicy | None = None,
     research_question_id: str | None = None,
+    session_id: str | None = None,
     answer_version: int = 1,
     supersedes_session_id: str | None = None,
     ke_executable: str = "ke",
@@ -174,14 +175,22 @@ def run_research_question(
     step, and both policies must point at the same federated-search ledger. The
     completion itself remains evidence-safe: only its final grounded re-retrieval may
     replace the initial corpus report as synthesis input.
+
+    ``session_id`` is an additive orchestration seam for durable callers such as Web:
+    when supplied, that exact non-blank identity is persisted and returned; when omitted,
+    this function preserves the existing behavior and generates a UUID internally.
+    Duplicate supplied identities still fail through ``SessionRepository.create_session``
+    rather than silently adopting or overwriting another run.
     """
 
     _validate_grounded_completion_configuration(discovery_policy, grounded_completion_policy)
+    if session_id is not None and not session_id.strip():
+        raise ValueError("session_id must be non-blank when supplied.")
 
     execution_budget = (
         ExecutionBudget.from_timeout(timeout_seconds) if timeout_seconds is not None else None
     )
-    session_id = str(uuid.uuid4())
+    session_id = session_id or str(uuid.uuid4())
     resolved_research_question_id = research_question_id or _derive_research_question_id(question)
     created_at = _timestamp()
     session_repository.create_session(
