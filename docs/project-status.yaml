@@ -34,10 +34,10 @@ automation_contract:
   advisory_review_unavailable_is_not_failure: true
 
 verified_repository_state:
-  checked_at: "2026-08-28T01:36:00Z"
+  checked_at: "2026-08-30T09:00:00Z"
   note: "Live PR/check/issue state is intentionally not cached as authoritative counts here. Scheduled runs must query GitHub directly before acting."
-  open_prs: 1
-  open_issues: "#69 (General Question Research Loop v1: arbitrary-question orchestration) and #79 (Golden research case: Monster Energy (2 cans/day) and 1-year blood pressure) are open as of this check."
+  open_prs: 0
+  open_issues: "#69, #79, #84, #86, #87, #88, #89, #91 are open as of this check (the BT-2/#88 conversion-funnel and BT-7 early-stop gaps #84/#87/#89 previously named are now implemented; #86/BT-3's production-Research-mode wiring is knowledge-engine-web's own follow-up)."
   ci_workflows:
     - ".github/workflows/quality.yml"
     - ".github/workflows/golden-retrieval-baseline.yml"
@@ -56,7 +56,7 @@ secondary_track:
 
 next_continuation:
   priority: "P5-highest-value-authorized-roadmap"
-  action: "After PR #82 is green and merged, build the bounded GeneralQueryPlan -> Core federated-discovery adapter. Preserve variant_id, track_id, evidence scope, provider outcomes, and Core search_run_id per execution; impose a global call/time budget so plans cannot multiply provider calls without an explicit ceiling. Use issue #79's golden query plan as the regression fixture. Newly found literature still requires GQR-4/GQR-5 grounded extraction/promotion plus re-retrieval before it may affect synthesis."
+  action: "This file's current_milestone/known_gap text was stale as of this update (dated 2026-08-28T01:36 while PR #82, the GQR-2 bounded discovery adapter, GQR-4/GQR-5 grounded completion, BT-7 early stop, BT-6 progressive report contract, and now BT-2's conversion-funnel report all landed after it). BT-2 (issue #88, docs/roadmap/research_pipeline_bottlenecks.md) is now implemented: knowledge_engine_ai.orchestrator.funnel_report projects discovery/acquisition-plan/acquisition-route/extraction/re-retrieval conversion counts plus time-to-first-grounded-information/time-to-final-report, wired into run_research_question as ResearchQuestionResult.conversion_funnel_report. Remaining unimplemented items in that same roadmap doc: BT-0 (golden performance baseline runs -- an operational/benchmark-running task, not a code slice) and the mid-flight progress states BT-6 explicitly reserved (discovering_sources/acquiring_sources/validating_extracting_evidence/reretrieving), which need a durable/incremental caller rather than the current synchronous one. The next Web-facing step (bt6/bt2 contracts rendered in Research mode) is knowledge-engine-web's own follow-up, tracked in jweter/knowledge-engine-web#93."
   selection_rule: "Before beginning roadmap work, query live PR state. Handle failed, green, blocked, conflicted, or pending existing work according to docs/agent-development-policy.md and knowledge-engine-core's shared policy document."
 
 human_decision_required: null

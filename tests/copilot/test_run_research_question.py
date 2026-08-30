@@ -915,6 +915,77 @@ def test_no_retrievable_evidence_progress_report_is_final_insufficient_evidence(
     assert result.progress_report.answer_available is False
 
 
+# --- BT-2 conversion-funnel report wiring (issue #88) -------------------------
+
+
+def test_full_run_populates_a_conversion_funnel_report(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(subprocess, "run", _fake_run(_payload(evidence_records=[_GROUNDED_RECORD])))
+    repository = _repository()
+
+    result = run_research_question(
+        "does semaglutide reduce body weight",
+        session_repository=repository,
+        sources=tmp_path / "s.csv",
+        evidence=tmp_path / "e.jsonl",
+        llm=_FakeLLM(),
+    )
+
+    assert result.conversion_funnel_report is not None
+    assert result.conversion_funnel_report.session_id == result.session_id
+    assert result.conversion_funnel_report.discovery_triggered is False
+    assert result.conversion_funnel_report.indexed_evidence_record_count == 1
+    assert result.conversion_funnel_report.acquisition_plan is None
+    assert result.conversion_funnel_report.time_to_final_report_ms is not None
+
+
+def test_no_retrievable_evidence_conversion_funnel_has_no_indexed_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(subprocess, "run", _fake_run(_payload(papers=False)))
+    repository = _repository()
+
+    result = run_research_question(
+        "a question with no matching evidence",
+        session_repository=repository,
+        sources=tmp_path / "s.csv",
+        evidence=tmp_path / "e.jsonl",
+        llm=_FakeLLM(),
+    )
+
+    assert result.conversion_funnel_report is not None
+    assert result.conversion_funnel_report.indexed_evidence_record_count == 0
+    assert result.conversion_funnel_report.time_to_first_grounded_information_ms is None
+
+
+def test_discovery_triggered_conversion_funnel_reports_candidate_count(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(discovery_policy, "execute_discovery_plan", _federated_discovery_stub)
+    monkeypatch.setattr(discovery_policy, "citation_snowball", _citation_snowball_stub)
+    monkeypatch.setattr(subprocess, "run", _fake_run(_payload(evidence_records=[_GROUNDED_RECORD])))
+    repository = _repository()
+    policy = FederatedDiscoveryPolicy(
+        ledger_root=tmp_path / "ledger", min_evidence_record_coverage=5
+    )
+
+    result = run_research_question(
+        "does semaglutide reduce body weight",
+        session_repository=repository,
+        sources=tmp_path / "s.csv",
+        evidence=tmp_path / "e.jsonl",
+        llm=_FakeLLM(),
+        discovery_policy=policy,
+    )
+
+    assert result.conversion_funnel_report is not None
+    assert result.conversion_funnel_report.discovery_triggered is True
+    # `_federated_discovery_stub` returns no candidates; the funnel must report
+    # exactly what Core returned, not fabricate a nonzero count.
+    assert result.conversion_funnel_report.federated_discovery_candidate_count == 0
+
+
 def test_discovery_triggered_with_releaseable_indexed_answer_progress_report_is_partial(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
