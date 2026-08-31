@@ -98,9 +98,7 @@ class ConclusionRow:
             "certainty": self.certainty.value,
             "certainty_rationale": self.certainty_rationale,
             "supporting_evidence_ids": list(self.supporting_evidence_ids),
-            "contradicting_or_null_evidence_ids": list(
-                self.contradicting_or_null_evidence_ids
-            ),
+            "contradicting_or_null_evidence_ids": list(self.contradicting_or_null_evidence_ids),
             "directness": self.directness.value,
             "missing_direct_evidence": self.missing_direct_evidence,
         }
@@ -293,9 +291,7 @@ def parse_research_report_proposal(
         )
 
     represented_counter_ids = frozenset(
-        evidence_id
-        for row in rows
-        for evidence_id in row.contradicting_or_null_evidence_ids
+        evidence_id for row in rows for evidence_id in row.contradicting_or_null_evidence_ids
     )
     missing_counter_ids = required_counter_evidence_ids - represented_counter_ids
     if missing_counter_ids:
@@ -516,8 +512,7 @@ def _string_tuple(value: object, field_name: str) -> tuple[str, ...]:
     if not isinstance(value, list):
         raise ResearchReportError(f"{field_name} must be a JSON array.")
     return tuple(
-        _required_string(item, f"{field_name}[{index}]")
-        for index, item in enumerate(value)
+        _required_string(item, f"{field_name}[{index}]") for index, item in enumerate(value)
     )
 
 
