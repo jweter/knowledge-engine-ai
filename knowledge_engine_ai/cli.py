@@ -159,6 +159,30 @@ SessionDbOption = Annotated[
         ),
     ),
 ]
+TimeoutSecondsOption = Annotated[
+    float | None,
+    typer.Option(
+        "--timeout-seconds",
+        min=0.0,
+        help=(
+            "Overall wall-clock execution budget for retrieval, discovery, and grounded "
+            "completion before synthesis draws on the same deadline. Unset means unbounded, "
+            "matching prior behavior."
+        ),
+    ),
+]
+MinSynthesisSecondsOption = Annotated[
+    float | None,
+    typer.Option(
+        "--min-synthesis-seconds",
+        min=0.0,
+        help=(
+            "BT-4 (issue #87): reserve at least this many seconds of --timeout-seconds for "
+            "synthesis, so a cold or slow upstream run cannot consume the entire budget and "
+            "leave synthesis with none. Requires --timeout-seconds."
+        ),
+    ),
+]
 
 
 DiscoveryQueryArgument = Annotated[
@@ -434,6 +458,8 @@ def research(
     discovery_ledger_root: DiscoveryLedgerRootOption = None,
     openalex_api_key: OpenAlexApiKeyOption = None,
     semantic_scholar_api_key: SemanticScholarApiKeyOption = None,
+    timeout_seconds: TimeoutSecondsOption = None,
+    min_synthesis_seconds: MinSynthesisSecondsOption = None,
 ) -> None:
     """Run the composed AI-O12 orchestrator pipeline for one research question.
 
@@ -453,6 +479,12 @@ def research(
     run into the coverage-gap discovery policy: see
     `knowledge_engine_ai/copilot/discovery_policy.py`'s docstring for the
     full trigger/budget/provenance policy this flag activates.
+
+    `--timeout-seconds` and `--min-synthesis-seconds` (BT-4, issue #87) opt
+    this run into `run_research_question`'s synthesis budget reservation:
+    without a reservation, a cold or slow upstream stage can consume the
+    entire timeout and leave synthesis with none. Both are unset by default,
+    preserving the prior unbounded/single-shared-budget behavior exactly.
     """
 
     if output_format not in ("text", "json"):
@@ -494,8 +526,10 @@ def research(
             llm=llm,
             limit=limit,
             discovery_policy=discovery_policy,
+            timeout_seconds=timeout_seconds,
+            min_synthesis_seconds=min_synthesis_seconds,
         )
-    except KeCommandError as exc:
+    except (KeCommandError, ValueError) as exc:
         console.print(f"[red]Error:[/red] {exc}")
         raise typer.Exit(1) from exc
 
