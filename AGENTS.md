@@ -9,7 +9,14 @@ Before selecting or implementing substantial work, read:
 1. `docs/agent-development-policy.md` — repository-specific autonomous development rules and the shared Knowledge Engine family policy it references.
 2. `docs/project-status.yaml` — continuity snapshot; reconcile it with live PR, CI, issue, and code state before trusting it.
 3. The active roadmap/design document named by `docs/project-status.yaml`.
-4. `docs/INDUSTRY_REALITY_CHECK.md` — the current repo-specific gap analysis versus grounded-research/AI production expectations.
+4. `docs/roadmap/research_report_v1.md` — adopted product acceptance contract for report quality, evidence boundaries, and the Monster golden case.
+5. `docs/INDUSTRY_REALITY_CHECK.md` — the current repo-specific gap analysis versus grounded-research/AI production expectations.
+
+## Research Report v1 priority
+
+Until the Monster Energy / one-year blood-pressure acceptance case passes end to end, treat Research Report v1 as a standing product constraint. Prefer work that directly improves the structured report contract, claim/evidence linkage, dimension-specific conclusions, certainty rationale, counter-evidence handling, missing-evidence disclosure, or the deployed end-to-end acceptance path over additional non-blocking orchestration abstractions.
+
+Do not trade away grounding, provenance, contradiction review, coverage disclosure, or deterministic release gates to make the report look more polished.
 
 ## How to use the reality check
 
@@ -30,7 +37,7 @@ This repository is the AI/judgment/orchestration layer of one coordinated three-
 - `jweter/knowledge-engine-core`
 - `jweter/knowledge-engine-web`
 
-Do not assume cross-repository compatibility. Verify CLI/output contracts, schemas, evidence semantics, progressive-answer state, and Web consumption before changing shared boundaries.
+Do not assume cross-repository compatibility. Verify CLI/output contracts, schemas, evidence semantics, progressive-answer state, Research Report v1 semantics, and Web consumption before changing shared boundaries.
 
 ## Execution rule
 
