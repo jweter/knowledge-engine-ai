@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import json
 import subprocess
+import threading
+import time
 from pathlib import Path
 
 import pytest
 
+from knowledge_engine_ai.execution import ExecutionBudget
 from knowledge_engine_ai.orchestrator.parallel_retrieval import (
     CONTRADICTION_SIGNAL_PHRASES,
     build_contradiction_query,
@@ -197,5 +200,49 @@ def test_run_parallel_retrieval_captures_external_discovery_failure(
     assert result.external_discovery_result is None
     assert result.external_discovery_error == "external service unreachable"
     # Both retrieval branches still succeed despite the external-discovery failure.
+    assert result.primary.error is None
+    assert result.contradiction.error is None
+
+
+def test_run_parallel_retrieval_abandons_a_hanging_external_discovery_within_the_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A hanging ``external_discovery`` is bounded by ``execution_budget``, not awaited forever.
+
+    Regression test for a bot review finding on PR #127: previously
+    ``external_future.result()`` had no timeout at all, so this callback would
+    have blocked the whole call indefinitely instead of respecting the caller's
+    configured execution budget.
+    """
+
+    question = "does semaglutide reduce body weight"
+
+    def fake_run(command: list[str], **kwargs: object) -> _FakeCompletedProcess:
+        if command[1] == "evidence-intelligence":
+            return _no_intelligence(command)
+        assert command[1] == "evidence-report"
+        return _FakeCompletedProcess(0, json.dumps(_payload(command[2], [])))
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    def hanging_external(q: str) -> object:
+        threading.Event().wait()  # never returns
+        return {"unreachable": True}
+
+    start = time.monotonic()
+    result = run_parallel_retrieval(
+        question,
+        sources=tmp_path / "s.csv",
+        evidence=tmp_path / "e.jsonl",
+        external_discovery=hanging_external,
+        execution_budget=ExecutionBudget.from_timeout(0.3),
+    )
+    elapsed = time.monotonic() - start
+
+    assert elapsed < 1.0
+    assert result.external_discovery_result is None
+    assert result.external_discovery_error is not None
+    assert "abandoned" in result.external_discovery_error
+    # Both retrieval branches still succeed despite the hanging external discovery.
     assert result.primary.error is None
     assert result.contradiction.error is None

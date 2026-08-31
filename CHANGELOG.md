@@ -9,6 +9,34 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **BT-4: opt-in synthesis budget reservation (issue #87).**
+  `run_research_question` gains an additive `min_synthesis_seconds` parameter.
+  Without it, retrieval/discovery/grounded-completion share the exact same
+  `timeout_seconds` deadline synthesis itself draws on, so a cold or slow
+  upstream run can consume the entire budget and leave synthesis with none --
+  ending with no narrative even when grounded evidence exists (see issue
+  #87's second comment: "cold runs starve synthesis of time"). When a caller
+  supplies `min_synthesis_seconds`, those earlier stages instead run against
+  a budget from `ExecutionBudget.with_reserved_tail()`, whose deadline is
+  pulled `min_synthesis_seconds` earlier; synthesis still runs against the
+  original, unreserved budget, so it is guaranteed at least that much time
+  even when upstream stages would otherwise have exhausted it. The
+  reservation only reallocates time away from stages willing to yield it --
+  it never extends the run's total configured timeout -- and omitting the
+  parameter preserves the existing single-shared-budget behavior exactly, so
+  this is fully backward compatible for existing callers (Web included).
+  Rejects a reservation requested without `timeout_seconds`, a non-positive
+  reservation, or one that is not strictly less than `timeout_seconds`. New
+  tests in `tests/test_execution.py` (the underlying `with_reserved_tail()`)
+  and `tests/copilot/test_run_research_question.py` (end-to-end reservation
+  behavior plus validation). See
+  `docs/roadmap/research_pipeline_bottlenecks.md`'s BT-4 section. This is one
+  bounded slice of #87's broader critical path; the previously reported
+  missed-qualifier release-gate failure was already fixed independently (see
+  `test_missed_qualifying_evidence_is_appended_before_session_close`) and the
+  extraction-conversion improvement `#87`'s first comment named remains
+  future work.
+
 - **BT-2: research conversion-funnel report (issue #88).**
   `knowledge_engine_ai.orchestrator.funnel_report` adds
   `ResearchConversionFunnelReport`, a pure read-side projection -- the same

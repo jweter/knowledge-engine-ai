@@ -237,6 +237,27 @@ Web's own rendering of this contract is separate follow-up work.
 Complete production research-state behavior plus GQR-4/GQR-5 so a fresh topic can
 actually cross the discovery-to-evidence boundary automatically.
 
+**Status: GQR-4/GQR-5's executable bridge is implemented** (acquisition plan ->
+bounded PMC/Europe PMC/CORE/Unpaywall execution -> persisted/reused Papers -> staged
+extraction/classification -> Core LLM grounding -> automated review promotion ->
+Core-validated durable EvidenceRecord append -> original-question re-retrieval,
+wired into `run_research_question`'s own session/synthesis path); see issue #87's
+first two comments for the live-verified measurement. Two follow-up gaps that
+measurement surfaced are now also closed: the missed-qualifier release-gate
+failure (`synthesis.py`'s `ensure_required_evidence_coverage` deterministically
+appends any qualifying/contradicting record the model omitted, so
+`verify_synthesis`'s `missed_qualifiers` check cannot be left non-empty by a small
+model ignoring the prompt), and the "cold runs starve synthesis of time" gap
+(`run_research_question`'s opt-in `min_synthesis_seconds` parameter, backed by
+`ExecutionBudget.with_reserved_tail()`, lets a caller guarantee synthesis a time
+floor even when discovery/acquisition/extraction would otherwise consume the
+entire shared deadline; omitting it preserves the prior single-shared-budget
+behavior). Remaining BT-4 work: improve pre-grounding extraction conversion for
+papers the deterministic M52 classifier cannot initially structure (issue #87's
+first comment), and decide/wire a production caller that actually opts into
+`min_synthesis_seconds` with a real reservation value. BT-3's production
+Research-mode wiring remains knowledge-engine-web's own follow-up (issue #86).
+
 ### BT-5 — measured latency optimization
 
 Only after BT-1/BT-2 provide evidence, compare before/after traces for caching,

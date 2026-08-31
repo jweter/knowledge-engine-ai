@@ -35,5 +35,28 @@ class ExecutionBudget:
             )
         return remaining
 
+    def with_reserved_tail(self, reserved_seconds: float) -> ExecutionBudget:
+        """Return a budget whose deadline is pulled `reserved_seconds` earlier.
+
+        BT-4 (issue #87): a single shared deadline lets early, optional-breadth
+        stages (discovery, acquisition, extraction) consume the entire run's
+        wall-clock budget, starving the final synthesis/verification step of any
+        time to produce a narrative on a cold or slow run. A caller that wants to
+        guarantee synthesis a time floor runs earlier stages against this
+        earlier-deadline budget while still running synthesis itself against the
+        original, unreserved budget -- so the reserved tail is only ever taken
+        away from stages willing to yield it, never added on top of the run's
+        configured total timeout.
+
+        `reserved_seconds` may equal or exceed this budget's own remaining time;
+        the returned budget then simply expires immediately (or already has), so
+        the caller's next `remaining_seconds()` call fails closed exactly like
+        any other exhausted budget, rather than through separate handling here.
+        """
+
+        if not math.isfinite(reserved_seconds) or reserved_seconds < 0:
+            raise ValueError("reserved_seconds must be a finite non-negative number.")
+        return ExecutionBudget(deadline_monotonic=self.deadline_monotonic - reserved_seconds)
+
 
 __all__ = ["ExecutionBudget", "ExecutionBudgetExceeded"]

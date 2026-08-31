@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import subprocess
+import threading
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -281,6 +283,142 @@ def test_full_run_shares_one_execution_budget_across_core_and_ollama(
     assert len(llm.timeouts) == 1
     assert llm.timeouts[0] is not None
     assert 0 < llm.timeouts[0] <= 10.0
+
+
+def test_min_synthesis_seconds_requires_timeout_seconds(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="requires timeout_seconds"):
+        run_research_question(
+            "does semaglutide reduce body weight",
+            session_repository=_repository(),
+            sources=tmp_path / "s.csv",
+            evidence=tmp_path / "e.jsonl",
+            llm=_FakeLLM(),
+            min_synthesis_seconds=5.0,
+        )
+
+
+@pytest.mark.parametrize("value", [0.0, -1.0])
+def test_min_synthesis_seconds_must_be_positive(tmp_path: Path, value: float) -> None:
+    with pytest.raises(ValueError, match="finite positive"):
+        run_research_question(
+            "does semaglutide reduce body weight",
+            session_repository=_repository(),
+            sources=tmp_path / "s.csv",
+            evidence=tmp_path / "e.jsonl",
+            llm=_FakeLLM(),
+            timeout_seconds=10.0,
+            min_synthesis_seconds=value,
+        )
+
+
+def test_min_synthesis_seconds_must_be_less_than_timeout(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="less than timeout_seconds"):
+        run_research_question(
+            "does semaglutide reduce body weight",
+            session_repository=_repository(),
+            sources=tmp_path / "s.csv",
+            evidence=tmp_path / "e.jsonl",
+            llm=_FakeLLM(),
+            timeout_seconds=10.0,
+            min_synthesis_seconds=10.0,
+        )
+
+
+def test_min_synthesis_seconds_reserves_time_for_synthesis_over_upstream_stages(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """BT-4 (issue #87): a cold/slow upstream stage must not starve synthesis.
+
+    Without ``min_synthesis_seconds``, retrieval and synthesis draw on the same
+    shared deadline (see ``test_full_run_shares_one_execution_budget_across_core_and_ollama``
+    above). With it, the upstream retrieval call is bounded by the *reserved*
+    (shorter) budget while synthesis still sees the original, unreserved one.
+    """
+
+    subprocess_timeouts: list[float | None] = []
+    fake_run = _fake_run(_payload(evidence_records=[_GROUNDED_RECORD]))
+
+    def capture_timeout(command: list[str], **kwargs: object) -> _FakeCompletedProcess:
+        timeout = kwargs.get("timeout")
+        subprocess_timeouts.append(timeout if isinstance(timeout, float) else None)
+        return fake_run(command, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", capture_timeout)
+    llm = _FakeLLM()
+
+    result = run_research_question(
+        "does semaglutide reduce body weight",
+        session_repository=_repository(),
+        sources=tmp_path / "s.csv",
+        evidence=tmp_path / "e.jsonl",
+        llm=llm,
+        timeout_seconds=10.0,
+        min_synthesis_seconds=8.0,
+    )
+
+    assert result.narrative is not None
+    assert subprocess_timeouts
+    # Retrieval ran against the reserved (~2s) upstream budget...
+    assert all(timeout is not None and 0 < timeout <= 3.0 for timeout in subprocess_timeouts)
+    # ...while synthesis still ran against the full, unreserved 10s budget.
+    assert len(llm.timeouts) == 1
+    assert llm.timeouts[0] is not None
+    assert 5.0 < llm.timeouts[0] <= 10.0
+
+
+def test_min_synthesis_seconds_is_not_starved_by_a_hanging_external_discovery(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A slow/hanging ``external_discovery`` must not eat the reserved synthesis floor.
+
+    Regression test for a bot review finding on PR #127: ``run_parallel_retrieval``
+    used to wait on ``external_future.result()`` with no timeout at all, so a
+    caller-supplied ``external_discovery`` callback that never returns could
+    consume the entire reserved upstream budget (or block far longer than it),
+    leaving synthesis with little or no time. The callback below never
+    completes; the run must still finish promptly and still hand synthesis
+    close to the full, unreserved budget.
+    """
+
+    fake_run = _fake_run(_payload(evidence_records=[_GROUNDED_RECORD]))
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    llm = _FakeLLM()
+
+    def _hanging_external_discovery(question: str) -> object:
+        # Blocks forever -- deliberately never sets this Event. Runs on a
+        # daemon thread under the fix, so it does not prevent the test
+        # process from exiting even though it never returns.
+        threading.Event().wait()
+        return {"unreachable": True}
+
+    start = time.monotonic()
+    result = run_research_question(
+        "does semaglutide reduce body weight",
+        session_repository=_repository(),
+        sources=tmp_path / "s.csv",
+        evidence=tmp_path / "e.jsonl",
+        llm=llm,
+        external_discovery=_hanging_external_discovery,
+        timeout_seconds=2.0,
+        min_synthesis_seconds=1.8,
+    )
+    elapsed = time.monotonic() - start
+
+    # The whole call returns promptly -- nowhere near blocking for the
+    # hanging callback's (infinite) runtime, and comfortably inside the
+    # ~0.2s reserved-upstream-budget window plus the fake, instant synthesis.
+    assert elapsed < 1.5
+    assert result.narrative is not None
+    assert len(llm.timeouts) == 1
+    assert llm.timeouts[0] is not None
+    # Synthesis still saw close to the full, unreserved 2s budget.
+    assert 1.5 < llm.timeouts[0] <= 2.0
+
+    parallel_retrieval = result.workflow.parallel_retrieval
+    assert parallel_retrieval is not None
+    assert parallel_retrieval.external_discovery_result is None
+    assert parallel_retrieval.external_discovery_error is not None
+    assert "abandoned" in parallel_retrieval.external_discovery_error
 
 
 def test_no_retrievable_evidence_passes_vacuously_and_completes(

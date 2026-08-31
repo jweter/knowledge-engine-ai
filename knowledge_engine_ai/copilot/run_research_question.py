@@ -17,6 +17,7 @@ synthesis directly.
 from __future__ import annotations
 
 import hashlib
+import math
 import time
 import uuid
 from dataclasses import dataclass, replace
@@ -167,6 +168,7 @@ def run_research_question(
     supersedes_session_id: str | None = None,
     ke_executable: str = "ke",
     timeout_seconds: float | None = None,
+    min_synthesis_seconds: float | None = None,
 ) -> ResearchQuestionResult:
     """Create one session and run retrieval, optional grounded completion, and synthesis.
 
@@ -181,15 +183,37 @@ def run_research_question(
     this function preserves the existing behavior and generates a UUID internally.
     Duplicate supplied identities still fail through ``SessionRepository.create_session``
     rather than silently adopting or overwriting another run.
+
+    ``min_synthesis_seconds`` is BT-4's (issue #87) opt-in synthesis budget reservation:
+    without it, retrieval/discovery/grounded-completion may consume the entire
+    ``timeout_seconds`` deadline before synthesis runs, so a cold or slow run can starve
+    synthesis of any time at all and end with no narrative. When supplied (and only
+    together with ``timeout_seconds``), those earlier stages instead run against a
+    budget whose deadline is pulled ``min_synthesis_seconds`` earlier, guaranteeing
+    synthesis itself -- which still runs against the original, unreserved budget -- at
+    least that much time even under a fully-consumed upstream budget. It never extends
+    the run's total configured timeout; it only reallocates time away from stages
+    willing to yield it. Omitting it preserves the existing single-shared-budget
+    behavior exactly.
     """
 
     _validate_grounded_completion_configuration(discovery_policy, grounded_completion_policy)
     if session_id is not None and not session_id.strip():
         raise ValueError("session_id must be non-blank when supplied.")
+    if min_synthesis_seconds is not None:
+        if timeout_seconds is None:
+            raise ValueError("min_synthesis_seconds requires timeout_seconds to also be set.")
+        if not math.isfinite(min_synthesis_seconds) or min_synthesis_seconds <= 0:
+            raise ValueError("min_synthesis_seconds must be a finite positive number.")
+        if min_synthesis_seconds >= timeout_seconds:
+            raise ValueError("min_synthesis_seconds must be less than timeout_seconds.")
 
     execution_budget = (
         ExecutionBudget.from_timeout(timeout_seconds) if timeout_seconds is not None else None
     )
+    upstream_execution_budget = execution_budget
+    if execution_budget is not None and min_synthesis_seconds is not None:
+        upstream_execution_budget = execution_budget.with_reserved_tail(min_synthesis_seconds)
     session_id = session_id or str(uuid.uuid4())
     resolved_research_question_id = research_question_id or _derive_research_question_id(question)
     created_at = _timestamp()
@@ -216,7 +240,7 @@ def run_research_question(
         limit=limit,
         external_discovery=external_discovery,
         ke_executable=ke_executable,
-        execution_budget=execution_budget,
+        execution_budget=upstream_execution_budget,
     )
 
     discovery_augmentation: DiscoveryAugmentationResult | None = None
@@ -226,7 +250,7 @@ def run_research_question(
             session_id=session_id,
             workflow_result=workflow_result,
             policy=discovery_policy,
-            execution_budget=execution_budget,
+            execution_budget=upstream_execution_budget,
             research_question_id=resolved_research_question_id,
         )
 
@@ -243,7 +267,7 @@ def run_research_question(
             evidence=evidence,
             policy=grounded_completion_policy,
             ke_executable=ke_executable,
-            execution_budget=execution_budget,
+            execution_budget=upstream_execution_budget,
         )
         _record_grounded_completion_events(
             session_repository,
