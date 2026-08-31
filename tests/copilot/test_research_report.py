@@ -18,7 +18,12 @@ from knowledge_engine_ai.copilot.research_report import (
     parse_research_report_proposal,
 )
 from knowledge_engine_ai.copilot.research_state import ResearchState
-from knowledge_engine_ai.models import EvidenceRecord, EvidenceReport, EvidenceSummary, RetrievedPaper
+from knowledge_engine_ai.models import (
+    EvidenceRecord,
+    EvidenceReport,
+    EvidenceSummary,
+    RetrievedPaper,
+)
 from knowledge_engine_ai.orchestrator.bottleneck_report import (
     ResearchPipelineStage,
     SessionBottleneckReport,
@@ -180,7 +185,9 @@ def _payload() -> dict[str, object]:
                 "question_dimension": "acute_bp",
                 "conclusion": "Acute blood pressure can rise after exposure [ev-positive].",
                 "certainty": "moderate",
-                "certainty_rationale": "The retrieved direct trial supports the acute effect [ev-positive].",
+                "certainty_rationale": (
+                    "The retrieved direct trial supports the acute effect [ev-positive]."
+                ),
                 "supporting_evidence_ids": ["ev-positive"],
                 "contradicting_or_null_evidence_ids": [],
                 "directness": "direct",
@@ -188,9 +195,13 @@ def _payload() -> dict[str, object]:
             },
             {
                 "question_dimension": "habitual_bp",
-                "conclusion": "Sustained elevation is not established by this evidence [ev-null].",
+                "conclusion": (
+                    "Sustained elevation is not established by this evidence [ev-null]."
+                ),
                 "certainty": "low",
-                "certainty_rationale": "The repeated-use result is null and coverage is limited [ev-null].",
+                "certainty_rationale": (
+                    "The repeated-use result is null and coverage is limited [ev-null]."
+                ),
                 "supporting_evidence_ids": [],
                 "contradicting_or_null_evidence_ids": ["ev-null"],
                 "directness": "class_level",
@@ -200,7 +211,10 @@ def _payload() -> dict[str, object]:
         "narrative_sections": [
             {
                 "heading": "What the evidence separates",
-                "body": "Acute and habitual effects should not be collapsed [ev-positive] [ev-null].",
+                "body": (
+                    "Acute and habitual effects should not be collapsed "
+                    "[ev-positive] [ev-null]."
+                ),
             }
         ],
         "missing_evidence": ["Long-duration direct exposure evidence."],
@@ -286,7 +300,12 @@ def test_generate_report_attaches_only_deterministic_progress_provenance() -> No
     assert report.degraded_providers == ("openalex",)
     assert report.provider_coverage_completeness == "partial"
     assert report.limitations == ("Short follow-up.",)
-    assert report.to_dict()["conclusion_rows"][0]["certainty"] == "moderate"  # type: ignore[index]
+    serialized = report.to_dict()
+    serialized_rows = serialized["conclusion_rows"]
+    assert isinstance(serialized_rows, list)
+    first_row = serialized_rows[0]
+    assert isinstance(first_row, dict)
+    assert first_row["certainty"] == "moderate"
     assert len(llm.prompts) == 1
 
 
