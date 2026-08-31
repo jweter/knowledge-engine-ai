@@ -12,7 +12,6 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TypeVar
 
 from knowledge_engine_ai.copilot.progress_report import (
     ProviderStatusSummary,
@@ -50,8 +49,6 @@ _CONCLUSION_KEYS = frozenset(
 _SECTION_KEYS = frozenset({"heading", "body"})
 _QUALIFYING_DIRECTIONS = frozenset({"qualifies", "contradicts"})
 _HEALTHY_PROVIDER_OUTCOMES = frozenset({None, "success", "ok", "complete", "completed"})
-
-_EnumT = TypeVar("_EnumT", bound=StrEnum)
 
 
 class ResearchReportError(RuntimeError):
@@ -222,7 +219,8 @@ Required schema:
       "certainty_rationale": "why, tied to the evidence and missing evidence",
       "supporting_evidence_ids": ["evidence-id"],
       "contradicting_or_null_evidence_ids": ["evidence-id"],
-      "directness": "direct" | "class_level" | "indirect_context" | "guidance" | "mixed" | "unavailable",
+      "directness": "direct" | "class_level" | "indirect_context" |
+        "guidance" | "mixed" | "unavailable",
       "missing_direct_evidence": "specific missing direct evidence" or null
     }}
   ],
@@ -541,11 +539,11 @@ def _require_exact_keys(
         )
 
 
-def _enum_value(
-    enum_type: type[_EnumT],
+def _enum_value[T: StrEnum](
+    enum_type: type[T],
     value: object,
     field_name: str,
-) -> _EnumT:
+) -> T:
     if not isinstance(value, str):
         raise ResearchReportError(f"{field_name} must be a string.")
     try:
