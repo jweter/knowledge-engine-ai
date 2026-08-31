@@ -1,23 +1,57 @@
 schema_version: 1
 project: knowledge-engine-ai
-updated_at: "2026-08-31T12:00:00Z"
-status_source: "Verified repository state plus docs/roadmap/future_ai_orchestration_plan.md; this file is a continuity cache and never overrides higher-authority evidence."
+updated_at: "2026-08-31T20:45:00Z"
+status_source: "Live GitHub state verified 2026-08-31 plus docs/roadmap/research_report_v1.md, docs/roadmap/general_question_research_loop_v1.md, and docs/golden_research_case_benchmark.md. This file is a continuity cache and never overrides live repository state, CI, code, or higher-authority roadmap contracts."
 
 product:
-  primary_surface: "Python library: the judgment/orchestration layer over knowledge-engine-core's evidence graph"
-  role_in_family: "owns the one supported subprocess boundary (ke_client.py) for invoking Core's `ke` CLI; consumed by knowledge-engine-web as a dependency"
-  research_copilot_status: "AI-O12-O17 web integration wiring complete (run_research_question composed, wired into Web's /ask, guardrails, live-verified); AI-O10 Discovery Intelligence and AI-O11 Hypothesis/Experiment Assistance not started (both explicitly gated on analytical/graph prerequisites)"
+  primary_surface: "Python library: the judgment/orchestration layer over knowledge-engine-core's validated evidence graph"
+  role_in_family: "owns Research Copilot orchestration and the supported subprocess boundary to Core; consumed by knowledge-engine-web"
+  research_copilot_status: "General Question Research Loop grounded completion, deterministic verification, Research ISA close gates, progressive research state, bottleneck/funnel reporting, and Research Report v1's structured report contract are implemented. The structured report has not yet passed the deployed Web Monster acceptance case end to end."
 
 current_milestone:
-  name: "Federated discovery orchestration adoption (AI-layer guidance)"
-  roadmap_file: "docs/roadmap/federated_discovery_orchestration_adoption.md"
-  state: "active -- AI-FRD-2's provider-coverage criterion now has a first bounded, tested slice; AI-FRD-5's rerun/diff reasoning has a first bounded, tested, unwired slice; its answer/session-versioning wiring is scoped in docs/roadmap/answer_session_versioning_design.md. That design's research_question_id-threading prerequisite, its repository-layer version-transition mechanics (ResearchSession.answer_version/supersedes_session_id/narrative_invalidated_at fields; SessionRepository.record_narrative_invalidation()/supersede_session()), its DOI-crosswalk detection layer (copilot/research_freshness.py's session_retrieval_dois()/crosswalk_publication_status_flips(), plus the additive ResearchEvent.source_dois field), its invalidates-versus-qualifies trigger (copilot/research_freshness.py's apply_narrative_touching_flips(), which calls record_narrative_invalidation() for a retracted/withdrawn touching flip, at most once per session, or returns a corrected/expression_of_concern one as a qualifying pending flip without persisting it), a real end-to-end caller for one session (`ke-ai session-freshness SESSION_ID`, read-only by default, `--apply` persists an invalidating flip), its read-side projection (`AnswerFreshness`/`build_answer_freshness()`, `SessionRepository.list_sessions_for_research_question()`, both wired into `ke-ai session-freshness`'s own text/JSON output), and the version-minting caller (`copilot/research_freshness.py`'s `mint_next_version()`, plus `run_research_question`'s additive `answer_version`/`supersedes_session_id` keyword parameters) are all implemented and tested. Every mechanism both of AI-FRD-5's remaining exit criteria need is built and tested; what remains for both criteria is the still-open product/policy question of who/what invokes session-freshness/version-minting and how often -- no scheduled or automatic caller exists yet for either."
-  objective: "Let Research Copilot plan bounded federated-discovery requests to Core rather than calling provider APIs directly, without ever treating provider count as evidence quality."
-  known_gap: "AI-FRD-3/AI-FRD-4 wiring (discovery_policy.py) closed 2026-08-19 (see CHANGELOG.md). 2026-08-21 implemented AI-FRD-5's first exit criterion (copilot/research_freshness.py, `ke-ai research-freshness`; see CHANGELOG.md). 2026-08-22 implemented AI-FRD-2's first exit criterion, the AnswerFreshness read-side projection, and the version-minting caller (`mint_next_version()`): given a COMPLETED, thread-tracked prior session, it re-runs `run_research_question` as version N+1 of the same research_question_id thread and, only on a COMPLETED outcome, supersedes the prior version -- never on a BLOCKED outcome, per the design doc's 'a degraded re-verification attempt must never demote a still-good prior answer' rule. No caller yet invokes `mint_next_version()` for a real session -- that, and the still-undecided who/what/how-often policy question, remain this milestone's own next continuation. AI-FRD-2's remaining exit criteria (contradiction-search and citation-integrity criteria already exist independently as `contradiction_review`/`citation_integrity`; a correction/retraction close-gate criterion needs AI-FRD-5's rerun/diff reasoning wired into a session first) remain future work."
+  name: "Research Report v1 — end-to-end product acceptance"
+  roadmap_file: "docs/roadmap/research_report_v1.md"
+  state: "active"
+  tracking_issue: "#129"
+  acceptance_case: "#79 monster-energy-bp-one-year"
+  objective: "Match or exceed a strong scholarly-assistant answer for readability while materially exceeding it in provenance, evidence-boundary discipline, contradiction handling, missing-evidence disclosure, and auditability."
+  implementation_state: "PR #130 merged the typed ResearchReport contract and deterministic validation. PR #131 merged the fail-closed completed-session integration seam. The AI layer can now build a structured report only from a releaseable completed research result using the effective grounded EvidenceReport and existing ResearchProgressReport."
+  blocking_gap: "knowledge-engine-web has not yet completed consumption/rendering of Research Report v1, and the Monster #79 deployed end-to-end acceptance run has not yet passed."
+  priority_rule: "Until Monster #79 passes end to end, do not let unrelated non-blocking orchestration abstractions outrank report integration, report correctness, Web consumption, or acceptance failures."
+
+research_report_v1_handoff:
+  completed:
+    - "PR #130 — Research Report v1 structured contract and validation — merged to main."
+    - "PR #131 — safe integration from completed ResearchQuestionResult-like sessions to Research Report v1 — merged to main."
+    - "ResearchReport carries bottom line, dimension-specific conclusions, certainty plus rationale, support/counter-evidence IDs, directness, missing evidence, provider/degradation state, indexed-vs-new provenance, limitations, session ID, and research state."
+    - "Validation rejects fabricated EvidenceRecord IDs, duplicate/overlapping evidence classifications, missing required dimensions, and omitted required qualifying/counter-evidence."
+    - "Structured report generation is downstream of the existing narrative verification and Research ISA close gates; a report-generation failure cannot invalidate an otherwise verified base result."
+  authoritative_code_paths:
+    - "knowledge_engine_ai/copilot/research_report.py"
+    - "knowledge_engine_ai/copilot/research_report_integration.py"
+    - "knowledge_engine_ai/copilot/run_research_question.py"
+    - "knowledge_engine_ai/research_case_benchmark.py"
+    - "knowledge_engine_ai/research_case_query_plan.py"
+  required_next_sequence:
+    - "1. knowledge-engine-web: finish its Research Report v1 dependency/lock update and remove any temporary lock-generation tooling before opening the Web PR."
+    - "2. Web: carry ResearchReportBuildResult through orchestration without scraping narrative prose for semantics."
+    - "3. Web Layer 1: render answer first — bottom line, dimension-specific conclusion/certainty rows, certainty rationale, and the key missing-direct-evidence limitation."
+    - "4. Web Layer 2: preserve inspectable evidence and methodology — citations, source/evidence detail, directness, positive vs null/counter-evidence, provider coverage/degradation, indexed-vs-acquired provenance, funnel/session state."
+    - "5. Run Monster #79 through the deployed Ask path; record session ID, funnel, latency, provider state, promoted records, final ResearchState, citations, and every failed acceptance criterion."
+    - "6. Fix failures without weakening grounding/provenance/release gates; repeat until the Monster report passes both deterministic checks and the manual readability/usefulness comparison."
+    - "7. Only after Monster #79 passes: add cross-domain golden cases, then optimize latency while preserving evidence gates."
+  nonnegotiable_invariants:
+    - "Every substantive factual claim remains grounded/source-linked."
+    - "Direct Monster/commercial-energy-drink evidence stays distinct from class-level energy-drink and indirect caffeine/coffee/soda evidence."
+    - "Acute evidence cannot be presented as proof of chronic one-year effects."
+    - "Null, contradictory, and qualifying evidence must be represented deliberately."
+    - "Missing direct long-duration evidence is explicit and machine-readable."
+    - "Certainty must have a traceable rationale or be unavailable with a reason."
+    - "A polished report never bypasses citation, contradiction, coverage, grounding, or Research ISA close gates."
+  done_when: "Research Report v1 is not complete until the deployed Monster #79 Ask run produces all required dimensions, exposes positive and null evidence plus direct/indirect boundaries and missing one-year evidence, resolves released factual claims to grounded evidence, and is manually judged at least as readable/useful as the scholarly-assistant baseline."
 
 automation_contract:
-  schedule_role: "repository participant in an hourly portfolio-development loop (owner-managed; not created by this session)"
-  new_roadmap_pr_budget_per_run: 1
+  schedule_role: "repository participant in an hourly portfolio-development loop (owner-managed)"
   query_live_github_state_every_run: true
   newly_opened_pr_requires_fresh_ci_before_merge: true
   draft_prs: "never"
@@ -30,34 +64,38 @@ automation_contract:
   non_required_workflows:
     - name: "Golden Retrieval Baseline"
       file: ".github/workflows/golden-retrieval-baseline.yml"
-      note: "workflow_dispatch only -- never runs automatically on a PR, not a required check"
+      note: "workflow_dispatch only; not a required PR check"
   advisory_review_unavailable_is_not_failure: true
 
 verified_repository_state:
-  checked_at: "2026-08-31T12:00:00Z"
-  note: "Live PR/check/issue state is intentionally not cached as authoritative counts here. Scheduled runs must query GitHub directly before acting."
+  checked_at: "2026-08-31T20:45:00Z"
+  note: "Live PR/check/issue state must be queried before acting; cached counts here are only a handoff snapshot."
   open_prs: 0
-  open_issues: "#69, #79, #84, #86, #87, #88, #89, #91 are open as of this check. BT-2/#88 (conversion-funnel), BT-6's AI-side contract/#90, BT-7/#89's early-stop, and BT-5a's cache observability are implemented. #87/BT-4's GQR-4/GQR-5 executable bridge is implemented and live-verified (issue #87 comments); this run closed two follow-up gaps that verification surfaced -- the missed-qualifier release-gate failure (already fixed independently, pre-existing on main) and the 'cold runs starve synthesis of time' gap (a prior run's `min_synthesis_seconds` addition). This run wired this repo's own `ke-ai research` CLI command with `--timeout-seconds`/`--min-synthesis-seconds` options so it can actually opt into that reservation, which it previously could not. #87 itself remains open pending the pre-grounding extraction-conversion improvement (#87's first comment) and the still-undecided policy question of whether/when a durable production caller (Web's own integration) should enable the reservation and with what value -- this run added the capability, not a production default. #86/BT-3's production-Research-mode wiring is knowledge-engine-web's own follow-up, not ours."
+  current_research_report_main_commit: "2eee4cc9ba76f99e669d2e52669e84d8b5199a41"
+  recently_merged_research_report_prs:
+    - number: 131
+      title: "Wire Research Report v1 to completed research sessions"
+    - number: 130
+      title: "Research Report v1 structured contract and validation"
+  active_research_report_issues:
+    - "#129 Research Report v1 implementation"
+    - "#79 Monster Energy golden acceptance case"
+    - "jweter/knowledge-engine-web#107 answer-first Research Report UI"
   ci_workflows:
     - ".github/workflows/quality.yml"
     - ".github/workflows/golden-retrieval-baseline.yml"
 
 secondary_track:
-  name: "General Question Research Loop v1 (issue #69)"
+  name: "General Question Research Loop v1"
   roadmap_file: "docs/roadmap/general_question_research_loop_v1.md"
-  note: "A separate, cross-repo-coordinated track from current_milestone above. Core now owns deterministic acquisition routing and provider execution while AI owns orchestration and research-state derivation; acquired Papers remain non-evidence until Core grounded extraction/promotion and re-retrieval complete."
-  action_2026_08_23: "Added the first ke_client wrapper for Core's ke general-question-acquisition-plan command: general_question_acquisition_plan() in knowledge_engine_ai/ke_client.py, following the same subprocess/parse pattern as federated_discover/citation_snowball, plus typed GeneralQuestionAcquisitionPlanResult/GeneralQuestionAcquisitionItem/GeneralQuestionAcquisitionIdentity dataclasses and a strict parser. The wrapper is bounded to planning and preserves Core's authority boundary."
-  action_2026_08_23_continuation: "Added opt-in acquisition-plan orchestration in copilot/discovery_policy.py. FederatedDiscoveryPolicy.enable_acquisition_plan defaults False and, when explicitly enabled, requests a bounded plan only for the triggered federated-discovery run's own deduplicated candidates. The plan is recorded as a ResearchEvent but never treated as EvidenceRecord authority."
-  action_2026_08_24: "Core CORE-GQR-3 and the PMC portion of CORE-GQR-4 are now merged upstream. Added GeneralQuestionAcquisitionItem.acquisition_route plus ke_client.general_question_acquire_pmc(), an explicit wrapper that strictly preserves Paper/ImportRun/ImportItem receipt lineage. It remains unwired: existing callers download nothing, and acquired Papers are not Evidence Records before grounded extraction, validation, and re-retrieval. Other route executors and CORE-GQR-5 remain future work."
-  action_2026_08_25: "Implemented the dependency-safe GQR-1 AI research-state contract: stable ResearchState values, deterministic derivation from indexed retrieval/discovery/acquisition-plan/provider/close-gate facts, versioned JSON serialization, and regression coverage. Discovery candidates remain leads and a triggered weak-coverage session cannot be mislabeled indexed_answer. The synchronous pipeline reserves researching for the later durable asynchronous acquisition/extraction workflow rather than fabricating progress."
-  action_2026_08_27: "Issue #79 now has the first deterministic GQR golden research-case scaffold in knowledge_engine_ai/research_case_benchmark.py. It keeps the existing reviewed-EvidenceRecord retrieval benchmark separate, encodes Zero Ultra vs Original exposures, acute/chronic/incident-hypertension/measurement dimensions, required search tracks, all issue-seeded PMIDs as discovery targets, explicit null/counter-evidence targets, scholarly-provider coverage, long-term evidence-gap disclosure, claim-linking and inference guards, plus focused tests and documentation. Discovery seeds remain non-evidence and no preferred scientific conclusion is encoded."
-  action_2026_08_27_gqr2: "Implemented the first deterministic GQR-2 query-plan compiler slice in knowledge_engine_ai/general_query_plan.py plus the issue #79 golden fixture in research_case_query_plan.py. The plan is versioned and inspectable, bounds concepts/synonyms/tracks/query counts and query length, preserves at least one canonical query per track before round-robin synonym expansion, supports explicit direct/class/indirect/guidance/counterevidence scopes, keeps PICO opt-in rather than forcing it on unrelated domains, and carries issue #79 answer dimensions plus PMID seed identities as non-evidence search artifacts."
-  action_2026_08_28_gqr2_producer: "PR #82 adds the validated arbitrary-question producer in copilot/query_decomposition.py. A local model may propose domain/framing/answer dimensions/concepts/synonyms/search tracks only; source identities are excluded from the model schema and remain caller-owned. Strict parsing plus the existing deterministic compiler reject malformed JSON, unknown fields, invalid scopes, incompatible PICO framing, unknown concept references, and bound violations. The original question remains caller-owned. This closes the question-interpretation half of GQR-2 without executing any provider or treating model output as evidence."
+  tracking_issue: "#69"
+  note: "GQR remains the execution foundation under Research Report v1: indexed retrieval -> bounded discovery -> acquisition -> grounded extraction/promotion -> original-question re-retrieval -> synthesis -> verification -> Research ISA close. Continue GQR work when it directly blocks report quality or Monster acceptance; do not treat it as a reason to postpone the report product milestone."
+  known_remaining_work: "Issue #87 still contains pre-grounding extraction-conversion and synthesis-budget policy follow-up. Address those when a real acceptance run or Web production integration demonstrates they are blocking the Research Report v1 path."
 
 next_continuation:
-  priority: "P5-highest-value-authorized-roadmap"
-  action: "This run (2026-08-31, second run) wired issue #87's opt-in min_synthesis_seconds reservation into this repo's own `ke-ai research` CLI command: new --timeout-seconds/--min-synthesis-seconds options pass straight through to run_research_question, both unset by default (no behavior change for existing invocations), and an invalid combination now surfaces as a clean CLI error via the existing KeCommandError-style except block rather than an uncaught ValueError. New tests in tests/test_cli.py; ruff format/check, mypy, and the full pytest suite are green locally. This closes one of the two pieces the prior run's continuation note left open. Issue #87 remains open: its still-unaddressed pieces are the pre-grounding extraction-conversion improvement for papers the deterministic M52 classifier cannot initially structure (#87's first comment), and -- separately from this run's CLI wiring -- the still-undecided product/policy question of whether/when knowledge-engine-web's own production integration (a Python-import caller, not this CLI) should opt into the reservation and with what value; that decision and its cross-repo wiring remain knowledge-engine-web's own follow-up. Remaining unimplemented items in docs/roadmap/research_pipeline_bottlenecks.md: BT-0 (golden performance baseline runs -- an operational/benchmark-running task, not a code slice) and the mid-flight progress states BT-6 explicitly reserved (discovering_sources/acquiring_sources/validating_extracting_evidence/reretrieving), which need a durable/incremental caller rather than the current synchronous one. The next Web-facing step (bt6/bt2 contracts rendered in Research mode) is knowledge-engine-web's own follow-up, tracked in jweter/knowledge-engine-web#93."
-  selection_rule: "Before beginning roadmap work, query live PR state. Handle failed, green, blocked, conflicted, or pending existing work according to docs/agent-development-policy.md and knowledge-engine-core's shared policy document."
+  priority: "P1-research-report-v1"
+  action: "Do not start a new independent AI abstraction. First inspect live Web #107 and the Web Research Report integration branch. The next AI work should be driven by concrete Web integration or Monster #79 acceptance failures: schema/serialization gaps, evidence-link resolution, dimension coverage, certainty rationale, counter-evidence representation, or fail-closed release behavior. If no AI-side defect blocks Web, work in knowledge-engine-web rather than inventing more AI plumbing."
+  selection_rule: "Before beginning work, query live PR/CI/branch state. Existing failed, pending, conflicted, blocked, or merge-ready work takes priority. Never merge failed, pending, conflicted, blocked, or materially uncertain work."
 
 human_decision_required: null
 
