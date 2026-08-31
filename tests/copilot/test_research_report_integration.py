@@ -17,7 +17,10 @@ from knowledge_engine_ai.models import (
     EvidenceSummary,
     RetrievedPaper,
 )
-from knowledge_engine_ai.orchestrator.bottleneck_report import SessionBottleneckReport
+from knowledge_engine_ai.orchestrator.bottleneck_report import (
+    ResearchPipelineStage,
+    SessionBottleneckReport,
+)
 
 
 class _FakeLLM:
@@ -122,7 +125,7 @@ def _progress_report() -> ResearchProgressReport:
         session_id="session-1",
         research_question_id="rq-1",
         progress_stage=ResearchProgressStage.FINAL_ANSWER,
-        current_stage=None,
+        current_stage=ResearchPipelineStage.REPORT_CLOSE,
         research_state=ResearchState.INDEXED_ANSWER,
         research_state_reason="indexed_answer_releaseable",
         final=True,
