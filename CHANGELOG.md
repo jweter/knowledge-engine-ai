@@ -9,6 +9,22 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **BT-4: wire `ke-ai research`'s own production caller into the synthesis
+  budget reservation (issue #87).** The prior slice added
+  `run_research_question`'s opt-in `min_synthesis_seconds` parameter but left
+  every caller, including this repo's own `research` CLI command, without a
+  way to opt in. `ke-ai research` gains `--timeout-seconds` and
+  `--min-synthesis-seconds` options that pass straight through to
+  `run_research_question`; both are unset by default, preserving the prior
+  unbounded/single-shared-budget behavior exactly. An invalid combination
+  (`--min-synthesis-seconds` without `--timeout-seconds`, a non-positive
+  reservation, or one not strictly less than the timeout) now surfaces as a
+  clean CLI error instead of an uncaught `ValueError`. New tests in
+  `tests/test_cli.py`. This closes one of `#87`'s two remaining pieces named
+  in `docs/project-status.yaml`'s prior continuation note; the pre-grounding
+  extraction-conversion improvement for papers the deterministic M52
+  classifier cannot initially structure remains future work.
+
 - **BT-4: opt-in synthesis budget reservation (issue #87).**
   `run_research_question` gains an additive `min_synthesis_seconds` parameter.
   Without it, retrieval/discovery/grounded-completion share the exact same

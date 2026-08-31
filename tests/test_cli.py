@@ -911,6 +911,117 @@ def test_research_without_broaden_search_on_gap_passes_no_policy(
     assert captured["discovery_policy"] is None
 
 
+def test_research_passes_timeout_and_min_synthesis_seconds_through(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sources = tmp_path / "sources.csv"
+    evidence = tmp_path / "evidence.jsonl"
+    sources.write_text("")
+    evidence.write_text("")
+    monkeypatch.setattr(cli, "OllamaLLM", _FakeLLM)
+
+    captured: dict[str, object] = {}
+
+    def fake_run_research_question(*args: object, **kwargs: object) -> ResearchQuestionResult:
+        captured.update(kwargs)
+        return _research_result()
+
+    monkeypatch.setattr(cli, "run_research_question", fake_run_research_question)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "research",
+            "does semaglutide reduce lean mass",
+            "--sources",
+            str(sources),
+            "--evidence",
+            str(evidence),
+            "--llm-model",
+            "qwen2.5:1.5b",
+            "--session-db",
+            str(tmp_path / "sessions.db"),
+            "--timeout-seconds",
+            "120",
+            "--min-synthesis-seconds",
+            "30",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["timeout_seconds"] == 120
+    assert captured["min_synthesis_seconds"] == 30
+
+
+def test_research_defaults_timeout_and_min_synthesis_seconds_to_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sources = tmp_path / "sources.csv"
+    evidence = tmp_path / "evidence.jsonl"
+    sources.write_text("")
+    evidence.write_text("")
+    monkeypatch.setattr(cli, "OllamaLLM", _FakeLLM)
+
+    captured: dict[str, object] = {}
+
+    def fake_run_research_question(*args: object, **kwargs: object) -> ResearchQuestionResult:
+        captured.update(kwargs)
+        return _research_result()
+
+    monkeypatch.setattr(cli, "run_research_question", fake_run_research_question)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "research",
+            "does semaglutide reduce lean mass",
+            "--sources",
+            str(sources),
+            "--evidence",
+            str(evidence),
+            "--llm-model",
+            "qwen2.5:1.5b",
+            "--session-db",
+            str(tmp_path / "sessions.db"),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["timeout_seconds"] is None
+    assert captured["min_synthesis_seconds"] is None
+
+
+def test_research_min_synthesis_seconds_without_timeout_prints_a_clean_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sources = tmp_path / "sources.csv"
+    evidence = tmp_path / "evidence.jsonl"
+    sources.write_text("")
+    evidence.write_text("")
+    monkeypatch.setattr(cli, "OllamaLLM", _FakeLLM)
+
+    result = CliRunner().invoke(
+        app,
+        [
+            "research",
+            "does semaglutide reduce lean mass",
+            "--sources",
+            str(sources),
+            "--evidence",
+            str(evidence),
+            "--llm-model",
+            "qwen2.5:1.5b",
+            "--session-db",
+            str(tmp_path / "sessions.db"),
+            "--min-synthesis-seconds",
+            "30",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "min_synthesis_seconds requires timeout_seconds" in result.output
+
+
 def test_research_format_json_includes_null_discovery_by_default(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
