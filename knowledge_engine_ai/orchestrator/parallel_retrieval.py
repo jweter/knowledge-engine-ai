@@ -64,12 +64,13 @@ without this module changing.
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
-from knowledge_engine_ai.execution import ExecutionBudget
+from knowledge_engine_ai.execution import ExecutionBudget, ExecutionBudgetExceeded
 from knowledge_engine_ai.ke_client import KeCommandError, enriched_evidence_report
 from knowledge_engine_ai.models import EvidenceReport
 from knowledge_engine_ai.orchestrator.retrieval_cache import (
@@ -176,14 +177,53 @@ def run_parallel_retrieval(
     `ParallelRetrievalResult` so a caller sees exactly what happened on
     both sides, the same "record what happened, do not let one failure
     hide another" posture `run_fixed_evidence_workflow` already
-    established for its own fixed steps. `external_discovery`, if
-    supplied, runs in the same thread pool; its own exception is caught
-    and reported via `external_discovery_error`, never propagated.
+    established for its own fixed steps.
+
+    `external_discovery`, if supplied, runs on its own daemon thread
+    rather than inside the retrieval thread pool. The primary and
+    contradiction branches are already bounded by `execution_budget`
+    (it becomes each `ke` subprocess call's own timeout, same as every
+    other `ke_client` call); a caller-supplied `external_discovery`
+    callable has no such built-in bound, so this function enforces one
+    directly: when `execution_budget` is supplied, the wait for that
+    callback is capped at the budget's own remaining time (mirroring
+    `_run_ke_command`'s `execution_budget.remaining_seconds()` pattern),
+    and a callback that has not finished by then is abandoned -- its
+    error is reported via `external_discovery_error`, its eventual
+    result (if any) is discarded, and this call returns rather than
+    blocking further. This is what lets a caller reserve a synthesis
+    time floor (`run_research_question`'s `min_synthesis_seconds`,
+    BT-4/issue #87) without a slow external-discovery callback silently
+    consuming that reserved tail. The thread itself cannot be forcibly
+    killed (Python threads never can be); marking it a daemon thread
+    only ensures it cannot block interpreter/process shutdown either.
+    Without `execution_budget`, the wait remains unbounded, matching
+    this function's pre-existing behavior for callers that configure no
+    timeout at all.
     """
 
     contradiction_query = build_contradiction_query(question)
 
-    with ThreadPoolExecutor(max_workers=3) as executor:
+    external_done = threading.Event()
+    external_result_holder: list[object] = []
+    external_error_holder: list[str] = []
+    external_thread: threading.Thread | None = None
+    if external_discovery is not None:
+        external_thread = threading.Thread(
+            target=_run_external_discovery,
+            args=(
+                external_discovery,
+                question,
+                external_result_holder,
+                external_error_holder,
+                external_done,
+            ),
+            name="parallel-retrieval-external-discovery",
+            daemon=True,
+        )
+        external_thread.start()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
         primary_future = executor.submit(
             _run_branch,
             query=question,
@@ -202,20 +242,30 @@ def run_parallel_retrieval(
             ke_executable=ke_executable,
             execution_budget=execution_budget,
         )
-        external_future = None
-        if external_discovery is not None:
-            external_future = executor.submit(external_discovery, question)
 
         primary = primary_future.result()
         contradiction = contradiction_future.result()
 
-        external_discovery_result: object | None = None
-        external_discovery_error: str | None = None
-        if external_future is not None:
-            try:
-                external_discovery_result = external_future.result()
-            except Exception as exc:  # noqa: BLE001 -- caller-supplied callable, any exception possible
-                external_discovery_error = str(exc)
+    external_discovery_result: object | None = None
+    external_discovery_error: str | None = None
+    if external_thread is not None:
+        try:
+            wait_timeout = (
+                execution_budget.remaining_seconds() if execution_budget is not None else None
+            )
+        except ExecutionBudgetExceeded:
+            wait_timeout = 0.0
+        completed = external_done.wait(timeout=wait_timeout)
+        if not completed:
+            external_discovery_error = (
+                "External discovery callback did not complete within the execution budget "
+                f"(waited {wait_timeout:.3f}s); it was abandoned and its eventual result, "
+                "if any, will not be used."
+            )
+        elif external_error_holder:
+            external_discovery_error = external_error_holder[0]
+        elif external_result_holder:
+            external_discovery_result = external_result_holder[0]
 
     primary_ids = _evidence_record_ids(primary.report)
     contradiction_ids = _evidence_record_ids(contradiction.report)
@@ -230,6 +280,30 @@ def run_parallel_retrieval(
         contradiction_evidence_record_ids=contradiction_ids,
         contradiction_only_evidence_record_ids=contradiction_ids - primary_ids,
     )
+
+
+def _run_external_discovery(
+    external_discovery: ExternalDiscoveryCallable,
+    question: str,
+    result_holder: list[object],
+    error_holder: list[str],
+    done: threading.Event,
+) -> None:
+    """Run the caller-supplied callback on its own thread and always signal `done`.
+
+    Runs on a daemon thread started by `run_parallel_retrieval`, which waits on
+    `done` for at most its own bounded timeout -- so this function's own
+    unbounded runtime never directly blocks that caller; only the `done.set()`
+    signal in `finally` communicates back, and a run that never finishes simply
+    never sets `done`.
+    """
+
+    try:
+        result_holder.append(external_discovery(question))
+    except Exception as exc:  # noqa: BLE001 -- caller-supplied callable, any exception possible
+        error_holder.append(str(exc))
+    finally:
+        done.set()
 
 
 def _run_branch(
