@@ -1,23 +1,10 @@
 """Structured Research Report v1 generation and deterministic validation.
 
-The normal Research Copilot pipeline already produces a citation-grounded narrative,
-a durable research state, provider coverage, and indexed-vs-new evidence provenance.
-Research Report v1 adds a machine-readable answer projection over those same facts so
-Web can render an answer-first experience without scraping semantics out of prose.
-
-The local model is allowed to perform the judgment-layer work that belongs in this
-repository: organize the question into answer dimensions, summarize the retrieved
-EvidenceRecords, assign an ordinal certainty, and characterize directness relative to
-the user's question. It is *not* allowed to invent source identities or provider facts.
-Every evidence ID in model output is checked against the effective EvidenceReport,
-requested dimensions are enforced when supplied, and every qualifying/contradicting
-record must remain represented. Provider/search provenance is copied only from the
-already-deterministic ResearchProgressReport.
-
-This module is intentionally additive. A malformed structured-report proposal raises a
-ResearchReportError; callers may preserve the already-verified narrative while exposing
-that structured-report failure separately. The existing citation/ISA release gates remain
-authoritative for whether the narrative itself may be released.
+Research Report v1 is a machine-readable answer projection over the same grounded
+EvidenceReport and ResearchProgressReport facts the Research Copilot already owns.
+The local model may perform judgment-layer synthesis, but it may not invent source
+identities or provider facts. Model-proposed evidence IDs and answer dimensions are
+strictly validated before deterministic provenance is attached.
 """
 
 from __future__ import annotations
@@ -25,6 +12,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import TypeVar
 
 from knowledge_engine_ai.copilot.progress_report import (
     ProviderStatusSummary,
@@ -61,6 +49,9 @@ _CONCLUSION_KEYS = frozenset(
 )
 _SECTION_KEYS = frozenset({"heading", "body"})
 _QUALIFYING_DIRECTIONS = frozenset({"qualifies", "contradicts"})
+_HEALTHY_PROVIDER_OUTCOMES = frozenset({None, "success", "ok", "complete", "completed"})
+
+_EnumT = TypeVar("_EnumT", bound=StrEnum)
 
 
 class ResearchReportError(RuntimeError):
@@ -230,7 +221,7 @@ Required schema:
       "question_dimension": "...",
       "conclusion": "dimension-specific conclusion with [evidence-id] citations",
       "certainty": "high" | "moderate" | "low" | "unavailable",
-      "certainty_rationale": "why, tied to the cited evidence and missing evidence",
+      "certainty_rationale": "why, tied to the evidence and missing evidence",
       "supporting_evidence_ids": ["evidence-id"],
       "contradicting_or_null_evidence_ids": ["evidence-id"],
       "directness": "direct" | "class_level" | "indirect_context" | "guidance" | "mixed" | "unavailable",
@@ -242,22 +233,20 @@ Required schema:
   ],
   "missing_evidence": ["specific evidence gap", "..."],
   "direct_evidence_summary": "what the most direct evidence establishes, with citations",
-  "indirect_evidence_summary": "what indirect/class/guidance evidence can and cannot establish, with citations"
+  "indirect_evidence_summary": "what indirect evidence can and cannot establish, with citations"
 }}
 
 Rules:
 - Answer the user's question first; methodology comes later.
 - {dimension_instruction}
 - Every substantive factual statement must carry one or more [evidence-id] citations.
-- supporting_evidence_ids and contradicting_or_null_evidence_ids must contain only IDs
-  shown below and must match the evidence actually discussed in that row.
+- Evidence ID arrays may contain only IDs shown below.
 - Deliberately represent null, contradicting, and qualifying evidence; never hide it.
 - Acute evidence must not be phrased as proof of a chronic or one-year effect.
 - Distinguish direct evidence from broader class-level or indirect-context evidence.
 - Use certainty=unavailable when the grounded evidence cannot support a responsible rating.
 - Certainty is ordinal judgment, not a numeric score. Explain the rationale.
-- If direct long-duration evidence is missing, state that explicitly in missing_direct_evidence
-  and missing_evidence rather than extrapolating as though a direct trial exists.
+- If direct long-duration evidence is missing, state it explicitly rather than extrapolating.
 - Do not claim a study design, duration, result, or limitation not present below.
 
 User question:
@@ -382,11 +371,6 @@ def generate_research_report(
         required_dimensions=answer_dimensions,
         required_counter_evidence_ids=required_counter_ids,
     )
-    degraded_providers = tuple(
-        status.provider
-        for status in progress_report.provider_statuses
-        if status.attempted and status.outcome not in (None, "success", "ok", "complete")
-    )
 
     return ResearchReport(
         schema_version=RESEARCH_REPORT_SCHEMA_VERSION,
@@ -398,7 +382,7 @@ def generate_research_report(
         direct_evidence_summary=proposal.direct_evidence_summary,
         indirect_evidence_summary=proposal.indirect_evidence_summary,
         provider_coverage_completeness=progress_report.provider_coverage_completeness,
-        degraded_providers=degraded_providers,
+        degraded_providers=_degraded_provider_names(progress_report),
         provider_statuses=progress_report.provider_statuses,
         indexed_before_run_evidence_ids=progress_report.indexed_evidence_record_ids,
         acquired_during_run_evidence_ids=progress_report.newly_acquired_evidence_record_ids,
@@ -409,17 +393,22 @@ def generate_research_report(
 
 
 def _parse_conclusion_rows(
-    value: object, known_evidence_ids: frozenset[str]
+    value: object,
+    known_evidence_ids: frozenset[str],
 ) -> tuple[ConclusionRow, ...]:
     if not isinstance(value, list):
         raise ResearchReportError("conclusion_rows must be a JSON array.")
+
     rows: list[ConclusionRow] = []
     for index, item in enumerate(value):
         if not isinstance(item, dict):
             raise ResearchReportError(f"conclusion_rows[{index}] must be an object.")
         _require_exact_keys(item, _CONCLUSION_KEYS, f"conclusion_rows[{index}]")
+
         certainty = _enum_value(
-            ReportCertainty, item["certainty"], f"conclusion_rows[{index}].certainty"
+            ReportCertainty,
+            item["certainty"],
+            f"conclusion_rows[{index}].certainty",
         )
         directness = _enum_value(
             EvidenceDirectness,
@@ -436,6 +425,7 @@ def _parse_conclusion_rows(
             f"conclusion_rows[{index}].contradicting_or_null_evidence_ids",
             known_evidence_ids,
         )
+
         overlap = set(supporting) & set(counter)
         if overlap:
             raise ResearchReportError(
@@ -447,12 +437,12 @@ def _parse_conclusion_rows(
                 f"conclusion_rows[{index}] assigns certainty without any grounded evidence IDs."
             )
 
-        missing_direct_value = item["missing_direct_evidence"]
-        if missing_direct_value is not None and not isinstance(missing_direct_value, str):
+        missing_direct = item["missing_direct_evidence"]
+        if missing_direct is not None and not isinstance(missing_direct, str):
             raise ResearchReportError(
                 f"conclusion_rows[{index}].missing_direct_evidence must be a string or null."
             )
-        if isinstance(missing_direct_value, str) and not missing_direct_value.strip():
+        if isinstance(missing_direct, str) and not missing_direct.strip():
             raise ResearchReportError(
                 f"conclusion_rows[{index}].missing_direct_evidence must not be blank."
             )
@@ -460,10 +450,12 @@ def _parse_conclusion_rows(
         rows.append(
             ConclusionRow(
                 question_dimension=_required_string(
-                    item["question_dimension"], f"conclusion_rows[{index}].question_dimension"
+                    item["question_dimension"],
+                    f"conclusion_rows[{index}].question_dimension",
                 ),
                 conclusion=_required_string(
-                    item["conclusion"], f"conclusion_rows[{index}].conclusion"
+                    item["conclusion"],
+                    f"conclusion_rows[{index}].conclusion",
                 ),
                 certainty=certainty,
                 certainty_rationale=_required_string(
@@ -473,7 +465,7 @@ def _parse_conclusion_rows(
                 supporting_evidence_ids=supporting,
                 contradicting_or_null_evidence_ids=counter,
                 directness=directness,
-                missing_direct_evidence=missing_direct_value,
+                missing_direct_evidence=missing_direct,
             )
         )
     return tuple(rows)
@@ -482,6 +474,7 @@ def _parse_conclusion_rows(
 def _parse_sections(value: object) -> tuple[NarrativeSection, ...]:
     if not isinstance(value, list):
         raise ResearchReportError("narrative_sections must be a JSON array.")
+
     sections: list[NarrativeSection] = []
     for index, item in enumerate(value):
         if not isinstance(item, dict):
@@ -489,8 +482,14 @@ def _parse_sections(value: object) -> tuple[NarrativeSection, ...]:
         _require_exact_keys(item, _SECTION_KEYS, f"narrative_sections[{index}]")
         sections.append(
             NarrativeSection(
-                heading=_required_string(item["heading"], f"narrative_sections[{index}].heading"),
-                body=_required_string(item["body"], f"narrative_sections[{index}].body"),
+                heading=_required_string(
+                    item["heading"],
+                    f"narrative_sections[{index}].heading",
+                ),
+                body=_required_string(
+                    item["body"],
+                    f"narrative_sections[{index}].body",
+                ),
             )
         )
     return tuple(sections)
@@ -504,6 +503,7 @@ def _evidence_id_tuple(
     evidence_ids = _string_tuple(value, field_name)
     if len(set(evidence_ids)) != len(evidence_ids):
         raise ResearchReportError(f"{field_name} must not contain duplicate IDs.")
+
     unknown = set(evidence_ids) - known_evidence_ids
     if unknown:
         raise ResearchReportError(
@@ -515,10 +515,10 @@ def _evidence_id_tuple(
 def _string_tuple(value: object, field_name: str) -> tuple[str, ...]:
     if not isinstance(value, list):
         raise ResearchReportError(f"{field_name} must be a JSON array.")
-    values: list[str] = []
-    for index, item in enumerate(value):
-        values.append(_required_string(item, f"{field_name}[{index}]"))
-    return tuple(values)
+    return tuple(
+        _required_string(item, f"{field_name}[{index}]")
+        for index, item in enumerate(value)
+    )
 
 
 def _required_string(value: object, field_name: str) -> str:
@@ -527,12 +527,18 @@ def _required_string(value: object, field_name: str) -> str:
     return value
 
 
-def _require_exact_keys(value: dict[object, object], expected: frozenset[str], label: str) -> None:
+def _require_exact_keys(
+    value: dict[object, object],
+    expected: frozenset[str],
+    label: str,
+) -> None:
     keys = set(value)
     missing = expected - keys
     unknown = keys - expected
     if missing:
-        raise ResearchReportError(f"{label} is missing required field(s): {', '.join(sorted(missing))}")
+        raise ResearchReportError(
+            f"{label} is missing required field(s): {', '.join(sorted(missing))}"
+        )
     if unknown:
         raise ResearchReportError(
             f"{label} contains unsupported field(s): "
@@ -540,7 +546,11 @@ def _require_exact_keys(value: dict[object, object], expected: frozenset[str], l
         )
 
 
-def _enum_value(enum_type: type[StrEnum], value: object, field_name: str) -> StrEnum:
+def _enum_value(
+    enum_type: type[_EnumT],
+    value: object,
+    field_name: str,
+) -> _EnumT:
     if not isinstance(value, str):
         raise ResearchReportError(f"{field_name} must be a string.")
     try:
@@ -580,6 +590,16 @@ def _render_evidence_record(paper: RetrievedPaper, record: EvidenceRecord) -> st
 
 def _requires_counter_coverage(record: EvidenceRecord) -> bool:
     return record.evidence_direction in _QUALIFYING_DIRECTIONS or bool(record.limitations)
+
+
+def _degraded_provider_names(progress_report: ResearchProgressReport) -> tuple[str, ...]:
+    if not progress_report.provider_degraded:
+        return ()
+    return tuple(
+        status.provider
+        for status in progress_report.provider_statuses
+        if status.attempted and status.outcome not in _HEALTHY_PROVIDER_OUTCOMES
+    )
 
 
 def _extract_json_object(text: str) -> str | None:
