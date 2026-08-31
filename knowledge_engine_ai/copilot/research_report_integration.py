@@ -99,7 +99,9 @@ def build_research_report_for_result(
             timeout_seconds=timeout_seconds,
         )
     except (ResearchReportError, LocalLLMError):
-        return ResearchReportBuildResult(report=None, error_code="research_report_generation_failed")
+        return ResearchReportBuildResult(
+            report=None, error_code="research_report_generation_failed"
+        )
 
     return ResearchReportBuildResult(report=report, error_code=None)
 
