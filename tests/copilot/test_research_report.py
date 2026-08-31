@@ -212,8 +212,7 @@ def _payload() -> dict[str, object]:
             {
                 "heading": "What the evidence separates",
                 "body": (
-                    "Acute and habitual effects should not be collapsed "
-                    "[ev-positive] [ev-null]."
+                    "Acute and habitual effects should not be collapsed [ev-positive] [ev-null]."
                 ),
             }
         ],
