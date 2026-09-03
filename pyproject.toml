@@ -15,7 +15,7 @@ rich = ">=13.9.4,<16.0.0"
 [tool.poetry.group.dev.dependencies]
 mypy = "^2.1.0"
 pytest = "^9.1.1"
-ruff = "0.16.4"
+ruff = "0.16.5"
 pip-audit = "^2.10.1"
 
 [tool.poetry.scripts]
