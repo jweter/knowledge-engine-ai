@@ -171,8 +171,9 @@ def main() -> int:
     else:
         if preflight.get("required_before_pr") is not True:
             errors.append("preflight.required_before_pr must be true")
-        if not valid_argv(preflight.get("format_apply")):
-            errors.append("preflight.format_apply must be a non-empty argv list")
+        formatter = preflight.get("format_apply")
+        if formatter is not None and not valid_argv(formatter):
+            errors.append("preflight.format_apply must be null or a non-empty argv list")
         checks = preflight.get("checks")
         if not isinstance(checks, list) or not checks:
             errors.append("preflight.checks must be a non-empty list")
