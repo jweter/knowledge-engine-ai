@@ -50,7 +50,8 @@ def main() -> int:
     preflight = control["preflight"]
     evidence_path = root / args.evidence
 
-    if args.fix and run_step(preflight["format_apply"], root) != 0:
+    formatter = preflight.get("format_apply")
+    if args.fix and formatter is not None and run_step(formatter, root) != 0:
         return 1
 
     results: list[dict[str, object]] = []
