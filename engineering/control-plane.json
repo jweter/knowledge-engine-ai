@@ -182,6 +182,16 @@
         "fast": true
       },
       {
+        "id": "execution_director",
+        "argv": [
+          "python",
+          "engineering/execution_director.py",
+          "validate"
+        ],
+        "kind": "governance",
+        "fast": true
+      },
+      {
         "id": "regression_memory",
         "argv": [
           "poetry",
@@ -272,5 +282,28 @@
     "learning_rule": "record verified failures, root causes, successful repairs, regression protection, and residual risk; never store secrets or private Product Reality payloads",
     "dependency_rule": "prefer slices that unblock more downstream work when priority and risk are otherwise comparable",
     "sentinel_rule": "surface architecture/security/governance/readiness drift only from observable evidence; do not fabricate percentages or acceptance"
+  },
+  "execution_director": {
+    "schema_version": 1,
+    "executable": "engineering/execution_director.py",
+    "workflow": ".github/workflows/execution-director.yml",
+    "dependency_graph": "engineering/portfolio-dependencies.json",
+    "output_artifact": "execution-plan",
+    "capabilities": [
+      "portfolio_action_policy",
+      "automatic_workflow_failure_learning_ingestion",
+      "automatic_review_finding_learning_ingestion",
+      "specialist_lane_dispatch_reservations",
+      "private_product_reality_inbox_harvesting",
+      "cross_repo_dependency_unlock_analysis",
+      "thresholded_readiness_remediation",
+      "reserved_decision_escalation"
+    ],
+    "action_policy": "P0/P1 remediation and active PR ownership always precede new roadmap slices; only a clean ownership/remediation state may EXECUTE_NEXT_SLICE",
+    "learning_policy": "derive sanitized workflow/review lessons automatically; the hourly portfolio orchestrator may persist only meaningful verified lessons into learning-memory",
+    "product_reality_policy": "harvest only private/local evidence inboxes into sanitized attestations; never infer PASS and never commit private evidence payloads",
+    "dispatch_policy": "specialist lanes are conflict-aware reservations under one scheduler and are never independent merge authorities",
+    "dependency_policy": "use only documented portfolio dependency edges; Knowledge Engine changes must respect consumer direction and compatibility, standalone projects remain isolated",
+    "sentinel_policy": "REMEDIATE for material repeated failures or P0/P1 drift, HOLD for WIP pressure, ESCALATE only reserved human decisions"
   }
 }
