@@ -305,5 +305,37 @@
     "dispatch_policy": "specialist lanes are conflict-aware reservations under one scheduler and are never independent merge authorities",
     "dependency_policy": "use only documented portfolio dependency edges; Knowledge Engine changes must respect consumer direction and compatibility, standalone projects remain isolated",
     "sentinel_policy": "REMEDIATE for material repeated failures or P0/P1 drift, HOLD for WIP pressure, ESCALATE only reserved human decisions"
+  },
+  "scheduler_integration": {
+    "schema_version": 1,
+    "decision_order": [
+      "verify_live_github_state",
+      "consume_execution_director",
+      "consume_growth_engine",
+      "consult_governing_roadmap"
+    ],
+    "execution_plan": {
+      "workflow": "Execution Director",
+      "artifact": "execution-plan",
+      "max_age_hours": 2,
+      "require_default_branch_head_match": true,
+      "rule": "treat the plan as advisory evidence; revalidate all material GitHub state before mutating repositories"
+    },
+    "learning_persistence": {
+      "rule": "persist only resolved and verified lessons; never store secrets, raw private Product Reality payloads, or unverified conclusions",
+      "destination": "engineering/learning-memory.json"
+    },
+    "specialist_dispatch": {
+      "allowed_only_when_state": "EXECUTE_NEXT_SLICE",
+      "reservation_required": true,
+      "one_scheduler_merge_authority": true,
+      "max_substantial_new_slices_per_project_per_run": 1
+    },
+    "product_reality": {
+      "use_sanitized_attestations_only": true,
+      "private_payloads_never_committed": true,
+      "stale_pass_must_not_be_treated_as_verified": true
+    },
+    "fallback": "if execution-plan evidence is missing/stale/inconsistent, derive equivalent state from live GitHub plus the control-plane contract and classify uncertainty explicitly"
   }
 }

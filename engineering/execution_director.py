@@ -535,11 +535,19 @@ def self_test() -> list[str]:
 def validate() -> int:
     control = load(CONTROL, {})
     director = control.get("execution_director")
+    scheduler = control.get("scheduler_integration")
     errors = self_test()
     if not isinstance(director, dict) or director.get("schema_version") != 1:
         errors.append("execution_director contract missing or invalid")
     if control.get("schema_version", 0) < 4:
         errors.append("execution director requires control-plane schema v4")
+    if not isinstance(scheduler, dict) or scheduler.get("schema_version") != 1:
+        errors.append("scheduler_integration contract missing or invalid")
+    elif (
+        scheduler.get("specialist_dispatch", {}).get("allowed_only_when_state")
+        != "EXECUTE_NEXT_SLICE"
+    ):
+        errors.append("scheduler specialist dispatch must require EXECUTE_NEXT_SLICE")
     try:
         dependency_graph(control)
     except SystemExit as exc:
