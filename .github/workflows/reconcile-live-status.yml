@@ -1,0 +1,47 @@
+name: Reconcile Live Status
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: "17 */6 * * *"
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: read
+
+jobs:
+  reconcile:
+    if: github.actor != 'github-actions[bot]' || github.event_name != 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Derive evidence-backed live status
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python engineering/orchestrator_ops.py reconcile-status
+      - name: Open reconciliation PR when semantic state changed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- engineering/live-status.json; then
+            echo "Live status is already reconciled."
+            exit 0
+          fi
+          BRANCH="automation/status-reconcile"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$BRANCH"
+          git add engineering/live-status.json
+          git commit -m "chore: reconcile live control-plane status"
+          git push --force-with-lease origin "$BRANCH"
+          PR_NUMBER="$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')"
+          if [ -z "$PR_NUMBER" ]; then
+            gh pr create               --base main               --head "$BRANCH"               --title "chore: reconcile live control-plane status"               --body "Generated from live GitHub PR/issue state and committed Product Reality evidence. UNKNOWN readiness dimensions are intentional when evidence is insufficient."
+          fi
