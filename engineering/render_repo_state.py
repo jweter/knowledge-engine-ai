@@ -7,9 +7,7 @@ from pathlib import Path
 
 def main() -> int:
     root = Path(__file__).resolve().parents[1]
-    control = json.loads(
-        (root / "engineering" / "control-plane.json").read_text(encoding="utf-8")
-    )
+    control = json.loads((root / "engineering" / "control-plane.json").read_text(encoding="utf-8"))
     memory = json.loads(
         (root / "engineering" / "regression-memory.json").read_text(encoding="utf-8")
     )
