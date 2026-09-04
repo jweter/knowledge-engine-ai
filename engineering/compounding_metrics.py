@@ -104,7 +104,9 @@ def automation_attributed(pull: dict[str, Any]) -> bool:
     user = pull.get("user") or {}
     login = str(user.get("login") or "")
     user_type = str(user.get("type") or "")
-    return (ref.startswith(AUTOMATION_PREFIXES) or user_type.lower() == "bot" or login.endswith("[bot]"))
+    return (
+        ref.startswith(AUTOMATION_PREFIXES) or user_type.lower() == "bot" or login.endswith("[bot]")
+    )
 
 
 def is_human_actor(user: Any) -> bool:
