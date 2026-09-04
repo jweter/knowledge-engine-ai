@@ -2,6 +2,9 @@ name: Engineering Compounding Report
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - "orchestrator/activate-compounding-report"
   schedule:
     - cron: "41 3 * * *"
 
