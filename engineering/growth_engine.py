@@ -592,10 +592,50 @@ def record_learning_event(args: argparse.Namespace) -> int:
     return 0
 
 
+def self_test() -> list[str]:
+    errors: list[str] = []
+    high = score_issue(
+        {
+            "number": 1,
+            "title": "critical security defect",
+            "body": "",
+            "labels": [{"name": "P0"}, {"name": "security"}],
+        }
+    )
+    normal = score_issue(
+        {
+            "number": 2,
+            "title": "small roadmap improvement",
+            "body": "",
+            "labels": [{"name": "P5"}, {"name": "size:s"}],
+        }
+    )
+    if high.score <= normal.score:
+        errors.append("priority ranking invariant failed")
+
+    deps = extract_dependencies(
+        [
+            {"number": 10, "body": "blocked by #11"},
+            {"number": 11, "body": ""},
+        ]
+    )
+    if not deps or deps[0]["dependency_issue"] != 11:
+        errors.append("dependency extraction invariant failed")
+
+    if not is_product_reality_dependent((), "requires Unreal playtest", ""):
+        errors.append("Product Reality classification invariant failed")
+
+    lanes = assign_specialist_lanes([high, normal], [])
+    if len({row["lane"] for row in lanes}) != len(lanes):
+        errors.append("specialist lanes must be unique")
+
+    return errors
+
+
 def validate() -> int:
     control = load_control()
     growth = control.get("growth_engine")
-    errors = []
+    errors = self_test()
     if not isinstance(growth, dict):
         errors.append("control-plane growth_engine contract is missing")
     memory = load_json(LEARNING_MEMORY, None)
