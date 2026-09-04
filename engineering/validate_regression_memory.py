@@ -13,7 +13,9 @@ def main() -> int:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        print(f"REGRESSION_MEMORY_ERROR: cannot load {path.relative_to(root)}: {exc}", file=sys.stderr)
+        print(
+            f"REGRESSION_MEMORY_ERROR: cannot load {path.relative_to(root)}: {exc}", file=sys.stderr
+        )
         return 1
 
     if data.get("schema_version") != 1:
@@ -49,7 +51,9 @@ def main() -> int:
         protection = entry.get("regression_protection")
         if isinstance(protection, list):
             for item in protection:
-                if isinstance(item, str) and ("/" in item or item.endswith((".py", ".yml", ".yaml", ".json"))):
+                if isinstance(item, str) and (
+                    "/" in item or item.endswith((".py", ".yml", ".yaml", ".json"))
+                ):
                     if not (root / item).exists():
                         errors.append(f"regression protection path does not exist: {item}")
 
