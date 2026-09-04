@@ -211,12 +211,18 @@ def extract_dependencies(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for source, target in edges:
         incoming[target] = incoming.get(target, 0) + 1
     return [
-        {"blocked_issue": source, "dependency_issue": target, "unlock_weight": incoming.get(target, 0)}
+        {
+            "blocked_issue": source,
+            "dependency_issue": target,
+            "unlock_weight": incoming.get(target, 0),
+        }
         for source, target in sorted(edges)
     ]
 
 
-def assign_specialist_lanes(candidates: list[Candidate], open_prs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def assign_specialist_lanes(
+    candidates: list[Candidate], open_prs: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
     occupied_paths: set[str] = set()
     for pr in open_prs:
         for label in normalize_labels(pr):
@@ -258,7 +264,9 @@ def assign_specialist_lanes(candidates: list[Candidate], open_prs: list[dict[str
     return assignments
 
 
-def sentinel_findings(control: dict[str, Any], open_prs: list[dict[str, Any]]) -> list[dict[str, str]]:
+def sentinel_findings(
+    control: dict[str, Any], open_prs: list[dict[str, Any]]
+) -> list[dict[str, str]]:
     findings: list[dict[str, str]] = []
     if control.get("schema_version", 0) < 4:
         findings.append(
@@ -390,7 +398,9 @@ def record_learning_event(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Evidence-driven exponential-growth control plane.")
+    parser = argparse.ArgumentParser(
+        description="Evidence-driven exponential-growth control plane."
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     snap = sub.add_parser("snapshot")
