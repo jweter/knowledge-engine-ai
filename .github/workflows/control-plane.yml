@@ -1,0 +1,25 @@
+name: Control Plane
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  contract:
+    name: Control Plane Contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Validate control-plane contract
+        run: python engineering/validate_control_plane.py
+      - name: Render normalized repository state
+        run: python engineering/render_repo_state.py > control-plane-state.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: control-plane-state
+          path: control-plane-state.json
