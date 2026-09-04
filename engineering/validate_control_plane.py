@@ -53,8 +53,7 @@ def main() -> int:
         errors.append("repository must be owner/name")
     if github_repository and repository != github_repository:
         errors.append(
-            f"repository {repository!r} does not match GITHUB_REPOSITORY "
-            f"{github_repository!r}"
+            f"repository {repository!r} does not match GITHUB_REPOSITORY {github_repository!r}"
         )
 
     documents = data.get("authoritative_documents")
@@ -63,9 +62,7 @@ def main() -> int:
     else:
         for item in documents:
             if not isinstance(item, str) or not item:
-                errors.append(
-                    "authoritative_documents entries must be non-empty strings"
-                )
+                errors.append("authoritative_documents entries must be non-empty strings")
                 continue
             target = (root / item).resolve()
             try:
@@ -94,9 +91,7 @@ def main() -> int:
             errors.append("portfolio_aggregation.component_role is required")
         required = aggregation.get("required_components")
         if not isinstance(required, list) or not required:
-            errors.append(
-                "portfolio_aggregation.required_components must be non-empty"
-            )
+            errors.append("portfolio_aggregation.required_components must be non-empty")
 
     verification = data.get("verification")
     executable_ids: set[str] = set()
@@ -117,14 +112,10 @@ def main() -> int:
                     errors.append("each executable lane requires a non-empty id")
                 else:
                     if lane_id in executable_ids:
-                        errors.append(
-                            "verification.executable_lanes ids must be unique"
-                        )
+                        errors.append("verification.executable_lanes ids must be unique")
                     executable_ids.add(lane_id)
                 if not isinstance(steps, list) or not steps:
-                    errors.append(
-                        f"executable lane {lane_id!r} requires non-empty steps"
-                    )
+                    errors.append(f"executable lane {lane_id!r} requires non-empty steps")
                 else:
                     for step in steps:
                         if (
@@ -133,8 +124,7 @@ def main() -> int:
                             or not all(isinstance(value, str) and value for value in step)
                         ):
                             errors.append(
-                                f"executable lane {lane_id!r} contains an invalid "
-                                "argv step"
+                                f"executable lane {lane_id!r} contains an invalid argv step"
                             )
 
     scenarios = data.get("golden_scenarios")
@@ -156,8 +146,7 @@ def main() -> int:
                 scenario_ids.add(scenario_id)
             if lane_id not in executable_ids:
                 errors.append(
-                    f"golden scenario {scenario_id!r} references unknown lane "
-                    f"{lane_id!r}"
+                    f"golden scenario {scenario_id!r} references unknown lane {lane_id!r}"
                 )
 
     memory = data.get("regression_memory")
