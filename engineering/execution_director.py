@@ -596,15 +596,11 @@ def validate() -> int:
                 or max_age <= 0
                 or max_age > 30
             ):
-                errors.append(
-                    "scheduler reinvestment max_age_hours must be > 0 and <= 30"
-                )
+                errors.append("scheduler reinvestment max_age_hours must be > 0 and <= 30")
             if reinvestment.get("advisory_only") is not True:
                 errors.append("scheduler reinvestment plan must remain advisory")
             if reinvestment.get("never_override_priorities") is not True:
-                errors.append(
-                    "scheduler reinvestment plan must never override priority gates"
-                )
+                errors.append("scheduler reinvestment plan must never override priority gates")
             bounds = reinvestment.get("bounds")
             if not isinstance(bounds, dict):
                 errors.append("scheduler reinvestment bounds are required")
@@ -616,17 +612,13 @@ def validate() -> int:
                     or not isinstance(minimum, (int, float))
                     or minimum != 0.05
                 ):
-                    errors.append(
-                        "scheduler minimum system reinvestment fraction must be 0.05"
-                    )
+                    errors.append("scheduler minimum system reinvestment fraction must be 0.05")
                 if (
                     isinstance(maximum, bool)
                     or not isinstance(maximum, (int, float))
                     or maximum != 0.20
                 ):
-                    errors.append(
-                        "scheduler maximum system reinvestment fraction must be 0.20"
-                    )
+                    errors.append("scheduler maximum system reinvestment fraction must be 0.20")
 
         learning = scheduler.get("learning_persistence")
         if (
