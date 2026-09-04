@@ -202,16 +202,6 @@
         "fast": true
       },
       {
-        "id": "reinvestment_controller",
-        "argv": [
-          "python",
-          "engineering/reinvestment_controller.py",
-          "--self-test"
-        ],
-        "kind": "governance",
-        "fast": true
-      },
-      {
         "id": "regression_memory",
         "argv": [
           "poetry",
@@ -331,7 +321,6 @@
     "decision_order": [
       "verify_live_github_state",
       "consume_execution_director",
-      "consume_reinvestment_plan",
       "consume_growth_engine",
       "consult_governing_roadmap"
     ],
@@ -363,27 +352,15 @@
       "stale_pass_must_not_be_treated_as_verified": true
     },
     "fallback": "if execution-plan evidence is missing/stale/inconsistent, derive equivalent state from live GitHub plus the control-plane contract and classify uncertainty explicitly",
-    "fallback_mode": "LIVE_EVIDENCE",
-    "reinvestment_plan": {
-      "workflow": "Engineering Compounding Report",
-      "artifact": "engineering-reinvestment-plan",
-      "max_age_hours": 30,
-      "advisory_only": true,
-      "never_override_priorities": true,
-      "bounds": {
-        "min_system_reinvestment_fraction": 0.05,
-        "max_system_reinvestment_fraction": 0.2
-      },
-      "rule": "use the plan only to bias the mix of system-improvement versus direct roadmap work after higher-priority live gates are satisfied"
-    }
+    "fallback_mode": "LIVE_EVIDENCE"
   },
   "compounding_metrics": {
-    "schema_version": 2,
     "collector": "engineering/compounding_metrics.py",
+    "evidence_source": "live GitHub pull-request, workflow, issue, review, and comment history",
+    "schema_version": 2,
     "workflow": ".github/workflows/engineering-compounding.yml",
     "artifact": "engineering-compounding-report",
     "reporting_cadence": "daily",
-    "evidence_source": "live GitHub pull-request/workflow/issue/review history",
     "evidence_window_days": 30,
     "evidence_windows_required_for_claim": 3,
     "unknown_when_insufficient": true,
@@ -398,17 +375,6 @@
       "human_intervention_rate"
     ],
     "autonomy_caveat": "autonomous_completion_rate is an attribution proxy from agent/orchestrator/hotfix branch prefixes or bot authorship; it does not prove zero human input",
-    "claim_rule": "do not claim exponential development unless at least three comparable evidence windows exist and the measured capacity trend is persistently multiplicative; otherwise report UNKNOWN or descriptive evidence only",
-    "portfolio_role": "knowledge_engine_member"
-  },
-  "reinvestment_controller": {
-    "schema_version": 1,
-    "executable": "engineering/reinvestment_controller.py",
-    "input_artifact": "engineering-compounding-report",
-    "output_artifact": "engineering-reinvestment-plan",
-    "workflow": ".github/workflows/engineering-compounding.yml",
-    "min_system_reinvestment_fraction": 0.05,
-    "max_system_reinvestment_fraction": 0.2,
-    "rule": "use measured evidence to recommend bounded system reinvestment; recommendations are advisory and never override P0/P1, existing work, preflight, CI, architecture, security, privacy/provenance, or Product Reality gates"
+    "claim_rule": "do not claim exponential development unless at least three comparable evidence windows exist and the measured capacity trend is persistently multiplicative; otherwise report UNKNOWN or descriptive evidence only"
   }
 }

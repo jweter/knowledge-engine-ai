@@ -29,9 +29,26 @@ def test_automation_attribution_is_conservative_proxy() -> None:
 
 def test_repeat_failure_rate_counts_repeated_workflow_signatures() -> None:
     runs = [
-        {"name": "CI", "created_at": "2026-08-02T00:00:00Z", "conclusion": "failure"},
-        {"name": "CI", "created_at": "2026-08-03T00:00:00Z", "conclusion": "failure"},
-        {"name": "Security", "created_at": "2026-08-04T00:00:00Z", "conclusion": "failure"},
+        {
+            "name": "CI",
+            "created_at": "2026-08-02T00:00:00Z",
+            "conclusion": "failure",
+        },
+        {
+            "name": "CI",
+            "created_at": "2026-08-03T00:00:00Z",
+            "conclusion": "failure",
+        },
+        {
+            "name": "Security",
+            "created_at": "2026-08-04T00:00:00Z",
+            "conclusion": "failure",
+        },
+        {
+            "name": "CI",
+            "created_at": "2026-07-01T00:00:00Z",
+            "conclusion": "failure",
+        },
     ]
     rate = repeat_failure_rate(
         runs,
@@ -43,8 +60,21 @@ def test_repeat_failure_rate_counts_repeated_workflow_signatures() -> None:
 
 def test_dependency_unlock_rate_requires_explicit_dependency_edges() -> None:
     issues = [
-        {"number": 10, "body": "blocked by #11", "closed_at": "2026-08-20T00:00:00Z"},
-        {"number": 11, "body": "", "closed_at": "2026-08-10T00:00:00Z"},
+        {
+            "number": 10,
+            "body": "blocked by #11",
+            "closed_at": "2026-08-20T00:00:00Z",
+        },
+        {
+            "number": 11,
+            "body": "",
+            "closed_at": "2026-08-10T00:00:00Z",
+        },
+        {
+            "number": 12,
+            "body": "unrelated prose",
+            "closed_at": "2026-08-11T00:00:00Z",
+        },
     ]
     rate = dependency_unlock_rate(
         issues,
@@ -84,12 +114,28 @@ def test_window_metrics_collects_all_four_new_rates() -> None:
         },
     ]
     runs = [
-        {"name": "CI", "created_at": "2026-08-03T00:00:00Z", "conclusion": "failure"},
-        {"name": "CI", "created_at": "2026-08-04T00:00:00Z", "conclusion": "failure"},
+        {
+            "name": "CI",
+            "created_at": "2026-08-03T00:00:00Z",
+            "conclusion": "failure",
+        },
+        {
+            "name": "CI",
+            "created_at": "2026-08-04T00:00:00Z",
+            "conclusion": "failure",
+        },
     ]
     issues = [
-        {"number": 10, "body": "blocked by #11", "closed_at": "2026-08-20T00:00:00Z"},
-        {"number": 11, "body": "", "closed_at": "2026-08-10T00:00:00Z"},
+        {
+            "number": 10,
+            "body": "blocked by #11",
+            "closed_at": "2026-08-20T00:00:00Z",
+        },
+        {
+            "number": 11,
+            "body": "",
+            "closed_at": "2026-08-10T00:00:00Z",
+        },
     ]
     result = window_metrics(
         pulls,

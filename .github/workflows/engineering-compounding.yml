@@ -27,18 +27,8 @@ jobs:
           python engineering/compounding_metrics.py
           --window-days 30
           --output engineering-compounding-report.json
-      - name: Build bounded reinvestment recommendation
-        run: >
-          python engineering/reinvestment_controller.py
-          --report engineering-compounding-report.json
-          --output engineering-reinvestment-plan.json
       - uses: actions/upload-artifact@v7
         with:
           name: engineering-compounding-report
           path: engineering-compounding-report.json
-          retention-days: 90
-      - uses: actions/upload-artifact@v7
-        with:
-          name: engineering-reinvestment-plan
-          path: engineering-reinvestment-plan.json
           retention-days: 90
