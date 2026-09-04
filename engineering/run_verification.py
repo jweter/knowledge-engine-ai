@@ -8,9 +8,7 @@ from pathlib import Path
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Run executable control-plane verification lanes."
-    )
+    parser = argparse.ArgumentParser(description="Run executable control-plane verification lanes.")
     parser.add_argument(
         "--lane",
         action="append",
@@ -20,9 +18,7 @@ def main() -> int:
     args = parser.parse_args()
 
     root = Path(__file__).resolve().parents[1]
-    data = json.loads(
-        (root / "engineering" / "control-plane.json").read_text(encoding="utf-8")
-    )
+    data = json.loads((root / "engineering" / "control-plane.json").read_text(encoding="utf-8"))
     lanes = data["verification"]["executable_lanes"]
     wanted = set(args.lane)
     selected = [lane for lane in lanes if not wanted or lane["id"] in wanted]
