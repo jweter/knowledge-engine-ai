@@ -158,7 +158,10 @@ def reconcile_status(output: Path) -> int:
         "open_issue_numbers": issue_numbers,
         "product_reality": product_reality,
         "readiness_dimensions": {key: "UNKNOWN" for key in readiness_dimensions},
-        "rule": "Generated from live GitHub state and committed Product Reality evidence; UNKNOWN is intentional when evidence is insufficient.",
+        "rule": (
+            "Generated from live GitHub state and committed Product Reality evidence; "
+            "UNKNOWN is intentional when evidence is insufficient."
+        ),
     }
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
