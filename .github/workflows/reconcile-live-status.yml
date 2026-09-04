@@ -30,7 +30,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if git diff --quiet -- engineering/live-status.json; then
+          if [ -z "$(git status --porcelain -- engineering/live-status.json)" ]; then
             echo "Live status is already reconciled."
             exit 0
           fi
