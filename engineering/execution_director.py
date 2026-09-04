@@ -543,7 +543,10 @@ def validate() -> int:
         errors.append("execution director requires control-plane schema v4")
     if not isinstance(scheduler, dict) or scheduler.get("schema_version") != 1:
         errors.append("scheduler_integration contract missing or invalid")
-    elif scheduler.get("specialist_dispatch", {}).get("allowed_only_when_state") != "EXECUTE_NEXT_SLICE":
+    elif (
+        scheduler.get("specialist_dispatch", {}).get("allowed_only_when_state")
+        != "EXECUTE_NEXT_SLICE"
+    ):
         errors.append("scheduler specialist dispatch must require EXECUTE_NEXT_SLICE")
     try:
         dependency_graph(control)
