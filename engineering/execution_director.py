@@ -543,11 +543,61 @@ def validate() -> int:
         errors.append("execution director requires control-plane schema v4")
     if not isinstance(scheduler, dict) or scheduler.get("schema_version") != 1:
         errors.append("scheduler_integration contract missing or invalid")
-    elif (
-        scheduler.get("specialist_dispatch", {}).get("allowed_only_when_state")
-        != "EXECUTE_NEXT_SLICE"
-    ):
-        errors.append("scheduler specialist dispatch must require EXECUTE_NEXT_SLICE")
+    else:
+        expected_order = [
+            "verify_live_github_state",
+            "consume_execution_director",
+            "consume_growth_engine",
+            "consult_governing_roadmap",
+        ]
+        if scheduler.get("decision_order") != expected_order:
+            errors.append("scheduler decision_order must preserve live-state-first execution")
+
+        execution_plan = scheduler.get("execution_plan")
+        if not isinstance(execution_plan, dict):
+            errors.append("scheduler execution_plan contract is required")
+        else:
+            if execution_plan.get("workflow") != "Execution Director":
+                errors.append("scheduler execution_plan workflow must be Execution Director")
+            if execution_plan.get("artifact") != "execution-plan":
+                errors.append("scheduler execution_plan artifact must be execution-plan")
+            max_age = execution_plan.get("max_age_hours")
+            if not isinstance(max_age, (int, float)) or max_age <= 0 or max_age > 2:
+                errors.append("scheduler execution plan max_age_hours must be > 0 and <= 2")
+            if execution_plan.get("require_default_branch_head_match") is not True:
+                errors.append("scheduler execution plan must require default-branch head match")
+
+        learning = scheduler.get("learning_persistence")
+        if not isinstance(learning, dict) or learning.get("destination") != "engineering/learning-memory.json":
+            errors.append("scheduler learning destination must be engineering/learning-memory.json")
+
+        dispatch = scheduler.get("specialist_dispatch")
+        if not isinstance(dispatch, dict):
+            errors.append("scheduler specialist_dispatch contract is required")
+        else:
+            if dispatch.get("allowed_only_when_state") != "EXECUTE_NEXT_SLICE":
+                errors.append("scheduler specialist dispatch must require EXECUTE_NEXT_SLICE")
+            if dispatch.get("reservation_required") is not True:
+                errors.append("scheduler specialist dispatch must require reservations")
+            if dispatch.get("one_scheduler_merge_authority") is not True:
+                errors.append("scheduler must retain one merge authority")
+            if dispatch.get("max_substantial_new_slices_per_project_per_run") != 1:
+                errors.append("scheduler new-slice budget must remain one per project per run")
+
+        reality = scheduler.get("product_reality")
+        if not isinstance(reality, dict):
+            errors.append("scheduler Product Reality contract is required")
+        else:
+            if reality.get("use_sanitized_attestations_only") is not True:
+                errors.append("scheduler must use sanitized Product Reality attestations only")
+            if reality.get("private_payloads_never_committed") is not True:
+                errors.append("scheduler must never commit private Product Reality payloads")
+            if reality.get("stale_pass_must_not_be_treated_as_verified") is not True:
+                errors.append("scheduler must reject stale Product Reality PASS evidence")
+
+        fallback = scheduler.get("fallback")
+        if not isinstance(fallback, str) or "live" not in fallback.lower():
+            errors.append("scheduler fallback must explicitly return to live evidence")
     try:
         dependency_graph(control)
     except SystemExit as exc:
