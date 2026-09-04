@@ -1,11 +1,14 @@
 name: Control Plane
+
 on:
   pull_request:
   push:
     branches: [main]
   workflow_dispatch:
+
 permissions:
   contents: read
+
 jobs:
   contract:
     name: Control Plane Contract
@@ -17,6 +20,8 @@ jobs:
           python-version: "3.12"
       - name: Validate control-plane contract
         run: python engineering/validate_control_plane.py
+      - name: Validate regression memory
+        run: python engineering/validate_regression_memory.py
       - name: Render normalized repository state
         run: python engineering/render_repo_state.py > control-plane-state.json
       - uses: actions/upload-artifact@v4
