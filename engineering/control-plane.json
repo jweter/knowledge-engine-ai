@@ -151,6 +151,16 @@
         "fast": true
       },
       {
+        "id": "orchestrator_ops",
+        "argv": [
+          "python",
+          "engineering/orchestrator_ops.py",
+          "--help"
+        ],
+        "kind": "governance",
+        "fast": true
+      },
+      {
         "id": "control_plane",
         "argv": [
           "poetry",
@@ -224,5 +234,14 @@
       "PRODUCT_REALITY_VERIFIED"
     ],
     "rule": "advance only from verified evidence; never skip FAILED/PENDING/UNCERTAIN gates"
+  },
+  "orchestration": {
+    "promotion_workflow": ".github/workflows/promote-preflight-green.yml",
+    "promotion_branch_prefix": "orchestrator/",
+    "product_reality_recorder": "engineering/orchestrator_ops.py record-product-reality",
+    "product_reality_evidence_dir": "engineering/product-reality-evidence",
+    "live_status_file": "engineering/live-status.json",
+    "live_status_workflow": ".github/workflows/reconcile-live-status.yml",
+    "rule": "automatic promotion is limited to orchestrator-owned branches; Product Reality PASS requires concrete evidence; status reconciliation opens a PR rather than pushing directly to main"
   }
 }
