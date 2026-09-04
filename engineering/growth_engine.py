@@ -115,11 +115,7 @@ def classify_priority(labels: tuple[str, ...], title: str) -> str:
 def is_blocked(labels: tuple[str, ...], body: str) -> bool:
     label_text = " ".join(labels).lower()
     body_text = body.lower()
-    return (
-        "blocked" in label_text
-        or "waiting" in label_text
-        or "blocked by" in body_text
-    )
+    return "blocked" in label_text or "waiting" in label_text or "blocked by" in body_text
 
 
 def is_product_reality_dependent(
@@ -178,16 +174,10 @@ def score_issue(item: dict[str, Any]) -> Candidate:
     if any("bug" in label for label in lowered_labels):
         score += 12
         reasons.append("bug")
-    if any(
-        "small" in label or "size:s" in label
-        for label in lowered_labels
-    ):
+    if any("small" in label or "size:s" in label for label in lowered_labels):
         score += 8
         reasons.append("small/reversible")
-    if any(
-        "dependency" in label or "blocker" in label
-        for label in lowered_labels
-    ):
+    if any("dependency" in label or "blocker" in label for label in lowered_labels):
         score += 15
         reasons.append("dependency unlock")
 
@@ -258,11 +248,7 @@ def active_ownership(open_prs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for pr in open_prs:
         number = int(pr["number"])
         files = github_pages(f"/pulls/{number}/files")
-        paths = sorted(
-            str(file.get("filename"))
-            for file in files
-            if file.get("filename")
-        )
+        paths = sorted(str(file.get("filename")) for file in files if file.get("filename"))
         components = sorted({path_component(path) for path in paths})
         ownership.append(
             {
@@ -289,9 +275,7 @@ def assign_specialist_lanes(
     ownership: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     occupied_components = {
-        component
-        for owner in ownership
-        for component in owner.get("components", [])
+        component for owner in ownership for component in owner.get("components", [])
     }
     assignments: list[dict[str, Any]] = []
     used_lanes: set[str] = set()
@@ -365,9 +349,7 @@ def sentinel_findings(
             {
                 "severity": "P3",
                 "kind": "work-in-progress",
-                "message": (
-                    "more than four open PRs increases ownership/conflict risk"
-                ),
+                "message": ("more than four open PRs increases ownership/conflict risk"),
             }
         )
     if not control.get("growth_engine"):
@@ -390,11 +372,7 @@ def learning_summary(
     for event in events:
         event_type = str(event.get("type") or "unknown")
         event_types[event_type] = event_types.get(event_type, 0) + 1
-    regression_count = (
-        len(regression_memory)
-        if isinstance(regression_memory, list)
-        else 0
-    )
+    regression_count = len(regression_memory) if isinstance(regression_memory, list) else 0
     return {
         "event_count": len(events),
         "event_types": event_types,
@@ -445,9 +423,7 @@ def load_attestations(repository: str) -> dict[str, Any]:
 def ingest_product_reality(args: argparse.Namespace) -> int:
     control = load_control()
     repository = str(control.get("repository") or "")
-    allowed = set(
-        control.get("verification", {}).get("product_reality_lanes", [])
-    )
+    allowed = set(control.get("verification", {}).get("product_reality_lanes", []))
     payload = load_json(Path(args.input), None)
     if not isinstance(payload, dict):
         raise SystemExit("Product Reality input must be a JSON object")
@@ -465,8 +441,7 @@ def ingest_product_reality(args: argparse.Namespace) -> int:
         "status": status,
         "head_sha": payload.get("head_sha"),
         "tree_sha": payload.get("tree_sha"),
-        "recorded_at": payload.get("recorded_at")
-        or datetime.now(UTC).isoformat(),
+        "recorded_at": payload.get("recorded_at") or datetime.now(UTC).isoformat(),
         "evidence_digest": hashlib.sha256(
             json.dumps(
                 payload.get("evidence_refs") or [],
@@ -487,11 +462,7 @@ def ingest_product_reality(args: argparse.Namespace) -> int:
 
 def snapshot(output: Path) -> int:
     control = load_control()
-    issues = [
-        item
-        for item in github_pages("/issues?state=open")
-        if "pull_request" not in item
-    ]
+    issues = [item for item in github_pages("/issues?state=open") if "pull_request" not in item]
     open_prs = github_pages("/pulls?state=open")
     ownership = active_ownership(open_prs)
     candidates = sorted(
@@ -575,10 +546,7 @@ def record_learning_event(args: argparse.Namespace) -> int:
             separators=(",", ":"),
         ).encode()
     ).hexdigest()
-    if any(
-        event.get("fingerprint") == fingerprint
-        for event in memory["events"]
-    ):
+    if any(event.get("fingerprint") == fingerprint for event in memory["events"]):
         print("duplicate learning event ignored")
         return 0
     normalized["fingerprint"] = fingerprint
