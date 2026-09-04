@@ -46,7 +46,12 @@ def verify_preflight(path: Path) -> int:
     if errors:
         print(json.dumps({"status": "REJECTED", "errors": errors}, indent=2))
         return 1
-    print(json.dumps({"status": "PREFLIGHT_GREEN", "repository": expected_repo, "head_sha": expected_head}, indent=2))
+    print(
+        json.dumps(
+            {"status": "PREFLIGHT_GREEN", "repository": expected_repo, "head_sha": expected_head},
+            indent=2,
+        )
+    )
     return 0
 
 
@@ -121,9 +126,7 @@ def reconcile_status(output: Path) -> int:
     control = load_control()
     pulls = github_pages("/pulls?state=open")
     issues = github_pages("/issues?state=open")
-    issue_numbers = sorted(
-        item["number"] for item in issues if "pull_request" not in item
-    )
+    issue_numbers = sorted(item["number"] for item in issues if "pull_request" not in item)
     pr_rows = sorted(
         (
             {
@@ -138,8 +141,7 @@ def reconcile_status(output: Path) -> int:
     )
     evidence_dir = ROOT / "engineering" / "product-reality-evidence"
     product_reality: dict[str, str] = {
-        lane: "PENDING"
-        for lane in control.get("verification", {}).get("product_reality_lanes", [])
+        lane: "PENDING" for lane in control.get("verification", {}).get("product_reality_lanes", [])
     }
     if evidence_dir.exists():
         for path in sorted(evidence_dir.glob("*.json")):
@@ -155,8 +157,7 @@ def reconcile_status(output: Path) -> int:
         "open_issue_numbers": issue_numbers,
         "product_reality": product_reality,
         "readiness_dimensions": {
-            key: "UNKNOWN"
-            for key in control.get("readiness_scoring", {}).get("dimensions", [])
+            key: "UNKNOWN" for key in control.get("readiness_scoring", {}).get("dimensions", [])
         },
         "rule": "Generated from live GitHub state and committed Product Reality evidence; UNKNOWN is intentional when evidence is insufficient.",
     }
