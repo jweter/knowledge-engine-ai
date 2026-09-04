@@ -1,13 +1,17 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "portfolio_project": "Knowledge Engine",
   "repository": "jweter/knowledge-engine-ai",
   "repository_role": "ai",
   "source_of_truth": "GitHub repository state plus authoritative documents listed below",
   "authoritative_documents": [
+    "docs/project-status.yaml",
+    "docs/agent-development-policy.md",
     "docs/ai_design.md",
     "docs/roadmap/future_ai_orchestration_plan.md",
     "docs/web_integration_design.md",
+    "docs/INDUSTRY_REALITY_CHECK.md",
+    "AGENTS.md",
     "CLAUDE.md"
   ],
   "definition_of_done": {
@@ -38,7 +42,22 @@
     "product_reality_lanes": [
       "monster_79_end_to_end_research_report"
     ],
-    "rule": "never convert missing human evidence into PASS; keep implementation status separate from Product Reality acceptance"
+    "rule": "never convert missing human evidence into PASS; keep implementation status separate from Product Reality acceptance",
+    "executable_lanes": [
+      {
+        "id": "monster_query_plan",
+        "steps": [
+          [
+            "poetry",
+            "run",
+            "pytest",
+            "tests/test_research_case_query_plan.py",
+            "-q"
+          ]
+        ],
+        "evidence": "Monster benchmark/query-plan fixture regression"
+      }
+    ]
   },
   "work_ownership": {
     "authority": "GitHub",
@@ -66,5 +85,12 @@
     ],
     "rule": "report unknown when evidence is insufficient"
   },
-  "continuation": "derive from AI roadmap, current issues/PRs, and Research Report v1 acceptance"
+  "continuation": "derive from AI roadmap, current issues/PRs, and Research Report v1 acceptance",
+  "cross_repo_authorities": [
+    {
+      "repository": "jweter/knowledge-engine-core",
+      "path": "docs/roadmap/research_report_v1.md",
+      "purpose": "family Research Report v1 authority"
+    }
+  ]
 }
