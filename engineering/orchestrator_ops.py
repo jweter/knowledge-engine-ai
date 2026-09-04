@@ -104,10 +104,23 @@ def github_json(path: str) -> Any:
         return json.load(response)
 
 
+def github_pages(path: str) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    separator = "&" if "?" in path else "?"
+    for page in range(1, 101):
+        batch = github_json(f"{path}{separator}per_page=100&page={page}")
+        if not isinstance(batch, list):
+            raise SystemExit(f"Expected a list from GitHub API path {path}")
+        rows.extend(batch)
+        if len(batch) < 100:
+            return rows
+    raise SystemExit(f"GitHub pagination exceeded safety limit for {path}")
+
+
 def reconcile_status(output: Path) -> int:
     control = load_control()
-    pulls = github_json("/pulls?state=open&per_page=100")
-    issues = github_json("/issues?state=open&per_page=100")
+    pulls = github_pages("/pulls?state=open")
+    issues = github_pages("/issues?state=open")
     issue_numbers = sorted(
         item["number"] for item in issues if "pull_request" not in item
     )
