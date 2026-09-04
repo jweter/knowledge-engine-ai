@@ -7,9 +7,7 @@ from pathlib import Path
 
 def main() -> int:
     root = Path(__file__).resolve().parents[1]
-    data = json.loads(
-        (root / "engineering" / "control-plane.json").read_text(encoding="utf-8")
-    )
+    data = json.loads((root / "engineering" / "control-plane.json").read_text(encoding="utf-8"))
     docs_ok = all((root / path).is_file() for path in data["authoritative_documents"])
 
     lane_state: dict[str, str] = {}
@@ -29,18 +27,14 @@ def main() -> int:
         "authoritative_documents": "VERIFIED" if docs_ok else "INVALID",
         "executable_verification": lane_state,
         "product_reality": {
-            lane: "UNVERIFIED"
-            for lane in data["verification"]["product_reality_lanes"]
+            lane: "UNVERIFIED" for lane in data["verification"]["product_reality_lanes"]
         },
         "readiness_dimensions": {
-            dimension: "UNKNOWN"
-            for dimension in data["readiness_scoring"]["dimensions"]
+            dimension: "UNKNOWN" for dimension in data["readiness_scoring"]["dimensions"]
         },
         "continuation": data["continuation"],
     }
-    output["readiness_dimensions"]["documentation"] = (
-        "VERIFIED" if docs_ok else "BLOCKED"
-    )
+    output["readiness_dimensions"]["documentation"] = "VERIFIED" if docs_ok else "BLOCKED"
 
     print(json.dumps(output, indent=2, sort_keys=True))
     return 0 if docs_ok else 1
