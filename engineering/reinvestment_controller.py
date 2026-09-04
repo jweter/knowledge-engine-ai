@@ -199,10 +199,7 @@ def self_test() -> list[str]:
         errors.append("degraded evidence should reach bounded max reinvestment")
     if result["product_delivery_fraction"] != 0.8:
         errors.append("product/system fractions must sum to one")
-    if not any(
-        row["kind"] == "REGRESSION_HARDENING"
-        for row in result["actions"]
-    ):
+    if not any(row["kind"] == "REGRESSION_HARDENING" for row in result["actions"]):
         errors.append("repeat failures must trigger regression hardening")
 
     healthy = {
