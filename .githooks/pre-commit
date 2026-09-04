@@ -1,0 +1,3 @@
+#!/bin/sh
+set -eu
+python engineering/preflight.py --fix --fast --evidence .git/preflight-fast.json

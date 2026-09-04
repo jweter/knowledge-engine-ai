@@ -1,5 +1,5 @@
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "portfolio_project": "Knowledge Engine",
   "repository": "jweter/knowledge-engine-ai",
   "repository_role": "ai",
@@ -113,5 +113,116 @@
       "lane": "research_report_ai_golden",
       "rule": "portfolio scenario is VERIFIED only when core, web, and ai component lanes are green on their current exact heads"
     }
-  ]
+  ],
+  "preflight": {
+    "required_before_pr": true,
+    "evidence_file": "preflight-evidence.json",
+    "format_apply": [
+      "poetry",
+      "run",
+      "ruff",
+      "format",
+      "."
+    ],
+    "checks": [
+      {
+        "id": "format",
+        "argv": [
+          "poetry",
+          "run",
+          "ruff",
+          "format",
+          "--check",
+          "."
+        ],
+        "kind": "quality",
+        "fast": true
+      },
+      {
+        "id": "lint",
+        "argv": [
+          "poetry",
+          "run",
+          "ruff",
+          "check",
+          "."
+        ],
+        "kind": "quality",
+        "fast": true
+      },
+      {
+        "id": "control_plane",
+        "argv": [
+          "poetry",
+          "run",
+          "python",
+          "engineering/validate_control_plane.py"
+        ],
+        "kind": "governance",
+        "fast": true
+      },
+      {
+        "id": "regression_memory",
+        "argv": [
+          "poetry",
+          "run",
+          "python",
+          "engineering/validate_regression_memory.py"
+        ],
+        "kind": "governance",
+        "fast": true
+      },
+      {
+        "id": "types",
+        "argv": [
+          "poetry",
+          "run",
+          "mypy",
+          "knowledge_engine_ai",
+          "tests"
+        ],
+        "kind": "quality",
+        "fast": false
+      },
+      {
+        "id": "tests",
+        "argv": [
+          "poetry",
+          "run",
+          "pytest",
+          "-q"
+        ],
+        "kind": "test",
+        "fast": false
+      },
+      {
+        "id": "golden",
+        "argv": [
+          "poetry",
+          "run",
+          "python",
+          "engineering/run_verification.py",
+          "--lane",
+          "research_report_ai_golden"
+        ],
+        "kind": "golden",
+        "fast": false
+      }
+    ],
+    "policy": "ordinary PRs require GREEN full preflight evidence on the exact head; use PREFLIGHT_UNVERIFIED only for a legitimate environment limitation and record the reason"
+  },
+  "promotion": {
+    "states": [
+      "IMPLEMENTING",
+      "PREFLIGHT_UNVERIFIED",
+      "PREFLIGHT_GREEN",
+      "PR_OPEN",
+      "CI_PENDING",
+      "GREEN",
+      "MERGED",
+      "PRODUCT_REALITY_PENDING",
+      "PRODUCT_REALITY_VERIFIED"
+    ],
+    "rule": "advance only from verified evidence; never skip FAILED/PENDING/UNCERTAIN gates"
+  }
 }

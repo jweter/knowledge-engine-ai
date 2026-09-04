@@ -23,7 +23,7 @@ def main() -> int:
         )
 
     output = {
-        "schema_version": 2,
+        "schema_version": 3,
         "project": control["portfolio_project"],
         "project_key": control["portfolio_aggregation"]["project_key"],
         "repository": control["repository"],
@@ -39,6 +39,15 @@ def main() -> int:
                 "status": "DECLARED",
             }
             for scenario in control["golden_scenarios"]
+        },
+        "preflight": {
+            "required_before_pr": control["preflight"]["required_before_pr"],
+            "evidence_file": control["preflight"]["evidence_file"],
+            "status": "UNVERIFIED",
+        },
+        "promotion": {
+            "states": control["promotion"]["states"],
+            "status": "IMPLEMENTING",
         },
         "regression_memory": {
             "recorded_incidents": len(memory["entries"]),
