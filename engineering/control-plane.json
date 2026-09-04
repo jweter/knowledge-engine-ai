@@ -192,6 +192,16 @@
         "fast": true
       },
       {
+        "id": "compounding_metrics",
+        "argv": [
+          "python",
+          "engineering/compounding_metrics.py",
+          "--help"
+        ],
+        "kind": "governance",
+        "fast": true
+      },
+      {
         "id": "regression_memory",
         "argv": [
           "poetry",
@@ -343,5 +353,30 @@
     },
     "fallback": "if execution-plan evidence is missing/stale/inconsistent, derive equivalent state from live GitHub plus the control-plane contract and classify uncertainty explicitly",
     "fallback_mode": "LIVE_EVIDENCE"
+  },
+  "compounding_metrics": {
+    "collector": "engineering/compounding_metrics.py",
+    "evidence_source": "live GitHub pull-request, workflow, issue, review, and comment history",
+    "window_days": 30,
+    "unknown_when_insufficient": true,
+    "schema_version": 2,
+    "workflow": ".github/workflows/engineering-compounding.yml",
+    "artifact": "engineering-compounding-report",
+    "reporting_cadence": "daily",
+    "evidence_window_days": 30,
+    "evidence_windows_required_for_claim": 3,
+    "dimensions": [
+      "throughput_factor",
+      "cycle_time_factor",
+      "engineering_multiplication_factor",
+      "compounding_rate",
+      "repeat_failure_rate",
+      "autonomous_completion_rate",
+      "dependency_unlock_rate",
+      "human_intervention_rate"
+    ],
+    "autonomy_caveat": "autonomous_completion_rate is an attribution proxy from agent/orchestrator/hotfix branch prefixes or bot authorship; it does not prove zero human input",
+    "claim_rule": "do not claim exponential development unless at least three comparable evidence windows exist and the measured capacity trend is persistently multiplicative; otherwise report UNKNOWN or descriptive evidence only",
+    "rule": "Metrics are evidence, not a completion percentage or proof of exponential growth."
   }
 }
