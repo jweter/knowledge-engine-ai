@@ -135,11 +135,7 @@ def repeat_failure_rate(
     for run in runs:
         created_at = parse_time(run.get("created_at"))
         conclusion = str(run.get("conclusion") or "")
-        if (
-            created_at is not None
-            and start <= created_at < end
-            and conclusion in FAIL_CONCLUSIONS
-        ):
+        if created_at is not None and start <= created_at < end and conclusion in FAIL_CONCLUSIONS:
             failures.append(str(run.get("name") or "UNKNOWN_WORKFLOW"))
     if not failures:
         return UNKNOWN
@@ -192,9 +188,7 @@ def window_metrics(
 
     autonomous = sum(1 for pull in merged if automation_attributed(pull))
     human_touched = sum(
-        1
-        for pull in merged
-        if intervention.get(int(pull.get("number") or 0), False)
+        1 for pull in merged if intervention.get(int(pull.get("number") or 0), False)
     )
     merged_count = len(merged)
 
@@ -208,9 +202,7 @@ def window_metrics(
         "sample_size": merged_count,
         "repeat_failure_rate": repeat_failure_rate(runs, start, end),
         "autonomous_completion_rate": safe_ratio(autonomous, merged_count),
-        "dependency_unlock_rate": dependency_unlock_rate(
-            issues, start, end, merged_count
-        ),
+        "dependency_unlock_rate": dependency_unlock_rate(issues, start, end, merged_count),
         "human_intervention_rate": safe_ratio(human_touched, merged_count),
     }
 
@@ -241,9 +233,7 @@ def build_report(days: int, now: datetime) -> dict[str, Any]:
     earliest = now - timedelta(days=3 * days)
     intervention = intervention_evidence(pulls, earliest, now)
 
-    current = window_metrics(
-        pulls, runs, issues, intervention, now - timedelta(days=days), now
-    )
+    current = window_metrics(pulls, runs, issues, intervention, now - timedelta(days=days), now)
     previous = window_metrics(
         pulls,
         runs,
@@ -326,8 +316,7 @@ def build_report(days: int, now: datetime) -> dict[str, Any]:
                 "blocking issue closed in the window, divided by merged PR count"
             ),
             "human_intervention_rate": (
-                "share of merged PRs with observable non-bot review or issue-comment "
-                "activity"
+                "share of merged PRs with observable non-bot review or issue-comment activity"
             ),
         },
         "interpretation": (
