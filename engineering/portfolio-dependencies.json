@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "project": "knowledge-engine",
+  "edges": [
+    {
+      "from": "jweter/knowledge-engine-web",
+      "to": "jweter/knowledge-engine-core",
+      "kind": "validated_data_and_interface_contract",
+      "authority": "knowledge-engine-web/docs/web_design.md"
+    },
+    {
+      "from": "jweter/knowledge-engine-web",
+      "to": "jweter/knowledge-engine-ai",
+      "kind": "in_process_orchestrator_dependency",
+      "authority": "knowledge-engine-ai/docs/web_integration_design.md"
+    },
+    {
+      "from": "jweter/knowledge-engine-ai",
+      "to": "jweter/knowledge-engine-core",
+      "kind": "ke_cli_evidence_boundary",
+      "authority": "knowledge-engine-ai/docs/web_integration_design.md"
+    }
+  ],
+  "rule": "edges describe dependency/consumer direction only; breaking changes require dependency-safe preparation and compatibility verification"
+}
