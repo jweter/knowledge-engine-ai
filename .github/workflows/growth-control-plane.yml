@@ -1,0 +1,32 @@
+name: Growth Control Plane
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "11 * * * *"
+
+permissions:
+  actions: read
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Build evidence-driven growth snapshot
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python engineering/growth_engine.py snapshot --output growth-snapshot.json
+      - name: Upload growth snapshot
+        uses: actions/upload-artifact@v7
+        with:
+          name: growth-snapshot
+          path: growth-snapshot.json
+          retention-days: 30
