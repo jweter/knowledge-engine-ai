@@ -150,15 +150,14 @@ def reconcile_status(output: Path) -> int:
             status = row.get("status")
             if lane in product_reality and status in {"PASS", "FAIL", "PENDING", "BLOCKED"}:
                 product_reality[lane] = status
+    readiness_dimensions = control.get("readiness_scoring", {}).get("dimensions", [])
     snapshot = {
         "schema_version": 1,
         "repository": control["repository"],
         "open_pull_requests": pr_rows,
         "open_issue_numbers": issue_numbers,
         "product_reality": product_reality,
-        "readiness_dimensions": {
-            key: "UNKNOWN" for key in control.get("readiness_scoring", {}).get("dimensions", [])
-        },
+        "readiness_dimensions": {key: "UNKNOWN" for key in readiness_dimensions},
         "rule": "Generated from live GitHub state and committed Product Reality evidence; UNKNOWN is intentional when evidence is insufficient.",
     }
     output.parent.mkdir(parents=True, exist_ok=True)
