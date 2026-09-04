@@ -29,3 +29,6 @@ Thumbs.db
 *.db-*
 *.log
 *.gguf
+
+# Private Product Reality source evidence
+private/product-reality-inbox/
