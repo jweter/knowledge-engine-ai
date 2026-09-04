@@ -17,16 +17,42 @@ jobs:
       startsWith(github.event.workflow_run.head_branch, 'orchestrator/')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ github.event.workflow_run.head_sha }}
       - name: Download exact-head preflight evidence
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_ID: ${{ github.event.workflow_run.id }}
         run: gh run download "$RUN_ID" --name preflight-evidence --dir .preflight
-      - name: Verify canonical exact-head evidence
-        run: python engineering/orchestrator_ops.py verify-preflight --evidence .preflight/preflight-evidence.json
+
+      - name: Verify canonical exact-head evidence without executing branch code
+        env:
+          EXPECTED_REPOSITORY: ${{ github.repository }}
+          EXPECTED_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          path = Path(".preflight/preflight-evidence.json")
+          evidence = json.loads(path.read_text(encoding="utf-8"))
+          expected_repository = os.environ["EXPECTED_REPOSITORY"]
+          expected_head = os.environ["EXPECTED_HEAD_SHA"]
+
+          errors = []
+          if evidence.get("repository") != expected_repository:
+              errors.append("repository mismatch")
+          if evidence.get("head_sha") != expected_head:
+              errors.append("head SHA mismatch")
+          if evidence.get("mode") != "FULL":
+              errors.append("evidence is not FULL preflight")
+          if evidence.get("status") != "GREEN":
+              errors.append("preflight is not GREEN")
+          if errors:
+              raise SystemExit("Rejected preflight evidence: " + "; ".join(errors))
+
+          print(f"PREFLIGHT_GREEN {expected_repository} {expected_head}")
+          PY
+
       - name: Open or promote pull request
         env:
           GH_TOKEN: ${{ github.token }}
@@ -36,7 +62,11 @@ jobs:
           set -euo pipefail
           PR_NUMBER="$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')"
           if [ -z "$PR_NUMBER" ]; then
-            gh pr create               --base main               --head "$BRANCH"               --title "Control-plane automated development"               --body "Exact-head canonical FULL preflight is GREEN for `$HEAD_SHA`. Fresh independent PR CI remains required before merge."
+            gh pr create \
+              --base main \
+              --head "$BRANCH" \
+              --title "Control-plane automated development" \
+              --body "Exact-head canonical FULL preflight is GREEN for `$HEAD_SHA`. Fresh independent PR CI remains required before merge."
           else
             IS_DRAFT="$(gh pr view "$PR_NUMBER" --json isDraft --jq '.isDraft')"
             if [ "$IS_DRAFT" = "true" ]; then
