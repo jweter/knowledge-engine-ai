@@ -1,0 +1,86 @@
+name: Verify Preflight-Green Branch
+
+on:
+  workflow_run:
+    workflows: ["Preflight"]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: write
+
+jobs:
+  verify-promotion-gate:
+    if: >
+      github.event.workflow_run.conclusion == 'success' &&
+      startsWith(github.event.workflow_run.head_branch, 'orchestrator/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Confirm branch still points at the verified head
+        env:
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+          EXPECTED_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          CURRENT_HEAD="$(
+            git ls-remote "https://github.com/$REPOSITORY.git" "refs/heads/$BRANCH" |
+              awk '{print $1}'
+          )"
+          if [ -z "$CURRENT_HEAD" ] || [ "$CURRENT_HEAD" != "$EXPECTED_HEAD_SHA" ]; then
+            echo "Branch moved after preflight; refusing promotion."
+            exit 1
+          fi
+
+      - name: Download exact-head preflight evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: gh run download "$RUN_ID" --name preflight-evidence --dir .preflight
+
+      - name: Verify canonical exact-head evidence without executing branch code
+        env:
+          EXPECTED_REPOSITORY: ${{ github.repository }}
+          EXPECTED_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          path = Path(".preflight/preflight-evidence.json")
+          evidence = json.loads(path.read_text(encoding="utf-8"))
+          expected_repository = os.environ["EXPECTED_REPOSITORY"]
+          expected_head = os.environ["EXPECTED_HEAD_SHA"]
+
+          errors = []
+          if evidence.get("repository") != expected_repository:
+              errors.append("repository mismatch")
+          if evidence.get("head_sha") != expected_head:
+              errors.append("head SHA mismatch")
+          if evidence.get("mode") != "FULL":
+              errors.append("evidence is not FULL preflight")
+          if evidence.get("status") != "GREEN":
+              errors.append("preflight is not GREEN")
+          if errors:
+              raise SystemExit("Rejected preflight evidence: " + "; ".join(errors))
+
+          print(f"PREFLIGHT_GREEN {expected_repository} {expected_head}")
+          PY
+
+      - name: Promote an existing draft only
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          set -euo pipefail
+          PR_NUMBER="$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')"
+          if [ -z "$PR_NUMBER" ]; then
+            echo "No PR exists yet. The portfolio orchestrator may open one after observing this verified gate."
+            exit 0
+          fi
+          IS_DRAFT="$(gh pr view "$PR_NUMBER" --json isDraft --jq '.isDraft')"
+          if [ "$IS_DRAFT" = "true" ]; then
+            gh pr ready "$PR_NUMBER"
+          fi
