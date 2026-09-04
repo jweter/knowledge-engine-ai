@@ -1,4 +1,4 @@
-name: Promote Preflight-Green Branch
+name: Verify Preflight-Green Branch
 
 on:
   workflow_run:
@@ -11,12 +11,28 @@ permissions:
   pull-requests: write
 
 jobs:
-  promote:
+  verify-promotion-gate:
     if: >
       github.event.workflow_run.conclusion == 'success' &&
       startsWith(github.event.workflow_run.head_branch, 'orchestrator/')
     runs-on: ubuntu-latest
     steps:
+      - name: Confirm branch still points at the verified head
+        env:
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+          EXPECTED_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          CURRENT_HEAD="$(
+            git ls-remote "https://github.com/$REPOSITORY.git" "refs/heads/$BRANCH" |
+              awk '{print $1}'
+          )"
+          if [ -z "$CURRENT_HEAD" ] || [ "$CURRENT_HEAD" != "$EXPECTED_HEAD_SHA" ]; then
+            echo "Branch moved after preflight; refusing promotion."
+            exit 1
+          fi
+
       - name: Download exact-head preflight evidence
         env:
           GH_TOKEN: ${{ github.token }}
@@ -53,23 +69,18 @@ jobs:
           print(f"PREFLIGHT_GREEN {expected_repository} {expected_head}")
           PY
 
-      - name: Open or promote pull request
+      - name: Promote an existing draft only
         env:
           GH_TOKEN: ${{ github.token }}
           BRANCH: ${{ github.event.workflow_run.head_branch }}
-          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
           PR_NUMBER="$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')"
           if [ -z "$PR_NUMBER" ]; then
-            gh pr create \
-              --base main \
-              --head "$BRANCH" \
-              --title "Control-plane automated development" \
-              --body "Exact-head canonical FULL preflight is GREEN for `$HEAD_SHA`. Fresh independent PR CI remains required before merge."
-          else
-            IS_DRAFT="$(gh pr view "$PR_NUMBER" --json isDraft --jq '.isDraft')"
-            if [ "$IS_DRAFT" = "true" ]; then
-              gh pr ready "$PR_NUMBER"
-            fi
+            echo "No PR exists yet. The portfolio orchestrator may open one after observing this verified gate."
+            exit 0
+          fi
+          IS_DRAFT="$(gh pr view "$PR_NUMBER" --json isDraft --jq '.isDraft')"
+          if [ "$IS_DRAFT" = "true" ]; then
+            gh pr ready "$PR_NUMBER"
           fi
