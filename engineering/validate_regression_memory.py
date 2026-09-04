@@ -51,11 +51,12 @@ def main() -> int:
         protection = entry.get("regression_protection")
         if isinstance(protection, list):
             for item in protection:
-                if isinstance(item, str) and (
-                    "/" in item or item.endswith((".py", ".yml", ".yaml", ".json"))
+                if (
+                    isinstance(item, str)
+                    and ("/" in item or item.endswith((".py", ".yml", ".yaml", ".json")))
+                    and not (root / item).exists()
                 ):
-                    if not (root / item).exists():
-                        errors.append(f"regression protection path does not exist: {item}")
+                    errors.append(f"regression protection path does not exist: {item}")
 
     if len(ids) != len(set(ids)):
         errors.append("regression-memory entry ids must be unique")
