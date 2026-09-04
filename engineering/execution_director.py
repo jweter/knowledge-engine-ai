@@ -185,9 +185,7 @@ def sentinel(
 ) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
     recent_failures = sum(
-        1
-        for event in learning.get("events", [])[-50:]
-        if event.get("type") == "workflow_failure"
+        1 for event in learning.get("events", [])[-50:] if event.get("type") == "workflow_failure"
     )
     if recent_failures >= 5:
         findings.append(
