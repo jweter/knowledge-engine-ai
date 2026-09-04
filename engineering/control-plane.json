@@ -319,11 +319,16 @@
       "artifact": "execution-plan",
       "max_age_hours": 2,
       "require_default_branch_head_match": true,
-      "rule": "treat the plan as advisory evidence; revalidate all material GitHub state before mutating repositories"
+      "rule": "treat the plan as advisory evidence; revalidate all material GitHub state before mutating repositories",
+      "advisory_only": true,
+      "revalidate_live_state_before_mutation": true
     },
     "learning_persistence": {
       "rule": "persist only resolved and verified lessons; never store secrets, raw private Product Reality payloads, or unverified conclusions",
-      "destination": "engineering/learning-memory.json"
+      "destination": "engineering/learning-memory.json",
+      "verified_only": true,
+      "allow_secrets": false,
+      "allow_private_product_reality_payloads": false
     },
     "specialist_dispatch": {
       "allowed_only_when_state": "EXECUTE_NEXT_SLICE",
@@ -336,6 +341,7 @@
       "private_payloads_never_committed": true,
       "stale_pass_must_not_be_treated_as_verified": true
     },
-    "fallback": "if execution-plan evidence is missing/stale/inconsistent, derive equivalent state from live GitHub plus the control-plane contract and classify uncertainty explicitly"
+    "fallback": "if execution-plan evidence is missing/stale/inconsistent, derive equivalent state from live GitHub plus the control-plane contract and classify uncertainty explicitly",
+    "fallback_mode": "LIVE_EVIDENCE"
   }
 }
