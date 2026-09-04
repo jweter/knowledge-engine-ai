@@ -547,6 +547,7 @@ def validate() -> int:
         expected_order = [
             "verify_live_github_state",
             "consume_execution_director",
+            "consume_reinvestment_plan",
             "consume_growth_engine",
             "consult_governing_roadmap",
         ]
@@ -575,6 +576,49 @@ def validate() -> int:
                 errors.append("scheduler execution plan must remain advisory")
             if execution_plan.get("revalidate_live_state_before_mutation") is not True:
                 errors.append("scheduler must revalidate live state before mutation")
+
+        reinvestment = scheduler.get("reinvestment_plan")
+        if not isinstance(reinvestment, dict):
+            errors.append("scheduler reinvestment_plan contract is required")
+        else:
+            if reinvestment.get("workflow") != "Engineering Compounding Report":
+                errors.append(
+                    "scheduler reinvestment workflow must be Engineering Compounding Report"
+                )
+            if reinvestment.get("artifact") != "engineering-reinvestment-plan":
+                errors.append(
+                    "scheduler reinvestment artifact must be engineering-reinvestment-plan"
+                )
+            max_age = reinvestment.get("max_age_hours")
+            if (
+                isinstance(max_age, bool)
+                or not isinstance(max_age, (int, float))
+                or max_age <= 0
+                or max_age > 30
+            ):
+                errors.append("scheduler reinvestment max_age_hours must be > 0 and <= 30")
+            if reinvestment.get("advisory_only") is not True:
+                errors.append("scheduler reinvestment plan must remain advisory")
+            if reinvestment.get("never_override_priorities") is not True:
+                errors.append("scheduler reinvestment plan must never override priority gates")
+            bounds = reinvestment.get("bounds")
+            if not isinstance(bounds, dict):
+                errors.append("scheduler reinvestment bounds are required")
+            else:
+                minimum = bounds.get("min_system_reinvestment_fraction")
+                maximum = bounds.get("max_system_reinvestment_fraction")
+                if (
+                    isinstance(minimum, bool)
+                    or not isinstance(minimum, (int, float))
+                    or minimum != 0.05
+                ):
+                    errors.append("scheduler minimum system reinvestment fraction must be 0.05")
+                if (
+                    isinstance(maximum, bool)
+                    or not isinstance(maximum, (int, float))
+                    or maximum != 0.20
+                ):
+                    errors.append("scheduler maximum system reinvestment fraction must be 0.20")
 
         learning = scheduler.get("learning_persistence")
         if (
