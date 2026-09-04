@@ -128,9 +128,7 @@ def pull_has_human_intervention(
     return any(is_human_actor(row.get("user")) for row in reviews + comments)
 
 
-def repeat_failure_rate(
-    runs: list[dict[str, Any]], start: datetime, end: datetime
-) -> float | str:
+def repeat_failure_rate(runs: list[dict[str, Any]], start: datetime, end: datetime) -> float | str:
     failures = []
     for run in runs:
         created_at = parse_time(run.get("created_at"))
