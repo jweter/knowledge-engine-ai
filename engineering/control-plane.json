@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "portfolio_project": "Knowledge Engine",
   "repository": "jweter/knowledge-engine-ai",
   "repository_role": "ai",
@@ -45,17 +45,19 @@
     "rule": "never convert missing human evidence into PASS; keep implementation status separate from Product Reality acceptance",
     "executable_lanes": [
       {
-        "id": "monster_query_plan",
+        "id": "research_report_ai_golden",
         "steps": [
           [
             "poetry",
             "run",
             "pytest",
             "tests/test_research_case_query_plan.py",
+            "tests/copilot/test_research_state.py",
+            "tests/copilot/test_progress_report.py",
             "-q"
           ]
         ],
-        "evidence": "Monster benchmark/query-plan fixture regression"
+        "evidence": "AI research query-plan, state-machine, and progress-report regression"
       }
     ]
   },
@@ -69,8 +71,8 @@
     "rule": "do not duplicate or compete with active work; prefer finishing existing work"
   },
   "regression_memory": {
-    "rule": "a reproduced correctness defect should gain regression protection before closure when practical",
-    "authoritative_history": "repository tests plus issue/PR/error-resolution history"
+    "path": "engineering/regression-memory.json",
+    "rule": "record significant or recurring reproduced failures with root cause, fix, verification, regression protection, and residual risk"
   },
   "readiness_scoring": {
     "mode": "evidence-derived",
@@ -91,6 +93,25 @@
       "repository": "jweter/knowledge-engine-core",
       "path": "docs/roadmap/research_report_v1.md",
       "purpose": "family Research Report v1 authority"
+    }
+  ],
+  "portfolio_aggregation": {
+    "project_key": "knowledge-engine",
+    "component_role": "ai",
+    "required_components": [
+      "core",
+      "web",
+      "ai"
+    ],
+    "authority": "hourly portfolio orchestrator",
+    "rule": "aggregate only verified repository evidence; never infer missing component state"
+  },
+  "golden_scenarios": [
+    {
+      "id": "research-report-v1",
+      "component": "ai",
+      "lane": "research_report_ai_golden",
+      "rule": "portfolio scenario is VERIFIED only when core, web, and ai component lanes are green on their current exact heads"
     }
   ]
 }

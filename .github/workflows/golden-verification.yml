@@ -1,0 +1,26 @@
+name: Golden Verification
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  golden:
+    name: research-report-v1
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Poetry
+        run: python -m pip install poetry
+      - name: Install dependencies
+        run: poetry install
+      - name: Run golden verification
+        run: poetry run python engineering/run_verification.py --lane research_report_ai_golden

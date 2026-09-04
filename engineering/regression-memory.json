@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "repository": "jweter/knowledge-engine-ai",
+  "entries": [
+    {
+      "id": "cpv2-ruff-format-2026-09-03",
+      "symptom": "Control Plane v2 PR Quality failed before lint/tests because new engineering Python files were not Ruff-formatted.",
+      "root_cause": "Generated control-plane utilities did not exactly match the repository's Ruff formatter.",
+      "fix": "Applied the exact Ruff formatting diff on the existing PR branch.",
+      "verification": "Quality formatting gate passed on the repaired exact head before merge.",
+      "regression_protection": [
+        ".github/workflows/quality.yml"
+      ],
+      "residual_risk": "Low; future engineering Python files remain covered by repository-wide Ruff format checking."
+    }
+  ]
+}
