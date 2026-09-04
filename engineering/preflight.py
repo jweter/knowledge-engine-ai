@@ -44,9 +44,7 @@ def main() -> int:
     args = parser.parse_args()
 
     root = Path(__file__).resolve().parents[1]
-    control = json.loads(
-        (root / "engineering" / "control-plane.json").read_text(encoding="utf-8")
-    )
+    control = json.loads((root / "engineering" / "control-plane.json").read_text(encoding="utf-8"))
     preflight = control["preflight"]
     evidence_path = root / args.evidence
 
