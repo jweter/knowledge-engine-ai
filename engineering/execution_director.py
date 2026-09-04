@@ -125,7 +125,10 @@ def merged_learning(existing: dict[str, Any]) -> dict[str, Any]:
     return {
         "schema_version": 1,
         "events": events[-250:],
-        "rule": "sanitized engineering lessons only; no secrets or private Product Reality payloads",
+        "rule": (
+            "sanitized engineering lessons only; no secrets or private "
+            "Product Reality payloads"
+        ),
     }
 
 
