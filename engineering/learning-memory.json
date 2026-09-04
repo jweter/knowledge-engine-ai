@@ -1,0 +1,5 @@
+{
+  "schema_version": 1,
+  "events": [],
+  "rule": "Store structured engineering lessons only. Do not store secrets, credentials, private Product Reality payloads, or unverified conclusions."
+}
