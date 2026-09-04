@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "portfolio_project": "Knowledge Engine",
+  "repository": "jweter/knowledge-engine-ai",
+  "repository_role": "ai",
+  "source_of_truth": "GitHub repository state plus authoritative documents listed below",
+  "authoritative_documents": [
+    "docs/ai_design.md",
+    "docs/roadmap/future_ai_orchestration_plan.md",
+    "docs/web_integration_design.md",
+    "CLAUDE.md"
+  ],
+  "definition_of_done": {
+    "implementation_complete": true,
+    "tests_required_for_change_scope": true,
+    "current_required_ci_green": true,
+    "mergeability_resolved": true,
+    "blocking_reviews_and_comments_resolved": true,
+    "architecture_security_licensing_provenance_privacy_clear": true,
+    "documentation_updated_when_project_reality_changes": true,
+    "regression_protection_for_reproduced_bugs": "when practical",
+    "product_reality": "pre-merge only when explicitly documented; otherwise track as post-merge acceptance debt"
+  },
+  "invariants": [
+    "grounded_synthesis_only",
+    "confidence_not_fabricated",
+    "core_evidence_authority_preserved",
+    "ai_web_core_boundary_separation"
+  ],
+  "verification": {
+    "automated_lanes": [
+      "quality",
+      "security",
+      "unit_integration",
+      "retrieval_golden_question_benchmark",
+      "contract_compatibility"
+    ],
+    "product_reality_lanes": [
+      "monster_79_end_to_end_research_report"
+    ],
+    "rule": "never convert missing human evidence into PASS; keep implementation status separate from Product Reality acceptance"
+  },
+  "work_ownership": {
+    "authority": "GitHub",
+    "active_work_sources": [
+      "open pull requests",
+      "open issues with active implementation evidence",
+      "recent focused branches/commits when attributable"
+    ],
+    "rule": "do not duplicate or compete with active work; prefer finishing existing work"
+  },
+  "regression_memory": {
+    "rule": "a reproduced correctness defect should gain regression protection before closure when practical",
+    "authoritative_history": "repository tests plus issue/PR/error-resolution history"
+  },
+  "readiness_scoring": {
+    "mode": "evidence-derived",
+    "prohibit_guessed_percent_complete": true,
+    "dimensions": [
+      "implementation",
+      "automated_verification",
+      "integration",
+      "product_reality",
+      "documentation",
+      "security_and_policy"
+    ],
+    "rule": "report unknown when evidence is insufficient"
+  },
+  "continuation": "derive from AI roadmap, current issues/PRs, and Research Report v1 acceptance"
+}
