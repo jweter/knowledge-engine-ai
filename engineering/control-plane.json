@@ -161,6 +161,16 @@
         "fast": true
       },
       {
+        "id": "growth_engine",
+        "argv": [
+          "python",
+          "engineering/growth_engine.py",
+          "--help"
+        ],
+        "kind": "governance",
+        "fast": true
+      },
+      {
         "id": "control_plane",
         "argv": [
           "poetry",
@@ -243,5 +253,24 @@
     "live_status_file": "engineering/live-status.json",
     "live_status_workflow": ".github/workflows/reconcile-live-status.yml",
     "rule": "automatic promotion is limited to orchestrator-owned branches; Product Reality PASS requires concrete evidence; status reconciliation opens a PR rather than pushing directly to main"
+  },
+  "growth_engine": {
+    "schema_version": 1,
+    "executable": "engineering/growth_engine.py",
+    "workflow": ".github/workflows/growth-control-plane.yml",
+    "learning_memory": "engineering/learning-memory.json",
+    "capabilities": [
+      "structured_engineering_learning",
+      "evidence_ranked_next_slices",
+      "conflict_aware_specialist_lane_planning",
+      "product_reality_debt_visibility",
+      "dependency_unlock_graph",
+      "production_readiness_sentinel"
+    ],
+    "ranking_rule": "recommend highest-value reversible work from live evidence; P0/P1/existing ownership gates remain authoritative and recommendations never bypass preflight, CI, reviews, architecture, security, provenance, privacy, or Product Reality policy",
+    "specialist_lane_rule": "parallel lanes may be proposed only when they do not overlap active PR ownership or each other; one scheduler retains merge authority",
+    "learning_rule": "record verified failures, root causes, successful repairs, regression protection, and residual risk; never store secrets or private Product Reality payloads",
+    "dependency_rule": "prefer slices that unblock more downstream work when priority and risk are otherwise comparable",
+    "sentinel_rule": "surface architecture/security/governance/readiness drift only from observable evidence; do not fabricate percentages or acceptance"
   }
 }
