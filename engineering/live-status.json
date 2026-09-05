@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "repository": "jweter/knowledge-engine-ai",
+  "open_pull_requests": [],
+  "open_issue_numbers": [
+    69,
+    79,
+    84,
+    86,
+    87,
+    88,
+    89,
+    91,
+    129
+  ],
+  "product_reality": {
+    "monster_79_end_to_end_research_report": "PENDING"
+  },
+  "readiness_dimensions": {
+    "implementation": "UNKNOWN",
+    "automated_verification": "UNKNOWN",
+    "integration": "UNKNOWN",
+    "product_reality": "UNKNOWN",
+    "documentation": "UNKNOWN",
+    "security_and_policy": "UNKNOWN"
+  },
+  "rule": "Generated from live GitHub state and committed Product Reality evidence; UNKNOWN is intentional when evidence is insufficient."
+}
