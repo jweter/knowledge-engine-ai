@@ -117,13 +117,32 @@ def is_human_actor(user: Any) -> bool:
     return bool(login) and user_type.lower() != "bot" and not login.endswith("[bot]")
 
 
+def activity_before_or_at(
+    rows: list[dict[str, Any]], cutoff: datetime
+) -> list[dict[str, Any]]:
+    eligible = []
+    for row in rows:
+        when = parse_time(
+            row.get("submitted_at")
+            or row.get("created_at")
+            or row.get("updated_at")
+        )
+        if when is not None and when <= cutoff:
+            eligible.append(row)
+    return eligible
+
+
 def pull_has_human_intervention(
     pull_number: int,
     reviews: list[dict[str, Any]],
     comments: list[dict[str, Any]],
+    merged_at: datetime,
 ) -> bool:
     _ = pull_number
-    return any(is_human_actor(row.get("user")) for row in reviews + comments)
+    eligible = activity_before_or_at(reviews, merged_at) + activity_before_or_at(
+        comments, merged_at
+    )
+    return any(is_human_actor(row.get("user")) for row in eligible)
 
 
 def repeat_failure_rate(runs: list[dict[str, Any]], start: datetime, end: datetime) -> float | str:
@@ -211,7 +230,15 @@ def intervention_evidence(
         number = int(pull["number"])
         reviews = github_pages(f"/pulls/{number}/reviews")
         comments = github_pages(f"/issues/{number}/comments")
-        evidence[number] = pull_has_human_intervention(number, reviews, comments)
+        merged_at = parse_time(pull.get("merged_at"))
+        if merged_at is None:
+            continue
+        evidence[number] = pull_has_human_intervention(
+            number,
+            reviews,
+            comments,
+            merged_at,
+        )
     return evidence
 
 
