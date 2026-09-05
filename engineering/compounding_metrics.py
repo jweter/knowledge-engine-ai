@@ -117,16 +117,10 @@ def is_human_actor(user: Any) -> bool:
     return bool(login) and user_type.lower() != "bot" and not login.endswith("[bot]")
 
 
-def activity_before_or_at(
-    rows: list[dict[str, Any]], cutoff: datetime
-) -> list[dict[str, Any]]:
+def activity_before_or_at(rows: list[dict[str, Any]], cutoff: datetime) -> list[dict[str, Any]]:
     eligible = []
     for row in rows:
-        when = parse_time(
-            row.get("submitted_at")
-            or row.get("created_at")
-            or row.get("updated_at")
-        )
+        when = parse_time(row.get("submitted_at") or row.get("created_at") or row.get("updated_at"))
         if when is not None and when <= cutoff:
             eligible.append(row)
     return eligible
