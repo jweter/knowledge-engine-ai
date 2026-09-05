@@ -88,11 +88,20 @@ def test_dependency_unlock_rate_requires_explicit_dependency_edges() -> None:
 def test_human_intervention_requires_non_bot_activity() -> None:
     reviews = [{"user": {"login": "reviewer", "type": "User"}}]
     comments = [{"user": {"login": "github-actions[bot]", "type": "Bot"}}]
-    assert pull_has_human_intervention(1, reviews, comments)
+    merged_at = datetime(2026, 8, 10, tzinfo=UTC)
+    reviews[0]["submitted_at"] = "2026-08-09T00:00:00Z"
+    comments[0]["created_at"] = "2026-08-09T00:00:00Z"
+    assert pull_has_human_intervention(1, reviews, comments, merged_at)
     assert not pull_has_human_intervention(
         1,
-        [{"user": {"login": "codex[bot]", "type": "Bot"}}],
+        [
+            {
+                "user": {"login": "codex[bot]", "type": "Bot"},
+                "submitted_at": "2026-08-09T00:00:00Z",
+            }
+        ],
         comments,
+        merged_at,
     )
 
 
@@ -151,3 +160,20 @@ def test_window_metrics_collects_all_four_new_rates() -> None:
     assert result["autonomous_completion_rate"] == 0.5
     assert result["dependency_unlock_rate"] == 0.5
     assert result["human_intervention_rate"] == 0.5
+
+
+def test_post_merge_human_activity_does_not_rewrite_history() -> None:
+    merged_at = datetime(2026, 8, 10, tzinfo=UTC)
+    reviews = [
+        {
+            "user": {"login": "reviewer", "type": "User"},
+            "submitted_at": "2026-08-11T00:00:00Z",
+        }
+    ]
+    comments = [
+        {
+            "user": {"login": "reviewer", "type": "User"},
+            "created_at": "2026-08-12T00:00:00Z",
+        }
+    ]
+    assert not pull_has_human_intervention(1, reviews, comments, merged_at)
