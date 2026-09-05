@@ -321,6 +321,7 @@
     "decision_order": [
       "verify_live_github_state",
       "consume_execution_director",
+      "consume_reinvestment_plan",
       "consume_growth_engine",
       "consult_governing_roadmap"
     ],
@@ -352,7 +353,19 @@
       "stale_pass_must_not_be_treated_as_verified": true
     },
     "fallback": "if execution-plan evidence is missing/stale/inconsistent, derive equivalent state from live GitHub plus the control-plane contract and classify uncertainty explicitly",
-    "fallback_mode": "LIVE_EVIDENCE"
+    "fallback_mode": "LIVE_EVIDENCE",
+    "reinvestment_plan": {
+      "workflow": "Engineering Compounding Report",
+      "artifact": "engineering-reinvestment-plan",
+      "max_age_hours": 30,
+      "advisory_only": true,
+      "never_override_priorities": true,
+      "bounds": {
+        "min_system_reinvestment_fraction": 0.05,
+        "max_system_reinvestment_fraction": 0.2
+      },
+      "rule": "use the plan only to bias the mix of system-improvement versus direct roadmap work after higher-priority live gates are satisfied"
+    }
   },
   "compounding_metrics": {
     "collector": "engineering/compounding_metrics.py",
