@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from hashlib import sha256
-from typing import Any, Mapping
+from typing import Any
 
 CORE_REPOSITORY = "jweter/knowledge-engine-core"
 CORE_RESULT_STATUSES = frozenset(
