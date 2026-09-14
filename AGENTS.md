@@ -12,12 +12,15 @@ Before selecting or implementing substantial work, read:
 4. The active roadmap/design document named by `docs/project-status.yaml`.
 5. `docs/roadmap/research_report_v1.md` — adopted product acceptance contract for report quality, evidence boundaries, and the Monster golden case.
 6. `docs/INDUSTRY_REALITY_CHECK.md` — the current repo-specific gap analysis versus grounded-research/AI production expectations.
+7. `docs/QUANTUM_EVIDENCE_REASONING.md` — required when interpreting quantum, quantum-inspired, simulator, physical-QPU, photonic, neuromorphic, or other emerging-compute claims.
 
 ## Research Report v1 priority
 
 Until the Monster Energy / one-year blood-pressure acceptance case passes end to end, treat Research Report v1 as a standing product constraint. Prefer work that directly improves the structured report contract, claim/evidence linkage, dimension-specific conclusions, certainty rationale, counter-evidence handling, missing-evidence disclosure, or the deployed end-to-end acceptance path over additional non-blocking orchestration abstractions.
 
 Do not trade away grounding, provenance, contradiction review, coverage disclosure, or deterministic release gates to make the report look more polished.
+
+For quantum/emerging-compute reasoning, preserve the evidence class: theory, classical simulation, quantum simulation, ordinary physical-hardware evidence, **error-mitigated hardware**, **error-corrected/logical-qubit hardware**, mitigation/correction-unknown hardware, independent reproduction, and classical comparator are not interchangeable. Error mitigation never implies fault-tolerant error correction. Surface material missing context instead of inferring it. Bounded benchmark superiority under one contract must not be inflated into general quantum advantage or speedup.
 
 ## How to use the reality check
 
