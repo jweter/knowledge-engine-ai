@@ -16,8 +16,11 @@ Before selecting or implementing substantial work, read:
 2. `docs/agent-development-policy.md` — repository-specific autonomous workflow and shared Knowledge Engine family rules.
 3. `docs/project-status.yaml` plus the active roadmap/design document it identifies.
 4. `docs/INDUSTRY_REALITY_CHECK.md` — the current repo-specific gap analysis versus grounded-research/AI production expectations.
+5. `docs/QUANTUM_EVIDENCE_REASONING.md` when interpreting quantum, quantum-inspired, simulator, physical-QPU, photonic, neuromorphic, or other emerging-compute claims.
 
 Treat `docs/INDUSTRY_REALITY_CHECK.md` as a durable quality-gap baseline, not as a replacement for verified repository state or the active roadmap. Prefer roadmap-compatible work that closes a documented quality gap when priorities are otherwise comparable. Do not declare a gap closed merely because orchestration code exists or CI passes when the report calls for end-to-end grounding, claim-level evaluation, adversarial robustness, observability, reuse, integration, performance, or Product Reality evidence. Update the assessment when major verified capability materially changes its conclusions.
+
+For quantum/emerging-compute reasoning, preserve the distinction among theoretical claims, classical simulation, quantum simulation, physical hardware runs, noise/error-mitigation context, independent reproduction, and classical comparators. Surface missing material evidence instead of filling it from assumptions. A local benchmark win may support bounded benchmark superiority under that contract; it does not establish general quantum advantage or speedup.
 
 ## Engineering Priorities
 
