@@ -15,10 +15,14 @@ A claim about quantum or emerging compute is not one thing. The reasoning layer 
 - theoretical/complexity claims;
 - classical simulation results;
 - quantum-simulator results;
-- physical-device measurements;
-- error-mitigated/error-corrected hardware results;
+- physical-device measurements with no demonstrated mitigation/correction classification;
+- **error-mitigated hardware results** — noisy-device results where post-processing, extrapolation, probabilistic cancellation, symmetry checks, or another mitigation method reduces estimated error without establishing fault-tolerant logical computation;
+- **error-corrected hardware results** — results that explicitly demonstrate the relevant quantum error-correction/logical-qubit behavior needed for the claim;
+- hardware results where mitigation/correction status is **unknown or neither established**;
 - independent reproductions;
 - comparisons against classical baselines.
+
+Error mitigation and error correction are not interchangeable evidence classes. A mitigated noisy-device result must never be upgraded to an error-corrected/fault-tolerant claim merely because both address error.
 
 When source material does not establish which class applies, report that uncertainty instead of inferring a stronger evidence class.
 
@@ -32,7 +36,7 @@ For future quantum-related research answers, decompose material claims into at l
 4. **Scale claim** — what problem/resource scale was actually demonstrated?
 5. **Comparator claim** — which classical baseline was used, and was it competitive/relevant?
 6. **Performance claim** — correctness, runtime, sample complexity, solution quality, energy/cost, or another metric?
-7. **Noise/reproducibility claim** — shots, replicates, seeds, calibration, noise model, error mitigation/correction, confidence/variance?
+7. **Noise/reproducibility claim** — shots, replicates, seeds, calibration, noise model, mitigation status/method, correction/logical-qubit status, confidence/variance?
 8. **Generality claim** — does the evidence support only a bounded benchmark, or a broader complexity/advantage statement?
 
 ## Evidence hierarchy is contextual, not promotional
@@ -43,6 +47,8 @@ Examples:
 
 - a complexity theorem is primarily evaluated mathematically;
 - a hardware-noise claim requires hardware evidence;
+- an error-mitigation claim requires evidence about the mitigation method and measured effect, but does not establish error-corrected logical operation;
+- an error-correction/fault-tolerance claim requires explicit evidence for the relevant code/logical-qubit behavior and cannot be inferred from mitigation alone;
 - a claimed practical speedup requires a credible classical comparator and end-to-end timing;
 - a simulation can validate circuit logic but cannot establish physical-device performance by itself.
 
@@ -73,6 +79,8 @@ When material fields are absent, explicitly surface the missing context. Example
 - device/backend identity missing;
 - shot count or replicate count missing;
 - calibration/noise context missing;
+- mitigation status or method unspecified;
+- error-correction/logical-qubit status unspecified;
 - confidence/variance missing;
 - simulator noise model unspecified;
 - independent reproduction absent;
@@ -91,6 +99,7 @@ When the Autonomous Engineering Scientist sends a bounded emerging-compute exper
 - stochastic protocol;
 - measured result distribution;
 - cost and wall-clock context;
+- mitigation and correction status separately when hardware evidence depends on them;
 - independent verification refs;
 - safety/provenance boundaries.
 
@@ -100,7 +109,7 @@ The AI layer may explain why the evidence supports retaining or rejecting a hypo
 
 High-value future capabilities include:
 
-- literature reviews that separate theoretical, simulated, and hardware-supported quantum claims;
+- literature reviews that separate theoretical, simulated, mitigated-hardware, error-corrected-hardware, and independently reproduced quantum claims;
 - evidence tables comparing claimed speedups with the actual classical baselines used;
 - reproducibility analysis across devices/research groups;
 - quantum-chemistry method reviews that preserve Hamiltonian/model/basis/backend assumptions;
