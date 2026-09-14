@@ -20,7 +20,7 @@ Until the Monster Energy / one-year blood-pressure acceptance case passes end to
 
 Do not trade away grounding, provenance, contradiction review, coverage disclosure, or deterministic release gates to make the report look more polished.
 
-For quantum/emerging-compute reasoning, preserve the evidence class: theory, classical simulation, quantum simulation, physical hardware, noise/error-mitigation context, independent reproduction, and classical comparator are not interchangeable. Surface material missing context instead of inferring it. Bounded benchmark superiority under one contract must not be inflated into general quantum advantage or speedup.
+For quantum/emerging-compute reasoning, preserve the evidence class: theory, classical simulation, quantum simulation, ordinary physical-hardware evidence, **error-mitigated hardware**, **error-corrected/logical-qubit hardware**, mitigation/correction-unknown hardware, independent reproduction, and classical comparator are not interchangeable. Error mitigation never implies fault-tolerant error correction. Surface material missing context instead of inferring it. Bounded benchmark superiority under one contract must not be inflated into general quantum advantage or speedup.
 
 ## How to use the reality check
 
