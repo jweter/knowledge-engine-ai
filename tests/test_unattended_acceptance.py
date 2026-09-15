@@ -77,7 +77,9 @@ def test_identity_changes_for_repeated_request_instance() -> None:
     )
 
     assert baseline.identity_sha256() != repeated.identity_sha256()
-    assert baseline.core_worker_request()["request_id"] != repeated.core_worker_request()["request_id"]
+    assert (
+        baseline.core_worker_request()["request_id"] != repeated.core_worker_request()["request_id"]
+    )
 
 
 def test_manifest_rejects_partial_sha() -> None:
