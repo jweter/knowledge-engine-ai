@@ -75,6 +75,15 @@ class EvidenceDirectness(StrEnum):
     UNAVAILABLE = "unavailable"
 
 
+_MISSING_DIRECTNESS_REQUIRES_DISCLOSURE = frozenset(
+    {
+        EvidenceDirectness.CLASS_LEVEL,
+        EvidenceDirectness.INDIRECT_CONTEXT,
+        EvidenceDirectness.UNAVAILABLE,
+    }
+)
+
+
 @dataclass(frozen=True)
 class ConclusionRow:
     """One answer dimension plus its grounded evidence relationships."""
@@ -243,6 +252,8 @@ Rules:
 - Use certainty=unavailable when the grounded evidence cannot support a responsible rating.
 - Certainty is ordinal judgment, not a numeric score. Explain the rationale.
 - If direct long-duration evidence is missing, state it explicitly rather than extrapolating.
+- A class_level, indirect_context, or unavailable conclusion row must name the specific
+  missing direct evidence in missing_direct_evidence; do not leave that field null.
 - Do not claim a study design, duration, result, or limitation not present below.
 
 User question:
@@ -440,6 +451,11 @@ def _parse_conclusion_rows(
             raise ResearchReportError(
                 f"conclusion_rows[{index}].missing_direct_evidence must not be blank."
             )
+        if directness in _MISSING_DIRECTNESS_REQUIRES_DISCLOSURE and missing_direct is None:
+            raise ResearchReportError(
+                f"conclusion_rows[{index}] with directness={directness.value} must explicitly "
+                "state missing_direct_evidence."
+            )
 
         rows.append(
             ConclusionRow(
@@ -624,19 +640,3 @@ def _extract_json_object(text: str) -> str | None:
             if depth == 0:
                 return text[start : index + 1]
     return None
-
-
-__all__ = [
-    "ConclusionRow",
-    "DEFAULT_RESEARCH_REPORT_MAX_TOKENS",
-    "EvidenceDirectness",
-    "NarrativeSection",
-    "RESEARCH_REPORT_SCHEMA_VERSION",
-    "ReportCertainty",
-    "ResearchReport",
-    "ResearchReportError",
-    "ResearchReportProposal",
-    "build_research_report_prompt",
-    "generate_research_report",
-    "parse_research_report_proposal",
-]
