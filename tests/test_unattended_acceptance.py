@@ -67,6 +67,19 @@ def test_identity_changes_when_cross_repo_or_ollama_identity_changes() -> None:
     assert baseline.identity_sha256() != changed.identity_sha256()
 
 
+def test_identity_changes_for_repeated_request_instance() -> None:
+    baseline = _manifest()
+    repeated = UnattendedAcceptanceManifest(
+        **{
+            **baseline.__dict__,
+            "created_at_utc": "2026-09-14T23:32:00+00:00",
+        }
+    )
+
+    assert baseline.identity_sha256() != repeated.identity_sha256()
+    assert baseline.core_worker_request()["request_id"] != repeated.core_worker_request()["request_id"]
+
+
 def test_manifest_rejects_partial_sha() -> None:
     values = {**_manifest().__dict__, "core_sha": "abc123"}
 
@@ -78,6 +91,13 @@ def test_manifest_rejects_duplicate_checks() -> None:
     values = {**_manifest().__dict__, "requested_checks": ("preflight", "preflight")}
 
     with pytest.raises(ValueError, match="may not contain duplicates"):
+        UnattendedAcceptanceManifest(**values)
+
+
+def test_manifest_rejects_timestamp_without_timezone() -> None:
+    values = {**_manifest().__dict__, "created_at_utc": "2026-09-14T23:30:00"}
+
+    with pytest.raises(ValueError, match="created_at_utc must include a timezone offset"):
         UnattendedAcceptanceManifest(**values)
 
 
@@ -93,6 +113,24 @@ def test_worker_result_rejects_wrong_exact_sha() -> None:
     result["exact_sha"] = "d" * 40
 
     with pytest.raises(ValueError, match="exact_sha does not match"):
+        manifest.validate_worker_result(result)
+
+
+def test_worker_result_rejects_stale_completion_time() -> None:
+    manifest = _manifest()
+    result = _valid_result(manifest)
+    result["completed_at_utc"] = "2026-09-14T23:29:59+00:00"
+
+    with pytest.raises(ValueError, match="predates the unattended request"):
+        manifest.validate_worker_result(result)
+
+
+def test_worker_result_rejects_missing_completion_time() -> None:
+    manifest = _manifest()
+    result = _valid_result(manifest)
+    del result["completed_at_utc"]
+
+    with pytest.raises(ValueError, match="completed_at_utc must be a timestamp"):
         manifest.validate_worker_result(result)
 
 
