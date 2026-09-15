@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import datetime
 from hashlib import sha256
 from typing import Any
 
@@ -32,6 +33,17 @@ def _required_text(value: str, *, field_name: str) -> str:
     return normalized
 
 
+def _timestamp(value: str, *, field_name: str) -> datetime:
+    normalized = _required_text(value, field_name=field_name)
+    try:
+        parsed = datetime.fromisoformat(normalized.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError(f"{field_name} must be a valid ISO-8601 timestamp") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError(f"{field_name} must include a timezone offset")
+    return parsed
+
+
 @dataclass(frozen=True)
 class UnattendedAcceptanceManifest:
     """AI-side context bound to one Core unattended-worker request.
@@ -59,7 +71,6 @@ class UnattendedAcceptanceManifest:
         for field_name in (
             "core_branch",
             "environment_id",
-            "created_at_utc",
             "scenario_id",
             "ollama_model",
             "ollama_runtime_id",
@@ -69,6 +80,12 @@ class UnattendedAcceptanceManifest:
                 field_name,
                 _required_text(getattr(self, field_name), field_name=field_name),
             )
+        _timestamp(self.created_at_utc, field_name="created_at_utc")
+        object.__setattr__(
+            self,
+            "created_at_utc",
+            _required_text(self.created_at_utc, field_name="created_at_utc"),
+        )
         checks = tuple(check.strip() for check in self.requested_checks)
         if not checks or any(not check for check in checks):
             raise ValueError("requested_checks must contain at least one non-empty check")
@@ -81,6 +98,7 @@ class UnattendedAcceptanceManifest:
             "ai_sha": self.ai_sha,
             "core_branch": self.core_branch,
             "core_sha": self.core_sha,
+            "created_at_utc": self.created_at_utc,
             "environment_id": self.environment_id,
             "ollama_model": self.ollama_model,
             "ollama_runtime_id": self.ollama_runtime_id,
@@ -117,6 +135,14 @@ class UnattendedAcceptanceManifest:
         for key, expected in required_identity.items():
             if result.get(key) != expected:
                 raise ValueError(f"worker result {key} does not match the unattended request")
+
+        completed_at_utc = result.get("completed_at_utc")
+        if not isinstance(completed_at_utc, str):
+            raise ValueError("worker result completed_at_utc must be a timestamp")
+        completed_at = _timestamp(completed_at_utc, field_name="worker result completed_at_utc")
+        created_at = _timestamp(self.created_at_utc, field_name="created_at_utc")
+        if completed_at < created_at:
+            raise ValueError("worker result predates the unattended request")
 
         status = result.get("status")
         if not isinstance(status, str) or status not in CORE_RESULT_STATUSES:
