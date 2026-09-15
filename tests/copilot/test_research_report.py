@@ -235,6 +235,7 @@ def test_prompt_preserves_requested_answer_dimensions_and_evidence_boundaries() 
     assert "id=ev-positive" in prompt
     assert "id=ev-null" in prompt
     assert "Acute evidence must not be phrased as proof" in prompt
+    assert "class_level, indirect_context, or unavailable" in prompt
 
 
 def test_parse_requires_exact_dimensions_and_counter_evidence_coverage() -> None:
@@ -279,6 +280,21 @@ def test_parse_rejects_omitted_required_counter_evidence() -> None:
             payload,
             known_evidence_ids=frozenset({"ev-positive", "ev-null"}),
             required_counter_evidence_ids=frozenset({"ev-null"}),
+        )
+
+
+def test_parse_rejects_class_level_conclusion_that_hides_missing_direct_evidence() -> None:
+    payload = _payload()
+    rows = payload["conclusion_rows"]
+    assert isinstance(rows, list)
+    row = rows[1]
+    assert isinstance(row, dict)
+    row["missing_direct_evidence"] = None
+
+    with pytest.raises(ResearchReportError, match="must explicitly state missing_direct_evidence"):
+        parse_research_report_proposal(
+            payload,
+            known_evidence_ids=frozenset({"ev-positive", "ev-null"}),
         )
 
 
