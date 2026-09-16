@@ -266,6 +266,70 @@ def test_parse_rejects_unknown_evidence_identity() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("field_name", "text"),
+    [
+        ("bottom_line", "Invented top-level citation [ev-invented]."),
+        ("direct_evidence_summary", "Invented direct citation [ev-invented]."),
+        ("indirect_evidence_summary", "Invented indirect citation [ev-invented]."),
+    ],
+)
+def test_parse_rejects_unknown_top_level_prose_citation(
+    field_name: str,
+    text: str,
+) -> None:
+    payload = _payload()
+    payload[field_name] = text
+
+    with pytest.raises(
+        ResearchReportError,
+        match="not represented by its validated evidence authority",
+    ):
+        parse_research_report_proposal(
+            payload,
+            known_evidence_ids=frozenset({"ev-positive", "ev-null"}),
+        )
+
+
+@pytest.mark.parametrize("field_name", ["conclusion", "certainty_rationale"])
+def test_parse_rejects_row_citation_not_declared_by_typed_evidence_arrays(
+    field_name: str,
+) -> None:
+    payload = _payload()
+    rows = payload["conclusion_rows"]
+    assert isinstance(rows, list)
+    row = rows[0]
+    assert isinstance(row, dict)
+    row[field_name] = "This row cites a globally known but undeclared record [ev-null]."
+
+    with pytest.raises(
+        ResearchReportError,
+        match="not represented by its validated evidence authority",
+    ):
+        parse_research_report_proposal(
+            payload,
+            known_evidence_ids=frozenset({"ev-positive", "ev-null"}),
+        )
+
+
+def test_parse_rejects_unknown_narrative_citation() -> None:
+    payload = _payload()
+    sections = payload["narrative_sections"]
+    assert isinstance(sections, list)
+    section = sections[0]
+    assert isinstance(section, dict)
+    section["body"] = "Narrative prose invents a citation [ev-invented]."
+
+    with pytest.raises(
+        ResearchReportError,
+        match="not represented by its validated evidence authority",
+    ):
+        parse_research_report_proposal(
+            payload,
+            known_evidence_ids=frozenset({"ev-positive", "ev-null"}),
+        )
+
+
 def test_parse_rejects_omitted_required_counter_evidence() -> None:
     payload = _payload()
     rows = payload["conclusion_rows"]
