@@ -1,45 +1,48 @@
 schema_version: 1
 project: knowledge-engine-ai
-updated_at: "2026-08-31T20:45:00Z"
-status_source: "Live GitHub state verified 2026-08-31 plus docs/roadmap/research_report_v1.md, docs/roadmap/general_question_research_loop_v1.md, and docs/golden_research_case_benchmark.md. This file is a continuity cache and never overrides live repository state, CI, code, or higher-authority roadmap contracts."
+updated_at: "2026-09-16T15:25:00Z"
+status_source: "Live GitHub state verified 2026-09-16 plus current Knowledge Engine Web/Core status and Research Report v1 contracts. This file is a continuity cache and never overrides live repository state, CI, code, Product Reality evidence, or higher-authority roadmap contracts."
 
 product:
   primary_surface: "Python library: the judgment/orchestration layer over knowledge-engine-core's validated evidence graph"
-  role_in_family: "owns Research Copilot orchestration and the supported subprocess boundary to Core; consumed by knowledge-engine-web"
-  research_copilot_status: "General Question Research Loop grounded completion, deterministic verification, Research ISA close gates, progressive research state, bottleneck/funnel reporting, and Research Report v1's structured report contract are implemented. The structured report has not yet passed the deployed Web Monster acceptance case end to end."
+  role_in_family: "owns Research Copilot orchestration and the supported boundary to Core; consumed by knowledge-engine-web"
+  research_copilot_status: "General Question Research Loop grounded completion, deterministic verification, Research ISA close gates, progressive research state, bottleneck/funnel reporting, and Research Report v1's structured report contract are implemented. Web now consumes and renders the structured report. End-to-end Monster #79 acceptance on the authoritative zero-cost/local Core + Ollama runtime remains unverified."
 
 current_milestone:
-  name: "Research Report v1 — end-to-end product acceptance"
+  name: "Research Report v1 — zero-cost/local end-to-end product acceptance"
   roadmap_file: "docs/roadmap/research_report_v1.md"
   state: "active"
   tracking_issue: "#129"
   acceptance_case: "#79 monster-energy-bp-one-year"
   objective: "Match or exceed a strong scholarly-assistant answer for readability while materially exceeding it in provenance, evidence-boundary discipline, contradiction handling, missing-evidence disclosure, and auditability."
-  implementation_state: "PR #130 merged the typed ResearchReport contract and deterministic validation. PR #131 merged the fail-closed completed-session integration seam. The AI layer can now build a structured report only from a releaseable completed research result using the effective grounded EvidenceReport and existing ResearchProgressReport."
-  blocking_gap: "knowledge-engine-web has not yet completed consumption/rendering of Research Report v1, and the Monster #79 deployed end-to-end acceptance run has not yet passed."
-  priority_rule: "Until Monster #79 passes end to end, do not let unrelated non-blocking orchestration abstractions outrank report integration, report correctness, Web consumption, or acceptance failures."
+  implementation_state: "The typed ResearchReport contract and fail-closed completed-session integration are merged. Web PRs #109-#113 consume and render the structured report. AI PR #162 requires explicit missing direct evidence for indirect/class-level conclusions, and PR #163 rejects ungrounded free-text Research Report citations and row-local typed-evidence mismatches. Current AI main is 77293954335cea1112fca7cb3c5f0342f487e046."
+  blocking_gap: "The remaining gate is Product Reality/operations, not another report abstraction: run the real Web -> Core -> bounded research/acquisition/extraction/re-retrieval -> AI -> cited Research Report path against the zero-additional-cost local runtime and pass Monster #79. The local verification ledger has also reported a cached Core preflight failure without enough remote diagnostic detail; that dependent worker-observability lane must fail closed until a fresh exact-head local result exposes the underlying reason."
+  priority_rule: "Until Monster #79 passes on the verified local runtime, local-runtime acceptance, evidence correctness, and failures discovered by that run outrank unrelated abstractions or decorative work."
 
 research_report_v1_handoff:
   completed:
-    - "PR #130 — Research Report v1 structured contract and validation — merged to main."
-    - "PR #131 — safe integration from completed ResearchQuestionResult-like sessions to Research Report v1 — merged to main."
+    - "PR #130 — Research Report v1 structured contract and deterministic validation — merged."
+    - "PR #131 — safe integration from completed ResearchQuestionResult-like sessions to Research Report v1 — merged."
+    - "Web PRs #109-#113 — structured Research Report transport/rendering, evidence audit layer, citation detail links, and ordinary Ask Research-mode integration — merged."
+    - "PR #162 — indirect/class-level conclusions must explicitly disclose missing direct evidence — merged."
+    - "PR #163 — Research Report prose citations are validated against known EvidenceRecord IDs and each conclusion row's typed evidence arrays — merged."
     - "ResearchReport carries bottom line, dimension-specific conclusions, certainty plus rationale, support/counter-evidence IDs, directness, missing evidence, provider/degradation state, indexed-vs-new provenance, limitations, session ID, and research state."
-    - "Validation rejects fabricated EvidenceRecord IDs, duplicate/overlapping evidence classifications, missing required dimensions, and omitted required qualifying/counter-evidence."
-    - "Structured report generation is downstream of the existing narrative verification and Research ISA close gates; a report-generation failure cannot invalidate an otherwise verified base result."
+    - "Structured report generation remains downstream of narrative verification and Research ISA close gates; presentation cannot replace evidence authority."
   authoritative_code_paths:
     - "knowledge_engine_ai/copilot/research_report.py"
     - "knowledge_engine_ai/copilot/research_report_integration.py"
     - "knowledge_engine_ai/copilot/run_research_question.py"
     - "knowledge_engine_ai/research_case_benchmark.py"
     - "knowledge_engine_ai/research_case_query_plan.py"
+    - "knowledge_engine_ai/unattended_acceptance.py"
   required_next_sequence:
-    - "1. knowledge-engine-web: finish its Research Report v1 dependency/lock update and remove any temporary lock-generation tooling before opening the Web PR."
-    - "2. Web: carry ResearchReportBuildResult through orchestration without scraping narrative prose for semantics."
-    - "3. Web Layer 1: render answer first — bottom line, dimension-specific conclusion/certainty rows, certainty rationale, and the key missing-direct-evidence limitation."
-    - "4. Web Layer 2: preserve inspectable evidence and methodology — citations, source/evidence detail, directness, positive vs null/counter-evidence, provider coverage/degradation, indexed-vs-acquired provenance, funnel/session state."
-    - "5. Run Monster #79 through the deployed Ask path; record session ID, funnel, latency, provider state, promoted records, final ResearchState, citations, and every failed acceptance criterion."
-    - "6. Fix failures without weakening grounding/provenance/release gates; repeat until the Monster report passes both deterministic checks and the manual readability/usefulness comparison."
-    - "7. Only after Monster #79 passes: add cross-domain golden cases, then optimize latency while preserving evidence gates."
+    - "1. Obtain a fresh exact-current local Core worker result with actionable sanitized failure detail; cached FAIL without the underlying reason remains insufficient evidence."
+    - "2. Verify local Core workspace + Ollama availability against exact Core/Web/AI SHAs and bind the run to those revisions."
+    - "3. Submit Monster #79 through the normal Web Ask path so it enters the real durable asynchronous Research session."
+    - "4. Record discovery/acquisition/extraction/re-retrieval funnel, time to first grounded information, time to final report, provider coverage/degradation, promoted EvidenceRecords, final ResearchState, conclusion rows, missing evidence, and resolved citations."
+    - "5. Fail acceptance on any unsupported claim, missing dimension, collapsed direct/indirect boundary, omitted counter-evidence, hidden missing one-year evidence, broken evidence-detail navigation, or materially poor readability."
+    - "6. Fix only demonstrated acceptance failures and repeat until deterministic evidence gates and the final readability/usefulness review pass."
+    - "7. After Monster #79 passes, expand cross-domain golden cases and optimize measured latency without weakening evidence gates."
   nonnegotiable_invariants:
     - "Every substantive factual claim remains grounded/source-linked."
     - "Direct Monster/commercial-energy-drink evidence stays distinct from class-level energy-drink and indirect caffeine/coffee/soda evidence."
@@ -47,8 +50,9 @@ research_report_v1_handoff:
     - "Null, contradictory, and qualifying evidence must be represented deliberately."
     - "Missing direct long-duration evidence is explicit and machine-readable."
     - "Certainty must have a traceable rationale or be unavailable with a reason."
+    - "Free-text report prose may not cite invented evidence identities or row-external evidence that the structured conclusion did not declare."
     - "A polished report never bypasses citation, contradiction, coverage, grounding, or Research ISA close gates."
-  done_when: "Research Report v1 is not complete until the deployed Monster #79 Ask run produces all required dimensions, exposes positive and null evidence plus direct/indirect boundaries and missing one-year evidence, resolves released factual claims to grounded evidence, and is manually judged at least as readable/useful as the scholarly-assistant baseline."
+  done_when: "Research Report v1 is not complete until the real local-runtime Monster #79 Ask run produces all required dimensions, exposes positive and null evidence plus direct/indirect boundaries and missing one-year evidence, resolves released factual claims to grounded evidence, and is manually judged at least as readable/useful as the scholarly-assistant baseline."
 
 automation_contract:
   schedule_role: "repository participant in an hourly portfolio-development loop (owner-managed)"
@@ -68,33 +72,41 @@ automation_contract:
   advisory_review_unavailable_is_not_failure: true
 
 verified_repository_state:
-  checked_at: "2026-08-31T20:45:00Z"
-  note: "Live PR/check/issue state must be queried before acting; cached counts here are only a handoff snapshot."
+  checked_at: "2026-09-16T15:25:00Z"
+  note: "Live PR/check/issue state must still be queried before every action. This snapshot records current continuity only."
   open_prs: 0
-  current_research_report_main_commit: "2eee4cc9ba76f99e669d2e52669e84d8b5199a41"
+  current_main_commit: "77293954335cea1112fca7cb3c5f0342f487e046"
   recently_merged_research_report_prs:
-    - number: 131
-      title: "Wire Research Report v1 to completed research sessions"
-    - number: 130
-      title: "Research Report v1 structured contract and validation"
+    - number: 163
+      title: "Reject ungrounded Research Report prose citations"
+    - number: 162
+      title: "Enforce explicit missing direct evidence in Research Report"
+    - number: 161
+      title: "Add unattended AI acceptance consumer identity"
   active_research_report_issues:
-    - "#129 Research Report v1 implementation"
+    - "#129 Research Report v1 implementation/acceptance"
     - "#79 Monster Energy golden acceptance case"
-    - "jweter/knowledge-engine-web#107 answer-first Research Report UI"
+    - "#84 question-to-report bottleneck program"
+    - "#87 automatic extraction and re-retrieval critical path"
+    - "#154 unattended local Ollama/research acceptance"
+    - "jweter/knowledge-engine-web#107 answer-first Research Report UI/acceptance"
+    - "jweter/knowledge-engine-core#493 unattended local verification worker"
   ci_workflows:
     - ".github/workflows/quality.yml"
-    - ".github/workflows/golden-retrieval-baseline.yml"
+    - ".github/workflows/golden-verification.yml"
+    - ".github/workflows/control-plane.yml"
+    - ".github/workflows/security-trufflehog-history.yml"
 
 secondary_track:
   name: "General Question Research Loop v1"
   roadmap_file: "docs/roadmap/general_question_research_loop_v1.md"
   tracking_issue: "#69"
-  note: "GQR remains the execution foundation under Research Report v1: indexed retrieval -> bounded discovery -> acquisition -> grounded extraction/promotion -> original-question re-retrieval -> synthesis -> verification -> Research ISA close. Continue GQR work when it directly blocks report quality or Monster acceptance; do not treat it as a reason to postpone the report product milestone."
-  known_remaining_work: "Issue #87 still contains pre-grounding extraction-conversion and synthesis-budget policy follow-up. Address those when a real acceptance run or Web production integration demonstrates they are blocking the Research Report v1 path."
+  note: "GQR remains the execution foundation under Research Report v1: indexed retrieval -> bounded discovery -> acquisition -> grounded extraction/promotion -> original-question re-retrieval -> synthesis -> verification -> Research ISA close. Continue GQR work when the real acceptance path proves it blocks report quality or Monster completion."
+  known_remaining_work: "Issue #87 remains the explicit critical-path tracker for automatic extraction/promotion and re-retrieval. Treat it as a demonstrated blocker only when exact-current local-runtime evidence shows that stage is incomplete or failing; do not regress to assumption-driven rewrites."
 
 next_continuation:
-  priority: "P1-research-report-v1"
-  action: "Do not start a new independent AI abstraction. First inspect live Web #107 and the Web Research Report integration branch. The next AI work should be driven by concrete Web integration or Monster #79 acceptance failures: schema/serialization gaps, evidence-link resolution, dimension coverage, certainty rationale, counter-evidence representation, or fail-closed release behavior. If no AI-side defect blocks Web, work in knowledge-engine-web rather than inventing more AI plumbing."
+  priority: "P1-local-product-acceptance"
+  action: "Do not start a new independent AI abstraction. First obtain exact-current unattended local evidence, then run Monster #79 through the actual Web/Core/AI Research path. AI-side changes should be driven by concrete acceptance failures: schema/serialization gaps, evidence-link resolution, dimension coverage, certainty rationale, counter-evidence representation, citation integrity, or fail-closed release behavior."
   selection_rule: "Before beginning work, query live PR/CI/branch state. Existing failed, pending, conflicted, blocked, or merge-ready work takes priority. Never merge failed, pending, conflicted, blocked, or materially uncertain work."
 
 human_decision_required: null
