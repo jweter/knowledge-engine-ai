@@ -10,6 +10,7 @@ strictly validated before deterministic provenance is attached.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -49,6 +50,7 @@ _CONCLUSION_KEYS = frozenset(
 _SECTION_KEYS = frozenset({"heading", "body"})
 _QUALIFYING_DIRECTIONS = frozenset({"qualifies", "contradicts"})
 _HEALTHY_PROVIDER_OUTCOMES = frozenset({None, "success", "ok", "complete", "completed"})
+_EVIDENCE_CITATION = re.compile(r"\[([^\[\]\s]+)\]")
 
 
 class ResearchReportError(RuntimeError):
@@ -311,15 +313,21 @@ def parse_research_report_proposal(
 
     return ResearchReportProposal(
         schema_version=schema_version,
-        bottom_line=_required_string(payload["bottom_line"], "bottom_line"),
-        conclusion_rows=rows,
-        narrative_sections=_parse_sections(payload["narrative_sections"]),
-        missing_evidence=_string_tuple(payload["missing_evidence"], "missing_evidence"),
-        direct_evidence_summary=_required_string(
-            payload["direct_evidence_summary"], "direct_evidence_summary"
+        bottom_line=_validated_citation_text(
+            payload["bottom_line"], "bottom_line", known_evidence_ids
         ),
-        indirect_evidence_summary=_required_string(
-            payload["indirect_evidence_summary"], "indirect_evidence_summary"
+        conclusion_rows=rows,
+        narrative_sections=_parse_sections(payload["narrative_sections"], known_evidence_ids),
+        missing_evidence=_string_tuple(payload["missing_evidence"], "missing_evidence"),
+        direct_evidence_summary=_validated_citation_text(
+            payload["direct_evidence_summary"],
+            "direct_evidence_summary",
+            known_evidence_ids,
+        ),
+        indirect_evidence_summary=_validated_citation_text(
+            payload["indirect_evidence_summary"],
+            "indirect_evidence_summary",
+            known_evidence_ids,
         ),
     )
 
@@ -457,20 +465,23 @@ def _parse_conclusion_rows(
                 "state missing_direct_evidence."
             )
 
+        row_evidence_ids = frozenset((*supporting, *counter))
         rows.append(
             ConclusionRow(
                 question_dimension=_required_string(
                     item["question_dimension"],
                     f"conclusion_rows[{index}].question_dimension",
                 ),
-                conclusion=_required_string(
+                conclusion=_validated_citation_text(
                     item["conclusion"],
                     f"conclusion_rows[{index}].conclusion",
+                    row_evidence_ids,
                 ),
                 certainty=certainty,
-                certainty_rationale=_required_string(
+                certainty_rationale=_validated_citation_text(
                     item["certainty_rationale"],
                     f"conclusion_rows[{index}].certainty_rationale",
+                    row_evidence_ids,
                 ),
                 supporting_evidence_ids=supporting,
                 contradicting_or_null_evidence_ids=counter,
@@ -481,7 +492,10 @@ def _parse_conclusion_rows(
     return tuple(rows)
 
 
-def _parse_sections(value: object) -> tuple[NarrativeSection, ...]:
+def _parse_sections(
+    value: object,
+    known_evidence_ids: frozenset[str],
+) -> tuple[NarrativeSection, ...]:
     if not isinstance(value, list):
         raise ResearchReportError("narrative_sections must be a JSON array.")
 
@@ -496,9 +510,10 @@ def _parse_sections(value: object) -> tuple[NarrativeSection, ...]:
                     item["heading"],
                     f"narrative_sections[{index}].heading",
                 ),
-                body=_required_string(
+                body=_validated_citation_text(
                     item["body"],
                     f"narrative_sections[{index}].body",
+                    known_evidence_ids,
                 ),
             )
         )
@@ -520,6 +535,22 @@ def _evidence_id_tuple(
             f"{field_name} contains unknown evidence ID(s): {', '.join(sorted(unknown))}"
         )
     return evidence_ids
+
+
+def _validated_citation_text(
+    value: object,
+    field_name: str,
+    allowed_evidence_ids: frozenset[str],
+) -> str:
+    text = _required_string(value, field_name)
+    cited_ids = frozenset(_EVIDENCE_CITATION.findall(text))
+    unknown = cited_ids - allowed_evidence_ids
+    if unknown:
+        raise ResearchReportError(
+            f"{field_name} contains evidence citation(s) not represented by its "
+            f"validated evidence authority: {', '.join(sorted(unknown))}"
+        )
+    return text
 
 
 def _string_tuple(value: object, field_name: str) -> tuple[str, ...]:
