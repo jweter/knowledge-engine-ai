@@ -338,6 +338,8 @@ def test_parse_rejects_omitted_required_counter_evidence() -> None:
     assert isinstance(row, dict)
     row["contradicting_or_null_evidence_ids"] = []
     row["certainty"] = "unavailable"
+    row["conclusion"] = "No grounded conclusion is available in this mutated fixture."
+    row["certainty_rationale"] = "No typed row evidence remains in this mutated fixture."
 
     with pytest.raises(ResearchReportError, match="omitted required qualifying/counter-evidence"):
         parse_research_report_proposal(
