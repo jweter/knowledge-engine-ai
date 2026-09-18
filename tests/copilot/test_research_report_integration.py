@@ -242,7 +242,9 @@ def test_malformed_structured_output_preserves_base_result_as_failure_code() -> 
 
 
 def test_reviewed_monster_case_drives_report_dimensions() -> None:
-    from knowledge_engine_ai.copilot.research_report_integration import reviewed_case_answer_dimensions
+    from knowledge_engine_ai.copilot.research_report_integration import (
+        reviewed_case_answer_dimensions,
+    )
 
     assert reviewed_case_answer_dimensions("monster-energy-bp-one-year") == (
         "acute_pressor_effect",
