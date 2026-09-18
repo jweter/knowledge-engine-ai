@@ -25,6 +25,7 @@ from knowledge_engine_ai.copilot.research_report import (
 )
 from knowledge_engine_ai.llm import LocalLLM, LocalLLMError
 from knowledge_engine_ai.models import EvidenceReport
+from knowledge_engine_ai.research_case_benchmark import default_golden_research_cases
 
 
 class ResearchResultForReport(Protocol):
@@ -41,6 +42,14 @@ class ResearchResultForReport(Protocol):
 
     @property
     def progress_report(self) -> ResearchProgressReport | None: ...
+
+
+def reviewed_case_answer_dimensions(case_id: str) -> tuple[str, ...]:
+    """Return the reviewed benchmark dimensions for a named golden case."""
+    for case in default_golden_research_cases():
+        if case.case_id == case_id:
+            return case.required_dimensions
+    raise ValueError(f"Unknown reviewed golden research case: {case_id}")
 
 
 @dataclass(frozen=True)
@@ -109,5 +118,6 @@ def build_research_report_for_result(
 __all__ = [
     "ResearchReportBuildResult",
     "ResearchResultForReport",
+    "reviewed_case_answer_dimensions",
     "build_research_report_for_result",
 ]
