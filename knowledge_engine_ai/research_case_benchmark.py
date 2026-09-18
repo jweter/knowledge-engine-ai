@@ -267,8 +267,14 @@ def evaluate_research_case(
 
     discovery_required_but_not_triggered = (
         case.require_discovery_on_empty_index
-        and snapshot.initial_indexed_evidence_record_count == 0
         and not snapshot.discovery_triggered
+        and (
+            snapshot.initial_indexed_evidence_record_count == 0
+            or (
+                case.require_long_term_gap_disclosure_when_absent
+                and not snapshot.direct_long_term_study_found
+            )
+        )
     )
     long_term_gap_disclosure_missing = (
         case.require_long_term_gap_disclosure_when_absent

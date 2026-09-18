@@ -125,6 +125,20 @@ def test_empty_index_requires_bounded_discovery() -> None:
     assert result.passes is False
 
 
+def test_nonempty_irrelevant_index_cannot_suppress_required_monster_discovery() -> None:
+    result = evaluate_research_case(
+        _monster_case(),
+        _complete_snapshot(
+            initial_indexed_evidence_record_count=10,
+            discovery_triggered=False,
+            direct_long_term_study_found=False,
+        ),
+    )
+
+    assert result.discovery_required_but_not_triggered is True
+    assert result.passes is False
+
+
 def test_pubmed_plus_another_scholarly_provider_are_required() -> None:
     case = _monster_case()
 
