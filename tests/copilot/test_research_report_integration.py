@@ -239,3 +239,19 @@ def test_malformed_structured_output_preserves_base_result_as_failure_code() -> 
     assert not built.available
     assert built.error_code == "research_report_generation_failed"
     assert llm.calls == 1
+
+
+def test_reviewed_monster_case_drives_report_dimensions() -> None:
+    from knowledge_engine_ai.copilot.research_report_integration import (
+        reviewed_case_answer_dimensions,
+    )
+
+    assert reviewed_case_answer_dimensions("monster-energy-bp-one-year") == (
+        "acute_pressor_effect",
+        "persistent_chronic_bp_effect",
+        "incident_hypertension_risk",
+        "measurement_artifact",
+        "original_vs_zero_long_term_risk",
+        "direct_vs_class_level_evidence",
+        "certainty_and_missing_evidence",
+    )
