@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "authority": {
+    "vision_completion": [
+      "README.md"
+    ],
+    "roadmap": [
+      "docs/roadmap/research_pipeline_bottlenecks.md",
+      "docs/roadmap/general_question_research_loop_v1.md",
+      "docs/roadmap/research_report_v1.md"
+    ],
+    "architecture": [
+      "docs/roadmap/future_ai_orchestration_plan.md",
+      "docs/roadmap/lifeos_intent_architecture_adoption.md"
+    ]
+  }
+}
