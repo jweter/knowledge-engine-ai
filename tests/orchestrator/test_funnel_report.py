@@ -580,3 +580,17 @@ def test_to_json_round_trips_every_field() -> None:
     assert payload["acquisition_plan"]["resolved_candidate_count"] == 5
     assert payload["extraction"]["promoted_record_count"] == 1
     assert payload["indexed_evidence_record_count"] == 1
+
+
+def test_extraction_funnel_exposes_preclassification_dropoff() -> None:
+    report = build_research_conversion_funnel_report(
+        _Result(
+            session_id="session-1",
+            discovery=None,
+            grounded_completion=_completion(draft_item_count=7, classified_item_count=3),
+            progress_report=_progress(),
+        )
+    )
+    assert report.extraction is not None
+    assert report.extraction.unclassified_draft_count == 4
+    assert report.extraction.to_dict()["unclassified_draft_count"] == 4
