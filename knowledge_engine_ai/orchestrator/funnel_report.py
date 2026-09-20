@@ -99,6 +99,7 @@ class ExtractionFunnel:
 
     draft_item_count: int
     classified_item_count: int
+    unclassified_draft_count: int
     staged_record_count: int
     grounded_record_count: int
     promoted_record_count: int
@@ -109,6 +110,7 @@ class ExtractionFunnel:
         return {
             "draft_item_count": self.draft_item_count,
             "classified_item_count": self.classified_item_count,
+            "unclassified_draft_count": self.unclassified_draft_count,
             "staged_record_count": self.staged_record_count,
             "grounded_record_count": self.grounded_record_count,
             "promoted_record_count": self.promoted_record_count,
@@ -287,10 +289,12 @@ def _acquisition_funnel(completion: GroundedCompletionResult | None) -> Acquisit
 def _extraction_funnel(completion: GroundedCompletionResult | None) -> ExtractionFunnel | None:
     if completion is None or not completion.attempted or not completion.paper_ids:
         return None
+    unclassified = max(0, completion.draft_item_count - completion.classified_item_count)
     rejected = max(0, completion.classified_item_count - len(completion.promoted_record_ids))
     return ExtractionFunnel(
         draft_item_count=completion.draft_item_count,
         classified_item_count=completion.classified_item_count,
+        unclassified_draft_count=unclassified,
         staged_record_count=len(completion.staged_record_ids),
         grounded_record_count=len(completion.grounded_record_ids),
         promoted_record_count=len(completion.promoted_record_ids),
