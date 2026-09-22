@@ -273,11 +273,11 @@ def build_report(days: int, now: datetime) -> dict[str, Any]:
         lower_is_better=True,
     )
 
-    emf = UNKNOWN
+    emf: float | str = UNKNOWN
     if isinstance(throughput_factor, float) and isinstance(cycle_time_factor, float):
         emf = round(throughput_factor * cycle_time_factor, 4)
 
-    compounding_rate = UNKNOWN
+    compounding_rate: float | str = UNKNOWN
     if isinstance(throughput_factor, float) and isinstance(prior_throughput_factor, float):
         compounding_rate = safe_ratio(throughput_factor, prior_throughput_factor)
         if isinstance(compounding_rate, float):

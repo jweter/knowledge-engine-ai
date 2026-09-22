@@ -18,7 +18,7 @@ def load_report(path: Path) -> dict[str, Any]:
         raise SystemExit("compounding report windows are required")
     if not isinstance(payload.get("evidence_derived"), dict):
         raise SystemExit("compounding report evidence_derived is required")
-    return payload
+    return dict(payload)
 
 
 def numeric(value: Any) -> float | None:

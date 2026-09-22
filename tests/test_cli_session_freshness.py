@@ -6,7 +6,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-from typer.testing import CliRunner, Result
+from click.testing import Result
+from typer.testing import CliRunner
 
 import knowledge_engine_ai.cli as cli
 from knowledge_engine_ai.cli import app
