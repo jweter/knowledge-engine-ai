@@ -4,10 +4,9 @@ import json
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
-
-import pytest
 from typing import Any
 
+import pytest
 from typer.testing import CliRunner
 
 Result = Any
