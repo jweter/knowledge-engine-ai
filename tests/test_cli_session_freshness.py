@@ -4,9 +4,10 @@ import json
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import pytest
-from typer.testing import CliRunner, Result
+from typer.testing import CliRunner
 
 import knowledge_engine_ai.cli as cli
 from knowledge_engine_ai.cli import app
@@ -20,6 +21,8 @@ from knowledge_engine_ai.ke_client import (
 )
 from knowledge_engine_ai.sessions.models import ResearchEvent, ResearchSession, SessionStatus
 from knowledge_engine_ai.sessions.repository import SessionRepository, new_connection
+
+Result = Any
 
 
 def _unwrapped(output: str) -> str:
