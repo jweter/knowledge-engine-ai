@@ -116,3 +116,47 @@ acquired sources (GQR-4/GQR-5). A later adapter should construct
 `ResearchCaseRunSnapshot` from durable structured research-session artifacts
 once those fields exist. It must not infer benchmark facts by scraping narrative
 prose.
+
+## Local unattended Monster acceptance bridge
+
+`knowledge_engine_ai.monster_acceptance` is the AI-side bridge that binds one
+unattended local Monster run to this scorer. It does not run research itself and
+does not add a second research pipeline. It consumes existing artifacts only:
+
+- an `UnattendedAcceptanceManifest` (exact AI/Core/Web SHAs, Core branch,
+  environment, local Ollama model and runtime identity);
+- the observed runtime identity reported by the worker, which must match the
+  manifest field-for-field;
+- the Core `WorkerResult`, validated through
+  `UnattendedAcceptanceManifest.validate_worker_result`;
+- the `ke-ai research --format json` payload (session ID, releaseability, and
+  Research ISA close completion);
+- the Research Report v1 `ResearchReport.to_dict()` artifact for the reviewed
+  golden question and the same session; and
+- a structured `ResearchCaseRunSnapshot` mapping scored by
+  `evaluate_research_case()`.
+
+Every required snapshot field must be present and correctly typed; absent,
+`null`, mistyped, or unknown fields are reported as unresolved benchmark facts
+rather than defaulted. The snapshot's covered dimensions must appear as
+Research Report conclusion rows, and its reported degraded providers must equal
+the report's degraded providers.
+
+The result is `PASS` only when nothing is missing, unresolved, mismatched, or
+failing. A worker `ENVIRONMENT_FAILURE` produces `ENVIRONMENT_FAILURE`; every
+other gap produces `FAIL`. The emitted record holds only identities, stable
+reason codes, counts, and benchmark gap identifiers. It never copies narrative
+text, report prose, evidence text, worker summaries, hosts, or paths.
+
+A deterministic `PASS` still requires the manual readability/usefulness review
+from Research Report v1. It is not Product Reality evidence.
+
+```bash
+python -m knowledge_engine_ai.monster_acceptance \
+  --manifest manifest.json --observed-identity observed.json \
+  --worker-result worker-result.json --research-result research.json \
+  --research-report report.json --benchmark-snapshot snapshot.json \
+  --output monster-acceptance.json
+```
+
+The command exits non-zero unless the status is `PASS`.
