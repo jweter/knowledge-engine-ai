@@ -1,7 +1,14 @@
 {
   "schema_version": 1,
   "repository": "jweter/knowledge-engine-ai",
-  "open_pull_requests": [],
+  "open_pull_requests": [
+    {
+      "number": 173,
+      "draft": false,
+      "head": "actor/autonomous-knowledge-engine-ai-20260926-150134",
+      "base": "main"
+    }
+  ],
   "open_issue_numbers": [
     69,
     79,
