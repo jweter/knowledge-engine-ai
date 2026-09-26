@@ -38,6 +38,25 @@ class EventTrace:
 
 
 @dataclass(frozen=True)
+class StageBottleneck:
+    stage: str
+    event_count: int
+    known_duration_ms: int
+    untimed_event_count: int
+    failed_event_count: int
+
+
+@dataclass(frozen=True)
+class BottleneckReport:
+    session_id: str
+    stages: tuple[StageBottleneck, ...]
+    slowest_stage: str | None
+    slowest_stage_duration_ms: int | None
+    untimed_event_count: int
+    failed_stages: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class SessionTrace:
     """One session's full event log, assembled into the six-question answer."""
 
@@ -102,6 +121,37 @@ def build_session_trace(
     )
 
 
+def build_bottleneck_report(trace: SessionTrace) -> BottleneckReport:
+    """Aggregate durable event timings by workflow node without inventing untimed duration."""
+    order: list[str] = []
+    grouped: dict[str, list[EventTrace]] = {}
+    for event in trace.events:
+        if event.workflow_node not in grouped:
+            order.append(event.workflow_node)
+            grouped[event.workflow_node] = []
+        grouped[event.workflow_node].append(event)
+    stages = tuple(
+        StageBottleneck(
+            stage=stage,
+            event_count=len(grouped[stage]),
+            known_duration_ms=sum(e.duration_ms for e in grouped[stage] if e.duration_ms is not None),
+            untimed_event_count=sum(e.duration_ms is None for e in grouped[stage]),
+            failed_event_count=sum(not e.succeeded for e in grouped[stage]),
+        )
+        for stage in order
+    )
+    timed = [stage for stage in stages if stage.known_duration_ms > 0]
+    slowest = max(timed, key=lambda stage: stage.known_duration_ms, default=None)
+    return BottleneckReport(
+        session_id=trace.session_id,
+        stages=stages,
+        slowest_stage=slowest.stage if slowest else None,
+        slowest_stage_duration_ms=slowest.known_duration_ms if slowest else None,
+        untimed_event_count=sum(e.duration_ms is None for e in trace.events),
+        failed_stages=tuple(stage.stage for stage in stages if stage.failed_event_count),
+    )
+
+
 def render_session_trace(trace: SessionTrace) -> str:
     """Render `trace` as plain text answering AI-O9's six success-criterion questions."""
 
@@ -146,7 +196,10 @@ def render_session_trace(trace: SessionTrace) -> str:
 
 
 __all__ = [
+    "BottleneckReport",
     "EventTrace",
+    "StageBottleneck",
+    "build_bottleneck_report",
     "SessionTrace",
     "build_session_trace",
     "render_session_trace",
