@@ -38,6 +38,8 @@ from typing import Any
 from knowledge_engine_ai.copilot.research_report import (
     _HEALTHY_PROVIDER_OUTCOMES,
     RESEARCH_REPORT_SCHEMA_VERSION,
+    ResearchReportError,
+    parse_research_report_proposal,
 )
 from knowledge_engine_ai.research_case_benchmark import (
     GoldenResearchCase,
@@ -87,7 +89,9 @@ REQUIRED_FACT_FIELDS = (
     *_BOOL_FACT_FIELDS,
     "source_field_gaps",
 )
-_FACTS_BINDING_FIELDS = frozenset({"case_id", "session_id"})
+_FACTS_BINDING_FIELDS = frozenset(
+    {"case_id", "session_id", "worker_request_id", "manifest_identity_sha256"}
+)
 
 
 class _AcceptanceFailure(Exception):
@@ -197,7 +201,13 @@ def evaluate_monster_acceptance(
     try:
         session_id, discovery_triggered = _research_result_facts(research_result, case)
         derived = _report_facts(research_report, case, session_id)
-        explicit, unresolved = _explicit_facts(benchmark_facts, case, session_id)
+        explicit, unresolved = _explicit_facts(
+            benchmark_facts,
+            case,
+            session_id,
+            request_id,
+            manifest.identity_sha256(),
+        )
     except _AcceptanceFailure as failure:
         return outcome("FAIL", failure.reason_code)
 
@@ -261,6 +271,29 @@ def _report_facts(
 ) -> dict[str, Any]:
     if report is None:
         raise _AcceptanceFailure("research_report_missing")
+
+    expected_top_level = frozenset(
+        {
+            "schema_version",
+            "question",
+            "bottom_line",
+            "conclusion_rows",
+            "narrative_sections",
+            "missing_evidence",
+            "direct_evidence_summary",
+            "indirect_evidence_summary",
+            "provider_coverage_completeness",
+            "degraded_providers",
+            "provider_statuses",
+            "indexed_before_run_evidence_ids",
+            "acquired_during_run_evidence_ids",
+            "limitations",
+            "session_id",
+            "research_state",
+        }
+    )
+    if set(report) != expected_top_level:
+        raise _AcceptanceFailure("research_report_malformed")
     if report.get("schema_version") != RESEARCH_REPORT_SCHEMA_VERSION:
         raise _AcceptanceFailure("research_report_schema_unsupported")
     if report.get("question") != case.question:
@@ -268,41 +301,91 @@ def _report_facts(
     if report.get("session_id") != session_id:
         raise _AcceptanceFailure("research_report_session_mismatch")
 
-    rows = report.get("conclusion_rows")
-    statuses = report.get("provider_statuses")
-    reported_degraded = report.get("degraded_providers")
-    if not isinstance(rows, list) or not isinstance(statuses, list):
+    provider_coverage = report.get("provider_coverage_completeness")
+    if provider_coverage is not None and (
+        not isinstance(provider_coverage, str) or not provider_coverage.strip()
+    ):
         raise _AcceptanceFailure("research_report_malformed")
-    dimensions = [
-        row.get("question_dimension") if isinstance(row, Mapping) else None for row in rows
-    ]
+    if not isinstance(report.get("research_state"), str) or not report["research_state"].strip():
+        raise _AcceptanceFailure("research_report_malformed")
+
+    try:
+        indexed_ids = _string_tuple(
+            report["indexed_before_run_evidence_ids"], "research_report_malformed"
+        )
+        acquired_ids = _string_tuple(
+            report["acquired_during_run_evidence_ids"], "research_report_malformed"
+        )
+        _string_tuple(report["limitations"], "research_report_malformed")
+        reported_degraded = _string_tuple(report["degraded_providers"], "research_report_malformed")
+    except (KeyError, TypeError):
+        raise _AcceptanceFailure("research_report_malformed") from None
+
+    known_evidence_ids = frozenset((*indexed_ids, *acquired_ids))
+    if not known_evidence_ids or len(known_evidence_ids) != len(indexed_ids) + len(acquired_ids):
+        raise _AcceptanceFailure("research_report_malformed")
+
+    proposal_payload = {
+        "schema_version": report["schema_version"],
+        "bottom_line": report["bottom_line"],
+        "conclusion_rows": report["conclusion_rows"],
+        "narrative_sections": report["narrative_sections"],
+        "missing_evidence": report["missing_evidence"],
+        "direct_evidence_summary": report["direct_evidence_summary"],
+        "indirect_evidence_summary": report["indirect_evidence_summary"],
+    }
+    try:
+        proposal = parse_research_report_proposal(
+            proposal_payload,
+            known_evidence_ids=known_evidence_ids,
+            required_dimensions=case.required_dimensions,
+        )
+    except ResearchReportError as exc:
+        raise _AcceptanceFailure("research_report_malformed") from exc
+
+    statuses = report.get("provider_statuses")
+    if not isinstance(statuses, list):
+        raise _AcceptanceFailure("research_report_malformed")
     attempted: list[str] = []
     degraded: list[str] = []
     for status in statuses:
-        if not isinstance(status, Mapping):
+        if not isinstance(status, Mapping) or set(status) != {
+            "provider",
+            "attempted",
+            "outcome",
+            "reason",
+        }:
             raise _AcceptanceFailure("research_report_malformed")
         provider = status.get("provider")
         outcome = status.get("outcome")
-        if not isinstance(provider, str) or not isinstance(status.get("attempted"), bool):
+        reason = status.get("reason")
+        if not isinstance(provider, str) or not provider.strip():
+            raise _AcceptanceFailure("research_report_malformed")
+        if not isinstance(status.get("attempted"), bool):
             raise _AcceptanceFailure("research_report_malformed")
         if outcome is not None and not isinstance(outcome, str):
+            raise _AcceptanceFailure("research_report_malformed")
+        if reason is not None and not isinstance(reason, str):
             raise _AcceptanceFailure("research_report_malformed")
         if status["attempted"]:
             attempted.append(provider)
             if outcome not in _HEALTHY_PROVIDER_OUTCOMES:
                 degraded.append(provider)
+
     return {
-        "covered_dimensions": _string_tuple(dimensions, "research_report_malformed"),
-        "attempted_providers": _string_tuple(attempted, "research_report_malformed"),
-        "degraded_providers": _string_tuple(degraded, "research_report_malformed"),
-        "reported_degraded_providers": _string_tuple(
-            reported_degraded, "research_report_malformed"
-        ),
+        "covered_dimensions": tuple(row.question_dimension for row in proposal.conclusion_rows),
+        "attempted_providers": tuple(attempted),
+        "degraded_providers": tuple(degraded),
+        "reported_degraded_providers": reported_degraded,
     }
 
 
 def _explicit_facts(
-    facts: Mapping[str, Any] | None, case: GoldenResearchCase, session_id: str
+    facts: Mapping[str, Any] | None,
+    case: GoldenResearchCase,
+    session_id: str,
+    worker_request_id: str,
+    manifest_identity_sha256: str,
 ) -> tuple[dict[str, Any], tuple[str, ...]]:
     if facts is None:
         return {}, REQUIRED_FACT_FIELDS
@@ -310,7 +393,12 @@ def _explicit_facts(
         raise _AcceptanceFailure("benchmark_facts_override_derived_fact")
     if set(facts) - set(REQUIRED_FACT_FIELDS) - _FACTS_BINDING_FIELDS:
         raise _AcceptanceFailure("benchmark_facts_unknown_field")
-    if facts.get("case_id") != case.case_id or facts.get("session_id") != session_id:
+    if (
+        facts.get("case_id") != case.case_id
+        or facts.get("session_id") != session_id
+        or facts.get("worker_request_id") != worker_request_id
+        or facts.get("manifest_identity_sha256") != manifest_identity_sha256
+    ):
         raise _AcceptanceFailure("benchmark_facts_identity_mismatch")
 
     unresolved = tuple(field for field in REQUIRED_FACT_FIELDS if facts.get(field) is None)
