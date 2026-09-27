@@ -32,7 +32,11 @@ from typing import Annotated, Any
 
 import typer
 
-from knowledge_engine_ai.copilot.research_report import (\n    RESEARCH_REPORT_SCHEMA_VERSION,\n    ResearchReportError,\n    parse_research_report_proposal,\n)
+from knowledge_engine_ai.copilot.research_report import (
+    RESEARCH_REPORT_SCHEMA_VERSION,
+    ResearchReportError,
+    parse_research_report_proposal,
+)
 from knowledge_engine_ai.copilot.research_state import ResearchState
 from knowledge_engine_ai.research_case_benchmark import (
     GoldenResearchCase,
@@ -160,7 +164,8 @@ class MonsterAcceptanceVerdict:
         }
 
     def to_json(self) -> str:
-        return json.dumps(self.to_dict(), indent=2, sort_keys=True) + "\n"
+        return json.dumps(self.to_dict(), indent=2, sort_keys=True) + "
+"
 
 
 def evaluate_monster_acceptance(
@@ -500,7 +505,11 @@ def evaluate(
         Path | None,
         typer.Option("--benchmark-snapshot", dir_okay=False, help="Run snapshot JSON."),
     ] = None,
-    run_binding: Annotated[\n        Path | None,\n        typer.Option("--run-binding", dir_okay=False, help="Exact-run artifact binding JSON."),\n    ] = None,\n    output: Annotated[
+    run_binding: Annotated[
+        Path | None,
+        typer.Option("--run-binding", dir_okay=False, help="Exact-run artifact binding JSON."),
+    ] = None,
+    output: Annotated[
         Path | None,
         typer.Option("--output", dir_okay=False, help="Sanitized verdict JSON path."),
     ] = None,
