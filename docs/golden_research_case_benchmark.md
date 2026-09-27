@@ -116,3 +116,41 @@ acquired sources (GQR-4/GQR-5). A later adapter should construct
 `ResearchCaseRunSnapshot` from durable structured research-session artifacts
 once those fields exist. It must not infer benchmark facts by scraping narrative
 prose.
+
+## Unattended local Monster acceptance bridge
+
+`knowledge_engine_ai/monster_acceptance.py` binds one unattended local run to
+this contract without adding a second research pipeline. It consumes only
+existing artifacts:
+
+- an `UnattendedAcceptanceManifest` (exact AI/Core/Web SHAs, Core worker
+  request, local Ollama model and runtime ID) whose `scenario_id` must be
+  `monster-energy-bp-one-year`;
+- the identity the local runner actually observed at execution time;
+- the Core `WorkerResult` for the manifest's exact request;
+- the `ResearchReportBuildResult.to_dict()` artifact from the normal research
+  session path; and
+- a structured benchmark snapshot: every `ResearchCaseRunSnapshot` field plus
+  the `session_id` it was observed from.
+
+`evaluate_monster_acceptance()` returns `PASS`, `FAIL`, or
+`ENVIRONMENT_FAILURE`. Only a run with matching observed identity, a valid Core
+`PASS` worker result, an available Research Report v1 for the exact golden
+question in an answer state, a complete snapshot from the same session whose
+dimensions and reported degraded providers agree with the report, and a passing
+`evaluate_research_case()` result can become `PASS`. Identity mismatch or
+unobserved identity is always `FAIL`, even when the worker also failed. Missing
+artifacts, omitted/null/unknown/wrongly typed benchmark facts, and unknown
+inference-guard violations fail closed with stable reason codes.
+
+The verdict is sanitized derived evidence: identities, reason codes, benchmark
+guard lists, public seed identifiers, the research session ID/state, and a
+SHA-256 digest of the report artifact. It never copies report prose, the
+question text, source documents, Core worker summaries, or local paths.
+
+Run locally with `python -m knowledge_engine_ai.monster_acceptance --manifest
+... --observed-identity ... --worker-result ... --report-build ...
+--benchmark-snapshot ... --output verdict.json`; the command exits `0` only on
+`PASS`. A `PASS` here is deterministic benchmark evidence for one bound run, not
+Product Reality or the manual readability review that Research Report v1 also
+requires.
