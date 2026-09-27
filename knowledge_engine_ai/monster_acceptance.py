@@ -500,7 +500,7 @@ def evaluate(
         Path | None,
         typer.Option("--benchmark-snapshot", dir_okay=False, help="Run snapshot JSON."),
     ] = None,
-    output: Annotated[
+    run_binding: Annotated[\n        Path | None,\n        typer.Option("--run-binding", dir_okay=False, help="Exact-run artifact binding JSON."),\n    ] = None,\n    output: Annotated[
         Path | None,
         typer.Option("--output", dir_okay=False, help="Sanitized verdict JSON path."),
     ] = None,
