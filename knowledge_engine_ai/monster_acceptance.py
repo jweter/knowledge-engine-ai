@@ -32,7 +32,7 @@ from typing import Annotated, Any
 
 import typer
 
-from knowledge_engine_ai.copilot.research_report import RESEARCH_REPORT_SCHEMA_VERSION
+from knowledge_engine_ai.copilot.research_report import (\n    RESEARCH_REPORT_SCHEMA_VERSION,\n    ResearchReportError,\n    parse_research_report_proposal,\n)
 from knowledge_engine_ai.copilot.research_state import ResearchState
 from knowledge_engine_ai.research_case_benchmark import (
     GoldenResearchCase,
