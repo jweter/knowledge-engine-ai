@@ -90,14 +90,34 @@ def _research_result(**overrides: object) -> dict[str, Any]:
 
 def _research_report(**overrides: object) -> dict[str, Any]:
     case = _case()
+    evidence_ids = [f"monster-evidence-{index}" for index, _ in enumerate(case.required_dimensions)]
     report: dict[str, Any] = {
         "schema_version": 1,
         "question": case.question,
-        "bottom_line": "PRIVATE REPORT PROSE",
+        "bottom_line": f"PRIVATE REPORT PROSE [{evidence_ids[0]}]",
         "conclusion_rows": [
-            {"question_dimension": dimension, "conclusion": "PRIVATE REPORT PROSE"}
-            for dimension in case.required_dimensions
+            {
+                "question_dimension": dimension,
+                "conclusion": f"PRIVATE REPORT PROSE [{evidence_id}]",
+                "certainty": "moderate",
+                "certainty_rationale": f"Grounded rationale [{evidence_id}]",
+                "supporting_evidence_ids": [evidence_id],
+                "contradicting_or_null_evidence_ids": [],
+                "directness": "direct",
+                "missing_direct_evidence": None,
+            }
+            for dimension, evidence_id in zip(case.required_dimensions, evidence_ids, strict=True)
         ],
+        "narrative_sections": [
+            {
+                "heading": "Summary",
+                "body": f"PRIVATE REPORT PROSE [{evidence_ids[0]}]",
+            }
+        ],
+        "missing_evidence": ["Long-duration direct evidence remains limited."],
+        "direct_evidence_summary": f"Direct evidence summary [{evidence_ids[0]}]",
+        "indirect_evidence_summary": f"Indirect evidence summary [{evidence_ids[0]}]",
+        "provider_coverage_completeness": "partial",
         "degraded_providers": ["crossref"],
         "provider_statuses": [
             {"provider": "pubmed", "attempted": True, "outcome": "success", "reason": None},
@@ -105,17 +125,26 @@ def _research_report(**overrides: object) -> dict[str, Any]:
             {"provider": "crossref", "attempted": True, "outcome": "timeout", "reason": "x"},
             {"provider": "arxiv", "attempted": False, "outcome": None, "reason": None},
         ],
+        "indexed_before_run_evidence_ids": evidence_ids,
+        "acquired_during_run_evidence_ids": [],
+        "limitations": ["PRIVATE REPORT PROSE limitation"],
         "session_id": SESSION_ID,
+        "research_state": "completed",
     }
     report.update(overrides)
     return report
 
 
-def _benchmark_facts(**overrides: object) -> dict[str, Any]:
+def _benchmark_facts(
+    manifest: UnattendedAcceptanceManifest | None = None, **overrides: object
+) -> dict[str, Any]:
     case = _case()
+    manifest = manifest or _manifest()
     facts: dict[str, Any] = {
         "case_id": case.case_id,
         "session_id": SESSION_ID,
+        "worker_request_id": manifest.core_worker_request()["request_id"],
+        "manifest_identity_sha256": manifest.identity_sha256(),
         "initial_indexed_evidence_record_count": 0,
         "covered_variants": list(case.required_variants),
         "completed_search_tracks": list(case.required_search_tracks),
@@ -142,7 +171,7 @@ def _evaluate(
         "observed_runtime_identity": _runtime_identity(),
         "research_result": _research_result(),
         "research_report": _research_report(),
-        "benchmark_facts": _benchmark_facts(),
+        "benchmark_facts": _benchmark_facts(manifest),
     }
     kwargs.update(overrides)
     return evaluate_monster_acceptance(manifest, **kwargs).to_dict()
@@ -282,6 +311,77 @@ def test_facts_bound_to_other_session_fail_closed() -> None:
     assert evidence["reason_codes"] == ["benchmark_facts_identity_mismatch"]
 
 
+def test_facts_bound_to_other_worker_request_fail_closed() -> None:
+    evidence = _evaluate(
+        benchmark_facts=_benchmark_facts(worker_request_id="ai-other-request")
+    )
+
+    assert evidence["reason_codes"] == ["benchmark_facts_identity_mismatch"]
+
+
+def test_facts_bound_to_other_manifest_fail_closed() -> None:
+    evidence = _evaluate(
+        benchmark_facts=_benchmark_facts(manifest_identity_sha256="f" * 64)
+    )
+
+    assert evidence["reason_codes"] == ["benchmark_facts_identity_mismatch"]
+
+
+@pytest.mark.parametrize(
+    "missing_field",
+    [
+        "certainty",
+        "certainty_rationale",
+        "supporting_evidence_ids",
+        "contradicting_or_null_evidence_ids",
+        "directness",
+        "missing_direct_evidence",
+    ],
+)
+def test_incomplete_research_report_row_fails_closed(missing_field: str) -> None:
+    report = _research_report()
+    rows = [dict(row) for row in report["conclusion_rows"]]
+    del rows[0][missing_field]
+
+    evidence = _evaluate(research_report=_research_report(conclusion_rows=rows))
+
+    assert evidence["status"] == "FAIL"
+    assert evidence["reason_codes"] == ["research_report_malformed"]
+    assert evidence["benchmark"] is None
+
+
+@pytest.mark.parametrize(
+    "missing_field",
+    [
+        "narrative_sections",
+        "missing_evidence",
+        "direct_evidence_summary",
+        "indirect_evidence_summary",
+        "indexed_before_run_evidence_ids",
+        "acquired_during_run_evidence_ids",
+        "limitations",
+        "research_state",
+    ],
+)
+def test_missing_full_report_contract_field_fails_closed(missing_field: str) -> None:
+    report = _research_report()
+    del report[missing_field]
+
+    evidence = _evaluate(research_report=report)
+
+    assert evidence["reason_codes"] == ["research_report_malformed"]
+
+
+def test_report_citation_outside_provenance_fails_closed() -> None:
+    report = _research_report()
+    rows = [dict(row) for row in report["conclusion_rows"]]
+    rows[0]["conclusion"] = "PRIVATE REPORT PROSE [unknown-evidence]"
+
+    evidence = _evaluate(research_report=_research_report(conclusion_rows=rows))
+
+    assert evidence["reason_codes"] == ["research_report_malformed"]
+
+
 def test_report_from_other_session_fails_closed() -> None:
     evidence = _evaluate(research_report=_research_report(session_id="other-session"))
 
@@ -300,14 +400,14 @@ def test_unreleaseable_research_result_fails_closed() -> None:
     assert evidence["reason_codes"] == ["research_result_not_releaseable"]
 
 
-def test_missing_report_dimension_fails_golden_case() -> None:
+def test_missing_report_dimension_fails_report_contract() -> None:
     rows = _research_report()["conclusion_rows"][:-1]
 
     evidence = _evaluate(research_report=_research_report(conclusion_rows=rows))
 
     assert evidence["status"] == "FAIL"
-    assert evidence["reason_codes"] == ["golden_research_case_failed"]
-    assert evidence["benchmark"]["missing_dimensions"] == ["certainty_and_missing_evidence"]
+    assert evidence["reason_codes"] == ["research_report_malformed"]
+    assert evidence["benchmark"] is None
 
 
 def test_unreported_degraded_provider_fails_golden_case() -> None:
