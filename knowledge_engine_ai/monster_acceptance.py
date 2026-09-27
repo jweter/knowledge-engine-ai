@@ -317,9 +317,7 @@ def _report_facts(
             report["acquired_during_run_evidence_ids"], "research_report_malformed"
         )
         _string_tuple(report["limitations"], "research_report_malformed")
-        reported_degraded = _string_tuple(
-            report["degraded_providers"], "research_report_malformed"
-        )
+        reported_degraded = _string_tuple(report["degraded_providers"], "research_report_malformed")
     except (KeyError, TypeError):
         raise _AcceptanceFailure("research_report_malformed") from None
 
@@ -375,9 +373,7 @@ def _report_facts(
                 degraded.append(provider)
 
     return {
-        "covered_dimensions": tuple(
-            row.question_dimension for row in proposal.conclusion_rows
-        ),
+        "covered_dimensions": tuple(row.question_dimension for row in proposal.conclusion_rows),
         "attempted_providers": tuple(attempted),
         "degraded_providers": tuple(degraded),
         "reported_degraded_providers": reported_degraded,

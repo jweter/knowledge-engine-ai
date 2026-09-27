@@ -312,17 +312,13 @@ def test_facts_bound_to_other_session_fail_closed() -> None:
 
 
 def test_facts_bound_to_other_worker_request_fail_closed() -> None:
-    evidence = _evaluate(
-        benchmark_facts=_benchmark_facts(worker_request_id="ai-other-request")
-    )
+    evidence = _evaluate(benchmark_facts=_benchmark_facts(worker_request_id="ai-other-request"))
 
     assert evidence["reason_codes"] == ["benchmark_facts_identity_mismatch"]
 
 
 def test_facts_bound_to_other_manifest_fail_closed() -> None:
-    evidence = _evaluate(
-        benchmark_facts=_benchmark_facts(manifest_identity_sha256="f" * 64)
-    )
+    evidence = _evaluate(benchmark_facts=_benchmark_facts(manifest_identity_sha256="f" * 64))
 
     assert evidence["reason_codes"] == ["benchmark_facts_identity_mismatch"]
 
