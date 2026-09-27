@@ -129,7 +129,7 @@ def _research_report(**overrides: object) -> dict[str, Any]:
         "acquired_during_run_evidence_ids": [],
         "limitations": ["PRIVATE REPORT PROSE limitation"],
         "session_id": SESSION_ID,
-        "research_state": "completed",
+        "research_state": "researched_answer",
     }
     report.update(overrides)
     return report
@@ -366,6 +366,23 @@ def test_missing_full_report_contract_field_fails_closed(missing_field: str) -> 
     evidence = _evaluate(research_report=report)
 
     assert evidence["reason_codes"] == ["research_report_malformed"]
+
+
+@pytest.mark.parametrize("state", ["research_required", "researching", "blocked"])
+def test_non_answer_research_state_fails_closed(state: str) -> None:
+    evidence = _evaluate(research_report=_research_report(research_state=state))
+
+    assert evidence["status"] == "FAIL"
+    assert evidence["reason_codes"] == ["research_report_state_not_answer"]
+    assert evidence["benchmark"] is None
+
+
+def test_unknown_research_state_value_fails_closed() -> None:
+    evidence = _evaluate(research_report=_research_report(research_state="completed"))
+
+    assert evidence["status"] == "FAIL"
+    assert evidence["reason_codes"] == ["research_report_malformed"]
+    assert evidence["benchmark"] is None
 
 
 def test_report_citation_outside_provenance_fails_closed() -> None:

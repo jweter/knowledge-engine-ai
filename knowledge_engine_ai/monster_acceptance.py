@@ -41,6 +41,7 @@ from knowledge_engine_ai.copilot.research_report import (
     ResearchReportError,
     parse_research_report_proposal,
 )
+from knowledge_engine_ai.copilot.research_state import ResearchState
 from knowledge_engine_ai.research_case_benchmark import (
     GoldenResearchCase,
     ResearchCaseBenchmarkResult,
@@ -56,6 +57,18 @@ MONSTER_ACCEPTANCE_EVIDENCE_SCHEMA_VERSION = 1
 EVIDENCE_SCOPE = "deterministic_golden_research_case_benchmark"
 
 RUNTIME_IDENTITY_FIELDS = ("ai_sha", "core_sha", "web_sha", "ollama_model", "ollama_runtime_id")
+
+_KNOWN_RESEARCH_STATE_VALUES = frozenset(state.value for state in ResearchState)
+# States in which the General Question Research loop has not yet produced an
+# answer to accept; a report carrying one of these describes work in progress
+# or a stalled session, not a completed run.
+_NON_ANSWER_RESEARCH_STATES = frozenset(
+    {
+        ResearchState.RESEARCH_REQUIRED.value,
+        ResearchState.RESEARCHING.value,
+        ResearchState.BLOCKED.value,
+    }
+)
 
 # Snapshot facts derived from the report/research payload. A facts document may
 # not also supply them, so each fact has exactly one structured authority.
@@ -306,8 +319,11 @@ def _report_facts(
         not isinstance(provider_coverage, str) or not provider_coverage.strip()
     ):
         raise _AcceptanceFailure("research_report_malformed")
-    if not isinstance(report.get("research_state"), str) or not report["research_state"].strip():
+    research_state = report.get("research_state")
+    if research_state not in _KNOWN_RESEARCH_STATE_VALUES:
         raise _AcceptanceFailure("research_report_malformed")
+    if research_state in _NON_ANSWER_RESEARCH_STATES:
+        raise _AcceptanceFailure("research_report_state_not_answer")
 
     try:
         indexed_ids = _string_tuple(
