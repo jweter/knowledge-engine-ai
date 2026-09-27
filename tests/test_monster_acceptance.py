@@ -414,15 +414,15 @@ def _cli_args(tmp_path: Path, *, include_report: bool = True) -> list[str]:
         "--observed-identity",
         str(_write(tmp_path / "observed.json", _observed())),
         "--worker-result",
-        str(_write(tmp_path / "worker.json", _worker_result(manifest))),
+        str(_write(tmp_path / "worker.json", worker_payload)),
         "--benchmark-snapshot",
-        str(_write(tmp_path / "snapshot.json", _snapshot())),
+        str(_write(tmp_path / "snapshot.json", snapshot_payload)),\n        "--run-binding",\n        str(_write(tmp_path / "binding.json", binding_payload)),
         "--output",
         str(tmp_path / "out" / "verdict.json"),
     ]
     report_path = tmp_path / "report.json"
     if include_report:
-        _write(report_path, _report_build())
+        _write(report_path, report_payload)
     return [*args, "--report-build", str(report_path)]
 
 
@@ -441,3 +441,4 @@ def test_cli_missing_report_file_fails_closed(tmp_path: Path) -> None:
     verdict = json.loads((tmp_path / "out" / "verdict.json").read_text(encoding="utf-8"))
     assert verdict["status"] == "FAIL"
     assert "research_report_artifact_missing" in verdict["reasons"]
+\n\ndef test_missing_run_binding_fails_closed() -> None:\n    manifest = _manifest()\n    verdict = evaluate_monster_acceptance(manifest, observed_identity=ObservedRuntimeIdentity.from_mapping(_observed()), worker_result=_worker_result(manifest), report_build=_report_build(), benchmark_snapshot=_snapshot(), run_binding=None)\n    assert verdict.status is MonsterAcceptanceStatus.FAIL\n    assert "run_binding_missing" in verdict.reasons\n\n\ndef test_stale_report_binding_fails_closed() -> None:\n    manifest = _manifest()\n    worker = _worker_result(manifest)\n    report = _report_build()\n    snapshot = _snapshot()\n    binding = _binding(manifest, worker, report, snapshot)\n    report["report"]["session_id"] = "stale-session"\n    verdict = evaluate_monster_acceptance(manifest, observed_identity=ObservedRuntimeIdentity.from_mapping(_observed()), worker_result=worker, report_build=report, benchmark_snapshot=snapshot, run_binding=binding)\n    assert verdict.status is MonsterAcceptanceStatus.FAIL\n    assert "run_binding_mismatch:report_artifact_sha256" in verdict.reasons\n\n\ndef test_incomplete_report_contract_fails_closed() -> None:\n    report = _report_build()\n    del report["report"]["bottom_line"]\n    verdict = _evaluate(report=report)\n    assert verdict.status is MonsterAcceptanceStatus.FAIL\n    assert "research_report_full_contract_invalid" in verdict.reasons\n
