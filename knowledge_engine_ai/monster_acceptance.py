@@ -67,6 +67,7 @@ _NON_ANSWER_RESEARCH_STATES = frozenset(
         ResearchState.RESEARCH_REQUIRED.value,
         ResearchState.RESEARCHING.value,
         ResearchState.BLOCKED.value,
+        ResearchState.INSUFFICIENT_EVIDENCE.value,
     }
 )
 
