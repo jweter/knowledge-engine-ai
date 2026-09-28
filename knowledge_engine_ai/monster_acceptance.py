@@ -164,8 +164,7 @@ class MonsterAcceptanceVerdict:
         }
 
     def to_json(self) -> str:
-        return json.dumps(self.to_dict(), indent=2, sort_keys=True) + "
-"
+        return json.dumps(self.to_dict(), indent=2, sort_keys=True) + "\n"
 
 
 def evaluate_monster_acceptance(
