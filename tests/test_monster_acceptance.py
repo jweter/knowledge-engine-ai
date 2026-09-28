@@ -447,7 +447,14 @@ def test_cli_missing_report_file_fails_closed(tmp_path: Path) -> None:
 
 def test_missing_run_binding_fails_closed() -> None:
     manifest = _manifest()
-    verdict = evaluate_monster_acceptance(manifest, observed_identity=ObservedRuntimeIdentity.from_mapping(_observed()), worker_result=_worker_result(manifest), report_build=_report_build(), benchmark_snapshot=_snapshot(), run_binding=None)
+    verdict = evaluate_monster_acceptance(
+        manifest,
+        observed_identity=ObservedRuntimeIdentity.from_mapping(_observed()),
+        worker_result=_worker_result(manifest),
+        report_build=_report_build(),
+        benchmark_snapshot=_snapshot(),
+        run_binding=None,
+    )
     assert verdict.status is MonsterAcceptanceStatus.FAIL
     assert "run_binding_missing" in verdict.reasons
 
@@ -459,7 +466,14 @@ def test_stale_report_binding_fails_closed() -> None:
     snapshot = _snapshot()
     binding = _binding(manifest, worker, report, snapshot)
     report["report"]["session_id"] = "stale-session"
-    verdict = evaluate_monster_acceptance(manifest, observed_identity=ObservedRuntimeIdentity.from_mapping(_observed()), worker_result=worker, report_build=report, benchmark_snapshot=snapshot, run_binding=binding)
+    verdict = evaluate_monster_acceptance(
+        manifest,
+        observed_identity=ObservedRuntimeIdentity.from_mapping(_observed()),
+        worker_result=worker,
+        report_build=report,
+        benchmark_snapshot=snapshot,
+        run_binding=binding,
+    )
     assert verdict.status is MonsterAcceptanceStatus.FAIL
     assert "run_binding_mismatch:report_artifact_sha256" in verdict.reasons
 
