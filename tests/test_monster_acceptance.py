@@ -368,7 +368,9 @@ def test_missing_full_report_contract_field_fails_closed(missing_field: str) -> 
     assert evidence["reason_codes"] == ["research_report_malformed"]
 
 
-@pytest.mark.parametrize("state", ["research_required", "researching", "blocked"])
+@pytest.mark.parametrize(
+    "state", ["research_required", "researching", "blocked", "insufficient_evidence"]
+)
 def test_non_answer_research_state_fails_closed(state: str) -> None:
     evidence = _evaluate(research_report=_research_report(research_state=state))
 
