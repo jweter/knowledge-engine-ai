@@ -116,3 +116,38 @@ acquired sources (GQR-4/GQR-5). A later adapter should construct
 `ResearchCaseRunSnapshot` from durable structured research-session artifacts
 once those fields exist. It must not infer benchmark facts by scraping narrative
 prose.
+
+## Unattended local acceptance bridge
+
+`knowledge_engine_ai.monster_acceptance` (CLI:
+`python -m knowledge_engine_ai.monster_acceptance_cli`) scores one unattended
+local Monster run without creating a second research pipeline. It consumes:
+
+- an `UnattendedAcceptanceManifest` whose `scenario_id` is
+  `monster-energy-bp-one-year`, binding the exact AI/Core/Web SHAs and local
+  Ollama model/runtime;
+- the Core `WorkerResult` for that manifest's request;
+- the runtime identity observed by the worker (AI/Core/Web SHAs, Ollama
+  model/runtime), which must equal the manifest;
+- the `ke-ai research --format json` payload and the Research Report v1
+  `ResearchReport.to_dict()` document for the same session and the verbatim
+  golden-case question; and
+- a structured benchmark-facts document bound to the same `case_id` and
+  `session_id`.
+
+Covered dimensions, attempted/degraded providers, and discovery triggering are
+derived only from structured report/research fields; the facts document may not
+restate them. Every other `ResearchCaseRunSnapshot` field must be present in the
+facts document. Narrative prose is never parsed.
+
+The outcome fails closed: a missing artifact, identity mismatch, stale or
+mismatched worker result, unresolved (missing or null) fact, or golden-case
+failure never yields `PASS`, and a non-`PASS` worker status is propagated. The
+emitted evidence contains identities, status, reason codes, and golden-case
+identifiers only — no question text, narrative, report prose, evidence text,
+worker summary, host, path, or credential. `PASS` covers this deterministic
+benchmark gate only (`product_reality_verified` is always `false`); it does not
+replace the Research Report v1 readability/usefulness review.
+
+No structured producer for the explicit facts document exists yet, so a real
+run currently reports `benchmark_facts_unresolved` until one does.
