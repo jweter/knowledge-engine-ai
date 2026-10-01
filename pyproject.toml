@@ -11,6 +11,7 @@ packages = [{ include = "knowledge_engine_ai" }]
 python = "^3.12"
 typer = "^0.27.1"
 rich = ">=13.9.4,<16.0.0"
+urllib3 = ">=2.8.0,<3.0.0"
 
 [tool.poetry.group.dev.dependencies]
 mypy = "^2.1.0"
