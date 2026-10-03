@@ -1,7 +1,14 @@
 {
   "schema_version": 1,
   "repository": "jweter/knowledge-engine-ai",
-  "open_pull_requests": [],
+  "open_pull_requests": [
+    {
+      "number": 177,
+      "draft": false,
+      "head": "dependabot/pip/python-development-13aa9c1c21",
+      "base": "main"
+    }
+  ],
   "open_issue_numbers": [
     69,
     79,
