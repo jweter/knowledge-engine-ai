@@ -86,7 +86,12 @@ def publish(root: Path | None = None) -> dict[str, Any]:
     safe_name = repo.replace("/", "__")
     path = destination / "repos" / f"{safe_name}.json"
     _atomic_write(path, json.dumps(payload, indent=2, sort_keys=True) + "\n")
-    return {"state": "PUBLISHED", "repository": repo, "verified_event_count": len(payload["events"]), "path": str(path)}
+    return {
+        "state": "PUBLISHED",
+        "repository": repo,
+        "verified_event_count": len(payload["events"]),
+        "path": str(path),
+    }
 
 
 def _tokens(value: str) -> set[str]:
@@ -100,7 +105,9 @@ def _load_json(path: Path) -> Any:
         return None
 
 
-def query(terms: list[str], root: Path | None = None, repository: str | None = None, limit: int = 8) -> dict[str, Any]:
+def query(
+    terms: list[str], root: Path | None = None, repository: str | None = None, limit: int = 8
+) -> dict[str, Any]:
     destination = (root or shared_root()).expanduser()
     target_repo = repository or repository_identity()
     wanted = _tokens(" ".join(terms))
@@ -113,17 +120,37 @@ def query(terms: list[str], root: Path | None = None, repository: str | None = N
                 continue
             if target_repo and lesson.get("repository") != target_repo:
                 continue
-            text = " ".join(str(lesson.get(k, "")) for k in ("symptom","root_cause","fix","verification","regression_protection","residual_risk"))
+            text = " ".join(
+                str(lesson.get(k, ""))
+                for k in (
+                    "symptom",
+                    "root_cause",
+                    "fix",
+                    "verification",
+                    "regression_protection",
+                    "residual_risk",
+                )
+            )
             overlap = sorted(wanted & _tokens(text))
             if wanted and not overlap:
                 continue
-            candidates.append({"source": "portfolio", "score": 50 + 10 * len(overlap), "match_terms": overlap, "record": lesson})
+            candidates.append(
+                {
+                    "source": "portfolio",
+                    "score": 50 + 10 * len(overlap),
+                    "match_terms": overlap,
+                    "record": lesson,
+                }
+            )
 
     repo_dir = destination / "repos"
     if repo_dir.exists():
         for path in sorted(repo_dir.glob("*.json")):
             snapshot = _load_json(path)
-            if not isinstance(snapshot, dict) or snapshot.get("kind") != "azathoth-repository-learning-snapshot":
+            if (
+                not isinstance(snapshot, dict)
+                or snapshot.get("kind") != "azathoth-repository-learning-snapshot"
+            ):
                 continue
             if target_repo and snapshot.get("repository") != target_repo:
                 continue
@@ -134,10 +161,21 @@ def query(terms: list[str], root: Path | None = None, repository: str | None = N
                 overlap = sorted(wanted & _tokens(text))
                 if wanted and not overlap:
                     continue
-                candidates.append({"source": "repository", "score": 60 + 10 * len(overlap), "match_terms": overlap, "record": event})
+                candidates.append(
+                    {
+                        "source": "repository",
+                        "score": 60 + 10 * len(overlap),
+                        "match_terms": overlap,
+                        "record": event,
+                    }
+                )
 
     candidates.sort(key=lambda item: (-item["score"], json.dumps(item["record"], sort_keys=True)))
-    return {"state": "MATCHES" if candidates else "NO_MATCH", "repository": target_repo, "results": candidates[:limit]}
+    return {
+        "state": "MATCHES" if candidates else "NO_MATCH",
+        "repository": target_repo,
+        "results": candidates[:limit],
+    }
 
 
 def self_test() -> int:
@@ -171,7 +209,11 @@ def main() -> int:
     if args.command == "publish":
         print(json.dumps(publish(args.root), indent=2, sort_keys=True))
         return 0
-    print(json.dumps(query(args.terms, args.root, args.repository, args.limit), indent=2, sort_keys=True))
+    print(
+        json.dumps(
+            query(args.terms, args.root, args.repository, args.limit), indent=2, sort_keys=True
+        )
+    )
     return 0
 
 
