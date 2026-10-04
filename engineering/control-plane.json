@@ -29,7 +29,8 @@
     "grounded_synthesis_only",
     "confidence_not_fabricated",
     "core_evidence_authority_preserved",
-    "ai_web_core_boundary_separation"
+    "ai_web_core_boundary_separation",
+    "iron_memory_is_advisory_and_live_repository_evidence_remains_authoritative"
   ],
   "verification": {
     "automated_lanes": [
@@ -148,6 +149,16 @@
           "."
         ],
         "kind": "quality",
+        "fast": true
+      },
+      {
+        "id": "iron_memory_bridge",
+        "argv": [
+          "python",
+          "engineering/iron_memory.py",
+          "validate"
+        ],
+        "kind": "governance",
         "fast": true
       },
       {
@@ -410,5 +421,15 @@
     "min_system_reinvestment_fraction": 0.05,
     "max_system_reinvestment_fraction": 0.2,
     "rule": "use measured evidence to recommend bounded system reinvestment; recommendations are advisory and never override P0/P1, existing work, preflight, CI, architecture, security, privacy/provenance, or Product Reality gates"
+  },
+  "iron_memory": {
+    "schema_version": 1,
+    "bridge": "engineering/iron_memory.py",
+    "local_learning_memory": "engineering/learning-memory.json",
+    "shared_root_env": "AZATHOTH_SHARED_MEMORY_DIR",
+    "default_shared_root": "~/.azathoth/shared-memory",
+    "publish_rule": "publish only repository-local learning events with explicit verification; reject secret-like material",
+    "retrieve_rule": "query VERIFIED shared lessons before known-area edits and recurring-failure diagnosis when local shared memory is available",
+    "authority_rule": "live GitHub state, current repository authority, exact-head verification, CI, reviews, and Product Reality always outrank memory"
   }
 }
