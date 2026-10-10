@@ -4,7 +4,9 @@
   "repository": "jweter/knowledge-engine-ai",
   "repository_role": "ai",
   "source_of_truth": "GitHub repository state plus authoritative documents listed below",
+  "capability_graph": "engineering/capability-graph.json",
   "authoritative_documents": [
+    "engineering/capability-graph.json",
     "docs/project-status.yaml",
     "docs/agent-development-policy.md",
     "docs/ai_design.md",

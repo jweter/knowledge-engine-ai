@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "repository": "jweter/knowledge-engine-ai",
+  "capabilities": [
+    {
+      "id": "research-report-v1-local-acceptance",
+      "capability": "Complete the explicitly tracked local Research Report v1 acceptance path, with AI changes driven only by demonstrated acceptance failures.",
+      "state": "IN_PROGRESS",
+      "completion_evidence": [
+        "docs/project-status.yaml current_milestone and next_continuation",
+        "docs/roadmap/research_report_v1.md",
+        "GitHub issues #129, #79, #84, #87, and #154"
+      ],
+      "depends_on": [],
+      "slices": [
+        {
+          "id": "local-monster-acceptance-runner-v1",
+          "state": "PLANNED",
+          "objective": "Advance exact-current unattended local acceptance using the existing ResearchQuestion, ResearchReport, query-plan, benchmark, and unattended-acceptance contracts. Change AI code only for a concrete defect exposed by current evidence.",
+          "acceptance": [
+            "Exact AI/Core/Web revisions and local runtime identity are recorded.",
+            "Missing or unresolved evidence remains fail-closed.",
+            "Direct evidence remains distinct from class-level and indirect evidence.",
+            "Regression coverage protects any demonstrated AI-side correction."
+          ],
+          "allowed_paths": [
+            "knowledge_engine_ai/**",
+            "tests/**",
+            "engineering/**",
+            "docs/**"
+          ],
+          "forbidden_paths": [
+            ".env",
+            "**/*.pem",
+            "**/*.key"
+          ],
+          "runner_requirements": [
+            "code",
+            "local",
+            "windows",
+            "offline"
+          ],
+          "runtime_requirements": []
+        }
+      ]
+    }
+  ],
+  "roadmap": [
+    "research-report-v1-local-acceptance"
+  ]
+}
