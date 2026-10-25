@@ -17,6 +17,7 @@ mypy = "^2.1.0"
 pytest = "^9.1.1"
 ruff = "0.17.1"
 pip-audit = "^2.10.1"
+filelock = ">=4.2.1,<5.0.0"
 
 [tool.poetry.scripts]
 ke-ai = "knowledge_engine_ai.cli:app"

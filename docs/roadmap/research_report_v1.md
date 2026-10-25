@@ -1,5 +1,10 @@
 # Research Report v1 — AI Responsibilities
 
+## Owner-approved architecture (2026-10-25)
+
+The standard Research Report runs computation locally while acquiring online sources on demand from a single user-facing request. A pre-ingested local document corpus and Ollama are not mandatory dependencies. Preserve structured report schema, progressive states, citation verification, contradictory evidence, uncertainty, and the Monster Energy benchmark. Use bounded temporary storage and cleanup; see `docs/OWNER_APPROVED_ROADMAP_2026-10-25.md`.
+
+
 Status: active roadmap contract  
 Date: 2026-08-31  
 Parent product contract: `knowledge-engine-core/docs/roadmap/research_report_v1.md`
