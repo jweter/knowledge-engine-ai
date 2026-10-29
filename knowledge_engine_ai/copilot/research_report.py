@@ -307,8 +307,8 @@ def parse_research_report_proposal(
     missing_counter_ids = required_counter_evidence_ids - represented_counter_ids
     if missing_counter_ids:
         raise ResearchReportError(
-            "Research Report omitted required qualifying/counter-evidence ID(s): "
-            + ", ".join(sorted(missing_counter_ids))
+            "Research Report omitted required qualifying/counter-evidence ID(s) "
+            f"({len(missing_counter_ids)} missing)."
         )
 
     return ResearchReportProposal(
@@ -441,7 +441,7 @@ def _parse_conclusion_rows(
         if overlap:
             raise ResearchReportError(
                 f"conclusion_rows[{index}] classifies the same evidence ID as both supporting "
-                f"and contradicting/null: {', '.join(sorted(overlap))}"
+                f"and contradicting/null ({len(overlap)} overlap(s))."
             )
         if certainty is not ReportCertainty.UNAVAILABLE and not (supporting or counter):
             raise ResearchReportError(
@@ -529,9 +529,7 @@ def _evidence_id_tuple(
 
     unknown = set(evidence_ids) - known_evidence_ids
     if unknown:
-        raise ResearchReportError(
-            f"{field_name} contains unknown evidence ID(s): {', '.join(sorted(unknown))}"
-        )
+        raise ResearchReportError(f"{field_name} contains {len(unknown)} unknown evidence ID(s).")
     return evidence_ids
 
 
@@ -546,7 +544,7 @@ def _validated_citation_text(
     if unknown:
         raise ResearchReportError(
             f"{field_name} contains evidence citation(s) not represented by its "
-            f"validated evidence authority: {', '.join(sorted(unknown))}"
+            f"validated evidence authority ({len(unknown)} unrecognized citation(s))."
         )
     return text
 
@@ -578,10 +576,7 @@ def _require_exact_keys(
             f"{label} is missing required field(s): {', '.join(sorted(missing))}"
         )
     if unknown:
-        raise ResearchReportError(
-            f"{label} contains unsupported field(s): "
-            + ", ".join(sorted(str(key) for key in unknown))
-        )
+        raise ResearchReportError(f"{label} contains {len(unknown)} unsupported field(s).")
 
 
 def _enum_value[T: StrEnum](
@@ -593,11 +588,11 @@ def _enum_value[T: StrEnum](
         raise ResearchReportError(f"{field_name} must be a string.")
     try:
         return enum_type(value)
-    except ValueError as exc:
+    except ValueError:
         allowed = ", ".join(member.value for member in enum_type)
         raise ResearchReportError(
-            f"{field_name} has unsupported value {value!r}; expected one of: {allowed}."
-        ) from exc
+            f"{field_name} has unsupported value; expected one of: {allowed}."
+        ) from None
 
 
 def _render_evidence_record(paper: RetrievedPaper, record: EvidenceRecord) -> str:

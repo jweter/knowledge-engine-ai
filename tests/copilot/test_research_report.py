@@ -421,3 +421,36 @@ def test_report_failure_does_not_expose_raw_model_output(untrusted_output: str) 
         )
     assert "PRIVATE_PARTICIPANT_TOKEN_123" not in str(exc_info.value)
     assert "Raw output:" not in str(exc_info.value)
+
+
+@pytest.mark.parametrize(
+    "failure_kind",
+    ["unknown_evidence_id", "unknown_citation", "unsupported_enum", "unexpected_field"],
+)
+def test_report_validation_errors_do_not_echo_untrusted_model_values(
+    failure_kind: str,
+) -> None:
+    """Reject invalid model proposals without reflecting private model text in errors."""
+    secret = "private_model_response_fragment_abc123"
+    payload = _payload()
+    rows = payload["conclusion_rows"]
+    assert isinstance(rows, list)
+    row = rows[0]
+    assert isinstance(row, dict)
+
+    if failure_kind == "unknown_evidence_id":
+        row["supporting_evidence_ids"] = [secret]
+    elif failure_kind == "unknown_citation":
+        payload["bottom_line"] = f"Untrusted model claim [{secret}]."
+    elif failure_kind == "unsupported_enum":
+        row["certainty"] = secret
+    else:
+        payload[secret] = "untrusted model data"
+
+    with pytest.raises(ResearchReportError) as exc_info:
+        parse_research_report_proposal(
+            payload,
+            known_evidence_ids=frozenset({"ev-positive", "ev-null"}),
+        )
+
+    assert secret not in str(exc_info.value)
