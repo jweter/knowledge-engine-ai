@@ -15,7 +15,10 @@ CONTROL = ROOT / "engineering" / "control-plane.json"
 
 
 def load_control() -> dict[str, Any]:
-    return json.loads(CONTROL.read_text(encoding="utf-8"))
+    payload = json.loads(CONTROL.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("control-plane.json must be an object")
+    return payload
 
 
 def git_head() -> str:

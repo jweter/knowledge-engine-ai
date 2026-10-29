@@ -447,7 +447,11 @@ def dependency_graph(control: dict[str, Any]) -> dict[str, Any]:
             "edges": [],
         },
     )
-    if graph.get("schema_version") != 1 or not isinstance(graph.get("edges"), list):
+    if (
+        not isinstance(graph, dict)
+        or graph.get("schema_version") != 1
+        or not isinstance(graph.get("edges"), list)
+    ):
         raise SystemExit("portfolio-dependencies.json has invalid schema")
     return graph
 

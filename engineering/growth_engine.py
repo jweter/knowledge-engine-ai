@@ -56,7 +56,10 @@ def load_json(path: Path, default: Any) -> Any:
 
 
 def load_control() -> dict[str, Any]:
-    return load_json(CONTROL, {})
+    payload = load_json(CONTROL, {})
+    if not isinstance(payload, dict):
+        raise SystemExit("control-plane.json must be an object")
+    return payload
 
 
 def github_json(path: str) -> Any:
@@ -411,6 +414,8 @@ def load_attestations(repository: str) -> dict[str, Any]:
         "lanes": {},
     }
     payload = load_json(PRODUCT_REALITY_ATTESTATIONS, default)
+    if not isinstance(payload, dict):
+        raise SystemExit("Product Reality attestation must be an object")
     if payload.get("schema_version") != 1:
         raise SystemExit("Product Reality attestation schema must be 1")
     if payload.get("repository") != repository:
@@ -626,7 +631,9 @@ def validate() -> int:
             {
                 "status": "GREEN",
                 "repository": control.get("repository"),
-                "growth_schema_version": growth.get("schema_version"),
+                "growth_schema_version": growth.get("schema_version")
+                if isinstance(growth, dict)
+                else None,
             },
             indent=2,
         )

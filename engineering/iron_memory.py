@@ -39,7 +39,11 @@ def _contains_secret(value: Any) -> bool:
 
 def load_local_memory() -> dict[str, Any]:
     payload = json.loads(LOCAL_MEMORY.read_text(encoding="utf-8"))
-    if payload.get("schema_version") != 1 or not isinstance(payload.get("events"), list):
+    if (
+        not isinstance(payload, dict)
+        or payload.get("schema_version") != 1
+        or not isinstance(payload.get("events"), list)
+    ):
         raise ValueError("learning-memory.json must be schema_version 1 with an events list")
     if _contains_secret(payload):
         raise ValueError("learning memory appears to contain secret material")
@@ -77,11 +81,12 @@ def _atomic_write(path: Path, content: str) -> None:
 def publish(root: Path | None = None) -> dict[str, Any]:
     destination = (root or shared_root()).expanduser()
     repo = repository_identity()
+    events = verified_events(load_local_memory())
     payload = {
         "schema_version": 1,
         "kind": "azathoth-repository-learning-snapshot",
         "repository": repo,
-        "events": verified_events(load_local_memory()),
+        "events": events,
     }
     safe_name = repo.replace("/", "__")
     path = destination / "repos" / f"{safe_name}.json"
@@ -89,7 +94,7 @@ def publish(root: Path | None = None) -> dict[str, Any]:
     return {
         "state": "PUBLISHED",
         "repository": repo,
-        "verified_event_count": len(payload["events"]),
+        "verified_event_count": len(events),
         "path": str(path),
     }
 
