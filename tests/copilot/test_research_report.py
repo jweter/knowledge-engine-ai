@@ -401,3 +401,23 @@ def test_generate_report_rejects_model_output_without_json() -> None:
             _progress_report(),
             llm,
         )
+
+
+@pytest.mark.parametrize(
+    "untrusted_output",
+    [
+        "No report available. PRIVATE_PARTICIPANT_TOKEN_123",
+        '{"bottom_line": "PRIVATE_PARTICIPANT_TOKEN_123", "rows": }',
+    ],
+)
+def test_report_failure_does_not_expose_raw_model_output(untrusted_output: str) -> None:
+    """Invalid model output must not be echoed into user-facing exceptions or logs."""
+    with pytest.raises(ResearchReportError) as exc_info:
+        generate_research_report(
+            "Does the exposure increase blood pressure?",
+            _evidence_report(),
+            _progress_report(),
+            _FakeLLM(untrusted_output),
+        )
+    assert "PRIVATE_PARTICIPANT_TOKEN_123" not in str(exc_info.value)
+    assert "Raw output:" not in str(exc_info.value)

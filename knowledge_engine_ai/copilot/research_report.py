@@ -368,15 +368,13 @@ def generate_research_report(
     )
     payload_text = _extract_json_object(raw_output)
     if payload_text is None:
-        raise ResearchReportError(
-            f"Model output contained no complete JSON object.\nRaw output:\n{raw_output}"
-        )
+        raise ResearchReportError("Model output contained no complete JSON object.")
     try:
         payload = json.loads(payload_text)
     except json.JSONDecodeError as exc:
         raise ResearchReportError(
-            f"Model output was not valid JSON: {exc}\nRaw output:\n{raw_output}"
-        ) from exc
+            f"Model output was not valid JSON (line {exc.lineno}, column {exc.colno})."
+        ) from None
 
     proposal = parse_research_report_proposal(
         payload,
