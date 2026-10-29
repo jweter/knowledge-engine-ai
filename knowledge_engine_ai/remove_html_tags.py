@@ -1,4 +1,4 @@
-import re
+from html.parser import HTMLParser
 
 
 def remove_html_tags(text: str) -> str:
@@ -14,5 +14,15 @@ def remove_html_tags(text: str) -> str:
     if not text:
         return ""
 
-    clean = re.compile("<.*?>")
-    return re.sub(clean, "", text)
+    class HTMLStripper(HTMLParser):
+        def __init__(self) -> None:
+            super().__init__()
+            self.text: list[str] = []
+
+        def handle_data(self, data: str) -> None:
+            self.text.append(data)
+
+    stripper = HTMLStripper()
+    stripper.feed(text)
+    stripper.close()
+    return "".join(stripper.text)
