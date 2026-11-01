@@ -16,10 +16,10 @@
         {
           "id": "ai-audit-corpus-ollama-dependencies",
           "state": "PLANNED",
-          "objective": "Identify local-corpus and Ollama hard dependencies in the existing orchestration and pin them in tests.",
+          "objective": "Identify local-corpus and Ollama hard dependencies in the existing orchestration, record each with file references, and pin each in a characterization test so the orchestration slice removes it deliberately. This slice changes docs and tests only and does not remove dependencies.",
           "acceptance": [
-            "docs/roadmap/ai_corpus_ollama_dependency_audit.md lists each hard dependency with file references",
-            "a test shows the default orchestration path does not require a local corpus or Ollama",
+            "docs/roadmap/ai_corpus_ollama_dependency_audit.md lists every hard dependency with file references, or states there is none",
+            "a characterization test pins each recorded dependency as it exists today, so removing it in the orchestration slice is an explicit test change",
             "Canonical preflight, required CI checks and review must pass at the exact head; no gate may be weakened."
           ],
           "allowed_paths": [
