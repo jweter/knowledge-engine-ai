@@ -44,9 +44,9 @@ class GoldenBenchmarkSuite:
 
     @property
     def passes(self) -> bool:
-        """Return true only when every golden question passes conservatively."""
+        """Return true only when questions ran and every one passes conservatively."""
 
-        return all(run.result.passes for run in self.runs)
+        return bool(self.runs) and all(run.result.passes for run in self.runs)
 
 
 def ranked_evidence_ids(report: EvidenceReport) -> tuple[str, ...]:
