@@ -32,7 +32,8 @@
             "pyproject.toml",
             "poetry.lock",
             "docs/OWNER_APPROVED_ROADMAP_2026-10-25.md"
-          ]
+          ],
+          "capability_level": 3
         },
         {
           "id": "ai-online-evidence-orchestration",
@@ -57,7 +58,8 @@
           ],
           "depends_on": [
             "ai-audit-corpus-ollama-dependencies"
-          ]
+          ],
+          "capability_level": 4
         },
         {
           "id": "ai-single-request-report-e2e",
@@ -81,7 +83,8 @@
           ],
           "depends_on": [
             "ai-online-evidence-orchestration"
-          ]
+          ],
+          "capability_level": 3
         }
       ]
     }
