@@ -3,6 +3,7 @@
   "portfolio_project": "Knowledge Engine",
   "repository": "jweter/knowledge-engine-ai",
   "repository_role": "ai",
+  "capability_graph": "engineering/capability-graph.json",
   "source_of_truth": "GitHub repository state plus authoritative documents listed below",
   "authoritative_documents": [
     "docs/project-status.yaml",
@@ -12,7 +13,8 @@
     "docs/web_integration_design.md",
     "docs/INDUSTRY_REALITY_CHECK.md",
     "AGENTS.md",
-    "CLAUDE.md"
+    "CLAUDE.md",
+    "engineering/capability-graph.json"
   ],
   "definition_of_done": {
     "implementation_complete": true,
