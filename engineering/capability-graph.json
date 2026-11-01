@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "repository": "jweter/knowledge-engine-ai",
+  "authority_note": "Compiled by hand from docs/OWNER_APPROVED_ROADMAP_2026-10-25.md (owner-approved, standing development authorization). The roadmap states what to achieve; slices are bounded, ordered steps toward it.",
+  "capabilities": [
+    {
+      "id": "ai-research-report-v1",
+      "state": "PLANNED",
+      "capability": "One user request orchestrates online source discovery, retrieval, evidence analysis, citation verification and a structured Research Report; research runs locally with online sources fetched on demand and Ollama optional.",
+      "completion_evidence": [
+        "docs/OWNER_APPROVED_ROADMAP_2026-10-25.md Research Report v1 and Next slices",
+        "docs/ai_design.md"
+      ],
+      "depends_on": [],
+      "slices": [
+        {
+          "id": "ai-audit-corpus-ollama-dependencies",
+          "state": "PLANNED",
+          "objective": "Identify local-corpus and Ollama hard dependencies in the existing orchestration, record each with file references, and pin each in a characterization test so the orchestration slice removes it deliberately. This slice changes docs and tests only and does not remove dependencies.",
+          "acceptance": [
+            "docs/roadmap/ai_corpus_ollama_dependency_audit.md lists every hard dependency with file references, or states there is none",
+            "a characterization test pins each recorded dependency as it exists today, so removing it in the orchestration slice is an explicit test change",
+            "Canonical preflight, required CI checks and review must pass at the exact head; no gate may be weakened."
+          ],
+          "allowed_paths": [
+            "docs/**",
+            "tests/**"
+          ],
+          "forbidden_paths": [
+            "engineering/**",
+            ".github/**",
+            "pyproject.toml",
+            "poetry.lock",
+            "docs/OWNER_APPROVED_ROADMAP_2026-10-25.md"
+          ]
+        },
+        {
+          "id": "ai-online-evidence-orchestration",
+          "state": "PLANNED",
+          "objective": "Implement an online-evidence adapter and report orchestration behind the existing contracts.",
+          "acceptance": [
+            "the adapter consumes Core's online evidence bundle and yields source-grounded claims with explicit uncertainty",
+            "intermediate artifacts are bounded and cleaned up and no permanent bulk document storage is added",
+            "Canonical preflight, required CI checks and review must pass at the exact head; no gate may be weakened."
+          ],
+          "allowed_paths": [
+            "knowledge_engine_ai/**",
+            "tests/**",
+            "docs/**"
+          ],
+          "forbidden_paths": [
+            "engineering/**",
+            ".github/**",
+            "pyproject.toml",
+            "poetry.lock",
+            "docs/OWNER_APPROVED_ROADMAP_2026-10-25.md"
+          ],
+          "depends_on": [
+            "ai-audit-corpus-ollama-dependencies"
+          ]
+        },
+        {
+          "id": "ai-single-request-report-e2e",
+          "state": "PLANNED",
+          "objective": "Test a single-request report end to end, including missing or contradictory sources and citation validation.",
+          "acceptance": [
+            "a test covers missing sources, contradictory sources and citation validation",
+            "claims without verifiable citations are rejected or marked uncertain",
+            "Canonical preflight, required CI checks and review must pass at the exact head; no gate may be weakened."
+          ],
+          "allowed_paths": [
+            "tests/**",
+            "docs/**"
+          ],
+          "forbidden_paths": [
+            "engineering/**",
+            ".github/**",
+            "pyproject.toml",
+            "poetry.lock",
+            "docs/OWNER_APPROVED_ROADMAP_2026-10-25.md"
+          ],
+          "depends_on": [
+            "ai-online-evidence-orchestration"
+          ]
+        }
+      ]
+    }
+  ],
+  "roadmap": [
+    "ai-research-report-v1"
+  ]
+}
