@@ -6,7 +6,14 @@ The standard Research Report runs computation locally while acquiring online sou
 
 
 Status: active roadmap contract  
-Date: 2026-08-31  
+Date: 2026-08-31
+
+Incremental implementation (2026-11-02): `copilot/online_evidence_adapter.py`
+provides a content-checked typed boundary for Core's on-demand evidence bundle.
+It does not invoke retrieval, establish source authenticity, generate a report,
+or satisfy the Monster end-to-end gate. Next: connect Core's `online-research`
+CLI through the existing AI `ke_client.py` boundary with bounded temporary
+storage, validated cleanup, and explicit opt-in before Web integration.
 Parent product contract: `knowledge-engine-core/docs/roadmap/research_report_v1.md`
 
 ## Goal

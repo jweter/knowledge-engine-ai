@@ -9,6 +9,14 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Corpus-free online evidence input boundary (Research Report v1, incremental).**
+  Added a typed, fail-closed parser for Core's `ke-online-evidence/v1` JSON
+  with source-content SHA-256 checks, verbatim excerpt offsets and identities,
+  citation linkage, claim-status reconciliation, and explicit unavailable-source
+  preservation. It requires neither an indexed corpus nor Ollama. This is an
+  input adapter only: live `ke online-research` orchestration, temporary-cache
+  lifecycle, synthesis, and end-to-end Research Report acceptance remain open.
+
 - **BT-4: wire `ke-ai research`'s own production caller into the synthesis
   budget reservation (issue #87).** The prior slice added
   `run_research_question`'s opt-in `min_synthesis_seconds` parameter but left
