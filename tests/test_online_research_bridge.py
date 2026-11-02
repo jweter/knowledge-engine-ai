@@ -247,3 +247,39 @@ def test_malformed_discovery_receipt_is_rejected(
     with pytest.raises(KeCommandError, match="content verification"):
         online_research_evidence("Question")
     assert all(not root.exists() for root in roots)
+
+
+@pytest.mark.parametrize(
+    ("stage", "expected"),
+    [
+        ("online-research", "Core online-research CLI is unavailable"),
+        ("online-evidence-validate", "Core online-evidence validator is unavailable"),
+    ],
+)
+def test_permission_denied_on_core_launch_is_sanitized(
+    monkeypatch: pytest.MonkeyPatch, stage: str, expected: str
+) -> None:
+    _, roots = _fake_cli(monkeypatch)
+    original = ke_client._run_ke_command
+
+    def deny_launch(
+        command: list[str],
+        *,
+        operation: str,
+        execution_budget: Any,
+        working_directory: Path | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        if command[1] == stage:
+            raise PermissionError(r"C:\private\secret-core-executable")
+        return original(
+            command,
+            operation=operation,
+            execution_budget=execution_budget,
+            working_directory=working_directory,
+        )
+
+    monkeypatch.setattr(ke_client, "_run_ke_command", deny_launch)
+    with pytest.raises(KeCommandError, match=expected) as exc:
+        online_research_evidence("Question")
+    assert "secret-core-executable" not in str(exc.value)
+    assert all(not root.exists() for root in roots)

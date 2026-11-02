@@ -1824,7 +1824,7 @@ def online_research_evidence(
                 execution_budget=budget,
                 working_directory=working_directory,
             )
-        except FileNotFoundError as exc:
+        except OSError as exc:
             raise KeCommandError("Core online-research CLI is unavailable.") from exc
         if retrieval.returncode != 0:
             # Never expose raw provider responses, filesystem paths, or CLI stderr.
@@ -1844,7 +1844,7 @@ def online_research_evidence(
                 execution_budget=budget,
                 working_directory=working_directory,
             )
-        except FileNotFoundError as exc:
+        except OSError as exc:
             raise KeCommandError("Core online-evidence validator is unavailable.") from exc
         if verified.returncode != 0:
             raise KeCommandError("Core rejected the retrieved online evidence.")
