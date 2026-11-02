@@ -9,13 +9,21 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Opt-in corpus-free Core CLI evidence bridge (Research Report v1).**
+  `ke_client.online_research_evidence()` invokes `ke online-research` and
+  `ke online-evidence-validate` through the existing supported subprocess
+  boundary, with a shared wall-clock budget, temporary bounded content cache,
+  source-content revalidation, sanitized errors, durable discovery-run identity
+  in the return value, and guaranteed cleanup. Deterministic tests cover
+  unavailable providers, tampered content, invalid offsets/claims, missing CLI,
+  and failed validation. Web orchestration, durable provider-coverage projection,
+  synthesis, and end-to-end Monster acceptance remain open.
+
 - **Corpus-free online evidence input boundary (Research Report v1, incremental).**
   Added a typed, fail-closed parser for Core's `ke-online-evidence/v1` JSON
   with source-content SHA-256 checks, verbatim excerpt offsets and identities,
   citation linkage, claim-status reconciliation, and explicit unavailable-source
-  preservation. It requires neither an indexed corpus nor Ollama. This is an
-  input adapter only: live `ke online-research` orchestration, temporary-cache
-  lifecycle, synthesis, and end-to-end Research Report acceptance remain open.
+  preservation. It requires neither an indexed corpus nor Ollama.
 
 - **BT-4: wire `ke-ai research`'s own production caller into the synthesis
   budget reservation (issue #87).** The prior slice added

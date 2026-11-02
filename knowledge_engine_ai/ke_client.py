@@ -20,6 +20,11 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from knowledge_engine_ai.copilot.online_evidence_adapter import (
+    ContentCheckedOnlineEvidence,
+    OnlineEvidenceParseError,
+    parse_content_checked_online_evidence,
+)
 from knowledge_engine_ai.execution import ExecutionBudget, ExecutionBudgetExceeded
 from knowledge_engine_ai.models import (
     EvidenceIntelligence,
@@ -1748,3 +1753,141 @@ def general_question_acquire_pmc(
         return parse_general_question_pmc_persistence_result(payload)
     except GeneralQuestionPmcPersistenceParseError as exc:
         raise KeCommandError(str(exc)) from exc
+
+
+@dataclasses.dataclass(frozen=True)
+class OnlineResearchEvidenceResult:
+    """Content-checked online evidence plus its Core discovery-run identity.
+
+    This is retrieval input, not a synthesized or independently verified report.
+    Temporary source texts and the Core ledger are removed after validation.
+    """
+
+    evidence: ContentCheckedOnlineEvidence
+    search_run_id: str
+
+
+def online_research_evidence(
+    question: str,
+    *,
+    max_sources: int = 3,
+    providers: str | None = None,
+    ke_executable: str = "ke",
+    execution_budget: ExecutionBudget | None = None,
+    working_directory: Path | None = None,
+) -> OnlineResearchEvidenceResult:
+    """Explicitly opt in to one corpus-free Core retrieval and validation run.
+
+    Both Core commands share a bounded deadline. Their JSON and byte-exact
+    temporary source contents are validated before the typed evidence is
+    returned. This does not invoke Ollama, produce a ResearchReport, or claim
+    that retrieved scientific assertions are true. No temporary cache survives
+    either success or failure.
+    """
+    if not isinstance(question, str) or not question.strip():
+        raise KeCommandError("Online research requires a non-empty question.")
+    if type(max_sources) is not int or not 1 <= max_sources <= 10:
+        raise KeCommandError("Online research max_sources must be between 1 and 10.")
+    if providers is not None and (not isinstance(providers, str) or not providers.strip()):
+        raise KeCommandError("Online research providers must be non-empty text.")
+    try:
+        budget = execution_budget or ExecutionBudget.from_timeout(90.0)
+    except ValueError as exc:
+        raise KeCommandError("Invalid online research time budget.") from exc
+
+    executable = _resolve_ke_executable(ke_executable)
+    with tempfile.TemporaryDirectory(prefix="ke-online-research-") as temporary:
+        root = Path(temporary)
+        cache = root / "contents"
+        bundle = root / "evidence.json"
+        ledger = root / "ledger"
+        command = [
+            executable,
+            "online-research",
+            question,
+            "--cache-dir",
+            str(cache),
+            "--output",
+            str(bundle),
+            "--ledger-root",
+            str(ledger),
+            "--max-sources",
+            str(max_sources),
+        ]
+        if providers is not None:
+            command.extend(["--providers", providers])
+
+        try:
+            retrieval = _run_ke_command(
+                command,
+                operation="ke online-research",
+                execution_budget=budget,
+                working_directory=working_directory,
+            )
+        except OSError as exc:
+            raise KeCommandError("Core online-research CLI is unavailable.") from exc
+        if retrieval.returncode != 0:
+            # Never expose raw provider responses, filesystem paths, or CLI stderr.
+            raise KeCommandError("Core online-research failed; no evidence was accepted.")
+
+        validation = [
+            executable,
+            "online-evidence-validate",
+            str(bundle),
+            "--contents-dir",
+            str(cache),
+        ]
+        try:
+            verified = _run_ke_command(
+                validation,
+                operation="ke online-evidence-validate",
+                execution_budget=budget,
+                working_directory=working_directory,
+            )
+        except OSError as exc:
+            raise KeCommandError("Core online-evidence validator is unavailable.") from exc
+        if verified.returncode != 0:
+            raise KeCommandError("Core rejected the retrieved online evidence.")
+
+        try:
+            if bundle.stat().st_size > 2_000_000:
+                raise ValueError("Oversized evidence bundle")
+            payload = json.loads(bundle.read_text(encoding="utf-8"))
+            if not isinstance(payload, dict) or not isinstance(payload.get("sources"), list):
+                raise ValueError("Invalid evidence bundle")
+            contents: dict[str, str] = {}
+            for source in payload["sources"]:
+                if not isinstance(source, dict):
+                    raise ValueError("Invalid source")
+                if source.get("status") != "retrieved":
+                    continue
+                digest = source.get("content_sha256")
+                source_id = source.get("source_id")
+                if (
+                    not isinstance(digest, str)
+                    or len(digest) != 64
+                    or any(c not in "0123456789abcdef" for c in digest)
+                    or not isinstance(source_id, str)
+                ):
+                    raise ValueError("Invalid source identity")
+                data = (cache / f"{digest}.txt").read_bytes()
+                if len(data) > 2_000_000:
+                    raise ValueError("Oversized source content")
+                contents[source_id] = data.decode("utf-8")
+            evidence = parse_content_checked_online_evidence(payload, contents)
+            discovery = json.loads(
+                bundle.with_name(bundle.name + ".discovery.json").read_text(encoding="utf-8")
+            )
+            if (
+                not isinstance(discovery, dict)
+                or not isinstance(discovery.get("search_run_id"), str)
+                or not discovery["search_run_id"].strip()
+                or discovery.get("bundle") != bundle.name
+            ):
+                raise ValueError("Invalid discovery identity")
+        except (OSError, UnicodeError, ValueError, TypeError, OnlineEvidenceParseError) as exc:
+            raise KeCommandError("Core online evidence failed content verification.") from exc
+
+        return OnlineResearchEvidenceResult(
+            evidence=evidence, search_run_id=discovery["search_run_id"]
+        )
