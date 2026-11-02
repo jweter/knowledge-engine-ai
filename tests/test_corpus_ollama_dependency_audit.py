@@ -21,17 +21,21 @@ from knowledge_engine_ai.orchestrator.workflow import run_fixed_evidence_workflo
 
 @pytest.mark.parametrize("command", ["ask", "research"])
 def test_existing_cli_requires_corpus_paths(command: str, tmp_path: Path) -> None:
-    missing_sources = CliRunner().invoke(app, [command, "a research question"])
-    assert missing_sources.exit_code != 0
-    assert "--sources" in missing_sources.output
+    # Typer/Rich may insert ANSI styling and wrap option names differently on
+    # Linux CI versus Windows. Assert the parser's behavior, not rendered text.
+    missing_both = CliRunner().invoke(app, [command, "a research question"])
+    assert missing_both.exit_code == 2
 
-    sources = tmp_path / "sources.csv"
-    sources.write_text("", encoding="utf-8")
-    missing_evidence = CliRunner().invoke(
-        app, [command, "a research question", "--sources", str(sources)]
-    )
-    assert missing_evidence.exit_code != 0
-    assert "--evidence" in missing_evidence.output
+    for provided_option, filename in (
+        ("--sources", "sources.csv"),
+        ("--evidence", "evidence.jsonl"),
+    ):
+        supplied = tmp_path / filename
+        supplied.write_text("", encoding="utf-8")
+        missing_other = CliRunner().invoke(
+            app, [command, "a research question", provided_option, str(supplied)]
+        )
+        assert missing_other.exit_code == 2
 
 
 def test_research_cli_requires_model_even_with_local_corpus(
