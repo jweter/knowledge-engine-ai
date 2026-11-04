@@ -15,7 +15,7 @@
       "slices": [
         {
           "id": "ai-audit-corpus-ollama-dependencies",
-          "state": "PLANNED",
+          "state": "VERIFIED_COMPLETE",
           "objective": "Identify local-corpus and Ollama hard dependencies in the existing orchestration, record each with file references, and pin each in a characterization test so the orchestration slice removes it deliberately. This slice changes docs and tests only and does not remove dependencies.",
           "acceptance": [
             "docs/roadmap/ai_corpus_ollama_dependency_audit.md lists every hard dependency with file references, or states there is none",
@@ -33,7 +33,11 @@
             "poetry.lock",
             "docs/OWNER_APPROVED_ROADMAP_2026-10-25.md"
           ],
-          "capability_level": 3
+          "capability_level": 3,
+          "verification": [
+            "PR #196 merged 2026-11-02 as c0fa4832, 9/9 checks SUCCESS: docs/roadmap/ai_corpus_ollama_dependency_audit.md (every hard corpus/Ollama dependency with file references) pinned by tests/test_corpus_ollama_dependency_audit.py",
+            "Recorded retroactively on 2026-11-04: this slice was delivered by merged work before the engine dispatched it (the capable-builder attempt on the PLANNED slice produced no pull request)."
+          ]
         },
         {
           "id": "ai-online-evidence-orchestration",
