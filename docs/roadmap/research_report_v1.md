@@ -17,7 +17,10 @@ unavailable-source rows and the discovery-run identity, and removes temporary
 storage on success or failure. It requires neither an indexed corpus nor
 Ollama. The bridge does not establish source authenticity, synthesize a
 ResearchReport, retain a durable provider ledger, or satisfy the Monster
-end-to-end gate. Next: guarded Web one-request integration, provider-coverage
+end-to-end gate. `copilot/online_report.py` deterministically projects that evidence into a
+Research Report v1 (claim rows, cited excerpt IDs, certainty capped below HIGH,
+unavailable sources as missing evidence, bounded claim count, no LLM). Next:
+guarded Web one-request integration, provider-coverage
 projection, and actual Research Report Product Reality.
 Parent product contract: `knowledge-engine-core/docs/roadmap/research_report_v1.md`
 
