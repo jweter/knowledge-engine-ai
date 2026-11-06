@@ -1,0 +1,42 @@
+# Roadmap scope gate -- copy to .github/workflows/roadmap-scope-gate.yml in a portfolio repository.
+# Replace 3e7c6555ca65b71da6c560eec8ab3ebbc9a3844d with a reviewed commit of jweter/project-orchestrator that contains scripts/roadmap_scope_gate.py.
+# See docs/IRON_GOD_SCOPE_GATE.md for the rollout stages (report-only first; --enforce and a required check later).
+name: Roadmap Scope Gate
+
+# pull_request_target: this workflow definition always comes from the default branch, so a pull request cannot weaken
+# the gate that judges it. Nothing from the pull request is checked out or executed; it is read through the API only.
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: roadmap-scope-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  scope:
+    name: Roadmap Scope Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out the pinned policy (not the pull request)
+        uses: actions/checkout@v5
+        with:
+          repository: jweter/project-orchestrator
+          ref: 3e7c6555ca65b71da6c560eec8ab3ebbc9a3844d
+          path: orchestrator
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Judge the pull request's scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PYTHONPATH: orchestrator/src:orchestrator
+        # report-only: add --enforce, then make this a required check, once the verdicts match your expectations
+        run: python orchestrator/scripts/roadmap_scope_gate.py --pr ${{ github.event.pull_request.number }}
