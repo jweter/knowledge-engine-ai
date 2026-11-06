@@ -41,7 +41,7 @@
         },
         {
           "id": "ai-online-evidence-orchestration",
-          "state": "PLANNED",
+          "state": "VERIFIED_COMPLETE",
           "objective": "Implement an online-evidence adapter and report orchestration behind the existing contracts.",
           "acceptance": [
             "the adapter consumes Core's online evidence bundle and yields source-grounded claims with explicit uncertainty",
@@ -63,7 +63,10 @@
           "depends_on": [
             "ai-audit-corpus-ollama-dependencies"
           ],
-          "capability_level": 4
+          "capability_level": 4,
+          "verification": [
+            "https://github.com/jweter/knowledge-engine-ai/pull/201 merged (capable-builder pull request)"
+          ]
         },
         {
           "id": "ai-single-request-report-e2e",
