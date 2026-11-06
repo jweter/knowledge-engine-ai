@@ -79,7 +79,13 @@ def build_online_research_report(
     supported = [r for r in rows if r.conclusion.startswith("[supported]")]
     state = ResearchState.PARTIAL_ANSWER if supported else ResearchState.INSUFFICIENT_EVIDENCE
     retrieved = sum(s.status == "retrieved" for s in evidence.sources)
-    cited = tuple(dict.fromkeys(i for r in rows for i in r.supporting_evidence_ids))
+    cited = tuple(
+        dict.fromkeys(
+            i
+            for r in rows
+            for i in (*r.supporting_evidence_ids, *r.contradicting_or_null_evidence_ids)
+        )
+    )
     return ResearchReport(
         schema_version=RESEARCH_REPORT_SCHEMA_VERSION,
         question=evidence.question,

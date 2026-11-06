@@ -66,6 +66,11 @@ def test_contested_single_source_and_empty_are_disclosed() -> None:
     )
     assert [x.certainty.value for x in r.conclusion_rows] == ["low", "low"]
     assert r.conclusion_rows[0].contradicting_or_null_evidence_ids == ("b#1",)
+    assert r.acquired_during_run_evidence_ids == ("a#1", "b#1")
+    only_contra = OnlineClaim("c3", "V", "contradicted", (OnlineCitation("b#1", "contradicts"),))
+    assert build_online_research_report(
+        _ev((only_contra,)), search_run_id="r"
+    ).acquired_during_run_evidence_ids == ("b#1",)
     assert any("Source z failed: timeout" in m for m in r.missing_evidence)
     empty = build_online_research_report(_ev(()), search_run_id="r")
     assert empty.research_state == "insufficient_evidence"
