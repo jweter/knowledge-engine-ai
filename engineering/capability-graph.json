@@ -70,7 +70,7 @@
         },
         {
           "id": "ai-single-request-report-e2e",
-          "state": "PLANNED",
+          "state": "VERIFIED_COMPLETE",
           "objective": "Test a single-request report end to end, including missing or contradictory sources and citation validation.",
           "acceptance": [
             "a test covers missing sources, contradictory sources and citation validation",
@@ -91,7 +91,10 @@
           "depends_on": [
             "ai-online-evidence-orchestration"
           ],
-          "capability_level": 3
+          "capability_level": 3,
+          "verification": [
+            "https://github.com/jweter/knowledge-engine-ai/pull/204 merged (capable-builder pull request)"
+          ]
         }
       ]
     }
