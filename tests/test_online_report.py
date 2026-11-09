@@ -15,6 +15,7 @@ from knowledge_engine_ai.copilot.online_report import (
     MAX_REPORT_CLAIMS,
     build_online_research_report,
 )
+from knowledge_engine_ai.copilot.research_report import ResearchReport
 
 
 def _src(i: str, status: str = "retrieved") -> OnlineSource:
@@ -88,3 +89,54 @@ def test_bounded_and_serializable_and_rejects_blank_run_id() -> None:
     assert '"schema_version": 1' in r.to_json()
     with pytest.raises(ValueError):
         build_online_research_report(_ev(()), search_run_id=" ")
+
+
+def _provider_src(i: str, provider: str, status: str = "retrieved") -> OnlineSource:
+    base = _src(i, status)
+    return OnlineSource(
+        base.source_id, base.url, provider, base.retrieved_at, base.status,
+        base.content_sha256, base.failure_reason, base.title,
+    )  # fmt: skip
+
+
+def _cov(sources: tuple[OnlineSource, ...]) -> ResearchReport:
+    return build_online_research_report(
+        ContentCheckedOnlineEvidence("Q?", sources, (), ()), search_run_id="r"
+    )
+
+
+def test_full_provider_coverage_is_complete() -> None:
+    r = _cov((_provider_src("a", "p1"), _provider_src("b", "p2")))
+    assert r.provider_coverage_completeness == "complete"
+    assert r.degraded_providers == ()
+    assert [s.provider for s in r.provider_statuses] == ["p1", "p2"]
+
+
+def test_partial_coverage_surfaces_degraded_provider_and_missing_evidence() -> None:
+    r = _cov((_provider_src("a", "p1"), _provider_src("b", "p2", "failed")))
+    assert r.provider_coverage_completeness == "partial"
+    assert r.degraded_providers == ("p2",)
+    assert any("Source b failed" in m for m in r.missing_evidence)
+    assert r.provider_statuses[1].outcome == "failed"
+    assert r.provider_statuses[1].reason == "timeout"
+
+
+def test_all_providers_failed_is_none_coverage() -> None:
+    r = _cov((_provider_src("a", "p1", "unavailable"),))
+    assert r.provider_coverage_completeness == "none"
+    assert r.degraded_providers == ("p1",)
+
+
+def test_no_provider_data_stays_unavailable_not_fabricated() -> None:
+    r = _cov(())
+    assert r.provider_coverage_completeness is None
+    assert r.degraded_providers == ()
+    assert r.provider_statuses == ()
+    assert any("unavailable" in x for x in r.limitations)
+
+
+def test_mixed_results_within_single_provider_stay_partial() -> None:
+    r = _cov((_provider_src("a", "p1"), _provider_src("b", "p1", "failed")))
+    assert r.provider_coverage_completeness == "partial"
+    assert r.degraded_providers == ("p1",)
+    assert r.provider_statuses[0].outcome == "failed"
