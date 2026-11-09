@@ -953,6 +953,17 @@ def online_report_command(
             help="Wall-clock budget shared by Core retrieval and validation.",
         ),
     ] = 90.0,
+    provenance_output: Annotated[
+        Path | None,
+        typer.Option(
+            "--provenance-output",
+            help=(
+                "Write the citation-to-source mapping (source URL, provider, hash, "
+                "excerpt text) as JSON. Without it the report's citation IDs cannot "
+                "be resolved after the temporary evidence is removed."
+            ),
+        ),
+    ] = None,
 ) -> None:
     """Opt-in one-request Research Report from Core online evidence (JSON on stdout).
 
@@ -974,6 +985,19 @@ def online_report_command(
     except (KeCommandError, ValueError) as exc:
         sys.stderr.write(f"Error: {exc}\n")
         raise typer.Exit(1) from exc
+    if provenance_output is not None:
+        provenance = {
+            "search_run_id": result.search_run_id,
+            "sources": [dataclasses.asdict(x) for x in result.evidence.sources],
+            "excerpts": [dataclasses.asdict(x) for x in result.evidence.excerpts],
+        }
+        try:
+            provenance_output.write_text(
+                json.dumps(provenance, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+            )
+        except OSError as exc:
+            sys.stderr.write("Error: could not write the provenance file.\n")
+            raise typer.Exit(1) from exc
     sys.stdout.write(report.to_json())
 
 

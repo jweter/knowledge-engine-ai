@@ -123,3 +123,34 @@ def test_real_bridge_over_budget_and_temp_cleanup(
 def test_invalid_time_budget_rejected_by_cli() -> None:
     result = CliRunner().invoke(app, ["online-report", "Q?", "--timeout-seconds", "0"])
     assert result.exit_code != 0
+
+
+def test_provenance_output_resolves_citations(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _stub(
+        monkeypatch,
+        OnlineResearchEvidenceResult(_evidence((_claim(),), (_source(),)), "run-1"),
+    )
+    out = tmp_path / "prov.json"
+    result = CliRunner().invoke(app, ["online-report", "Q?", "--provenance-output", str(out)])
+    assert result.exit_code == 0
+    prov = json.loads(out.read_text(encoding="utf-8"))
+    report = json.loads(result.stdout)
+    cited = report["conclusion_rows"][0]["supporting_evidence_ids"][0]
+    excerpt = next(e for e in prov["excerpts"] if e["excerpt_id"] == cited)
+    source = next(x for x in prov["sources"] if x["source_id"] == excerpt["source_id"])
+    assert source["url"] == "https://e.org/1" and source["content_sha256"] == SHA
+
+
+def test_unwritable_provenance_path_fails_without_report(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _stub(
+        monkeypatch,
+        OnlineResearchEvidenceResult(_evidence((_claim(),), (_source(),)), "run-1"),
+    )
+    bad = tmp_path / "missing" / "prov.json"
+    result = CliRunner().invoke(app, ["online-report", "Q?", "--provenance-output", str(bad)])
+    assert result.exit_code == 1
+    assert result.stdout == ""
