@@ -32,6 +32,7 @@ from knowledge_engine_ai.copilot.discovery_policy import (
     DiscoveryPolicyError,
     FederatedDiscoveryPolicy,
 )
+from knowledge_engine_ai.copilot.online_report import build_online_research_report
 from knowledge_engine_ai.copilot.research_freshness import (
     DEFAULT_MAX_AGE_SECONDS,
     AnswerFreshness,
@@ -51,6 +52,7 @@ from knowledge_engine_ai.copilot.run_research_question import (
     ResearchQuestionResult,
     run_research_question,
 )
+from knowledge_engine_ai.execution import ExecutionBudget
 from knowledge_engine_ai.ke_client import (
     CitationSnowballResult,
     FederatedCoverageReportResult,
@@ -61,6 +63,7 @@ from knowledge_engine_ai.ke_client import (
     federated_coverage_report,
     federated_discover,
     federated_discover_history,
+    online_research_evidence,
 )
 from knowledge_engine_ai.llm import DEFAULT_OLLAMA_HOST, LocalLLMError, OllamaLLM
 from knowledge_engine_ai.models import EvidenceReport
@@ -932,6 +935,46 @@ def _print_citation_snowball_result(result: CitationSnowballResult) -> None:
         "[bold]Citation-snowball discovery only -- these are not Evidence Records and "
         "were not acquired.[/bold]"
     )
+
+
+@app.command("online-report")
+def online_report_command(
+    question: QuestionArgument,
+    max_sources: Annotated[int, typer.Option("--max-sources", min=1, max=10)] = 3,
+    providers: Annotated[
+        str | None,
+        typer.Option("--providers", help="Comma-separated Core online providers."),
+    ] = None,
+    timeout_seconds: Annotated[
+        float,
+        typer.Option(
+            "--timeout-seconds",
+            min=1.0,
+            help="Wall-clock budget shared by Core retrieval and validation.",
+        ),
+    ] = 90.0,
+) -> None:
+    """Opt-in one-request Research Report from Core online evidence (JSON on stdout).
+
+    Needs neither an indexed corpus nor Ollama. Composes
+    `ke_client.online_research_evidence()` with the deterministic online report
+    projection. On bridge failure, rejection, or time-budget exhaustion nothing
+    is written to stdout and the exit code is 1; no report is fabricated. An
+    empty bundle yields an explicit insufficient-evidence report.
+    """
+
+    try:
+        result = online_research_evidence(
+            question,
+            max_sources=max_sources,
+            providers=providers,
+            execution_budget=ExecutionBudget.from_timeout(timeout_seconds),
+        )
+        report = build_online_research_report(result.evidence, search_run_id=result.search_run_id)
+    except (KeCommandError, ValueError) as exc:
+        sys.stderr.write(f"Error: {exc}\n")
+        raise typer.Exit(1) from exc
+    sys.stdout.write(report.to_json())
 
 
 @app.command("research-freshness")
