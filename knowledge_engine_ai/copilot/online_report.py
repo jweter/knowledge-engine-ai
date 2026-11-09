@@ -82,7 +82,7 @@ def _provider_coverage(
     degraded = tuple(s.provider for s in statuses if s.outcome != "complete")
     if not degraded:
         completeness = "complete"
-    elif len(degraded) < len(statuses):
+    elif any(s.status == "retrieved" for s in evidence.sources):
         completeness = "partial"
     else:
         completeness = "none"

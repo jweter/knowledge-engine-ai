@@ -133,3 +133,10 @@ def test_no_provider_data_stays_unavailable_not_fabricated() -> None:
     assert r.degraded_providers == ()
     assert r.provider_statuses == ()
     assert any("unavailable" in x for x in r.limitations)
+
+
+def test_mixed_results_within_single_provider_stay_partial() -> None:
+    r = _cov((_provider_src("a", "p1"), _provider_src("b", "p1", "failed")))
+    assert r.provider_coverage_completeness == "partial"
+    assert r.degraded_providers == ("p1",)
+    assert r.provider_statuses[0].outcome == "failed"
