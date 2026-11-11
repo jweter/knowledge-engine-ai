@@ -98,7 +98,7 @@
         },
         {
           "id": "ai-online-report-provider-coverage",
-          "state": "PLANNED",
+          "state": "VERIFIED_COMPLETE",
           "objective": "Project provider coverage and degraded providers from Core's online evidence bundle into the online Research Report (currently provider_coverage_completeness=None and degraded_providers=() in copilot/online_report.py), without inventing coverage Core did not report.",
           "acceptance": [
             "unavailable or failed sources in the bundle surface as degraded providers and missing evidence in the report; absent provider data stays explicitly unavailable, never fabricated",
@@ -122,11 +122,14 @@
             "ai-single-request-report-e2e"
           ],
           "capability_level": 3,
-          "roadmap_traceability": "docs/OWNER_APPROVED_ROADMAP_2026-10-25.md#next-slices"
+          "roadmap_traceability": "docs/OWNER_APPROVED_ROADMAP_2026-10-25.md#next-slices",
+          "verification": [
+            "https://github.com/jweter/knowledge-engine-ai/pull/207 merged (capable-builder pull request)"
+          ]
         },
         {
           "id": "ai-online-report-single-request-cli",
-          "state": "PLANNED",
+          "state": "VERIFIED_COMPLETE",
           "objective": "Expose one-request online Research Report generation through the ke-ai CLI by composing ke_client.online_research_evidence() with the online report projection, as an opt-in path needing neither an indexed corpus nor Ollama.",
           "acceptance": [
             "a single CLI invocation with a question produces a structured Research Report JSON from the online evidence bridge (tested with a stubbed Core bridge)",
@@ -150,11 +153,14 @@
             "ai-online-report-provider-coverage"
           ],
           "capability_level": 3,
-          "roadmap_traceability": "docs/OWNER_APPROVED_ROADMAP_2026-10-25.md#next-slices"
+          "roadmap_traceability": "docs/OWNER_APPROVED_ROADMAP_2026-10-25.md#next-slices",
+          "verification": [
+            "https://github.com/jweter/knowledge-engine-ai/pull/208 merged (capable-builder pull request)"
+          ]
         },
         {
           "id": "ai-online-report-monster-acceptance",
-          "state": "PLANNED",
+          "state": "VERIFIED_COMPLETE",
           "objective": "Run the Monster Energy (monster-energy-bp-one-year) acceptance case through the online-evidence report path using a deterministic recorded bundle, asserting direct/indirect separation, null-evidence retention and no false one-year-trial claim.",
           "acceptance": [
             "the online-path report yields separate dimension conclusions with traceable certainty rationale per docs/roadmap/research_report_v1.md benchmark criteria",
@@ -178,7 +184,10 @@
             "ai-online-report-single-request-cli"
           ],
           "capability_level": 3,
-          "roadmap_traceability": "docs/OWNER_APPROVED_ROADMAP_2026-10-25.md#next-slices"
+          "roadmap_traceability": "docs/OWNER_APPROVED_ROADMAP_2026-10-25.md#next-slices",
+          "verification": [
+            "https://github.com/jweter/knowledge-engine-ai/pull/209 merged (capable-builder pull request)"
+          ]
         }
       ]
     }
