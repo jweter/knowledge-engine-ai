@@ -24,7 +24,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Check out the pinned policy (not the pull request)
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           repository: jweter/project-orchestrator
           ref: 3e7c6555ca65b71da6c560eec8ab3ebbc9a3844d
