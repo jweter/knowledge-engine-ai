@@ -225,7 +225,7 @@
           "depends_on": [
             "ai-online-report-monster-acceptance"
           ],
-          "capability_level": 2,
+          "capability_level": 3,
           "roadmap_traceability": "docs/OWNER_APPROVED_ROADMAP_2026-10-25.md#next-slices",
           "verification": []
         }
