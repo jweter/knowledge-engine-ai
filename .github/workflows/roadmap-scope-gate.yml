@@ -30,7 +30,7 @@ jobs:
           ref: 3e7c6555ca65b71da6c560eec8ab3ebbc9a3844d
           path: orchestrator
           persist-credentials: false
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Judge the pull request's scope
