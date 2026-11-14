@@ -233,7 +233,7 @@
         },
         {
           "id": "ai-online-report-orchestrator-integration",
-          "state": "PLANNED",
+          "state": "VERIFIED_COMPLETE",
           "objective": "Wire the online-evidence Research Report path (knowledge_engine_ai/copilot/online_evidence_adapter.py and online_report.py) into run_research_question() as an explicit, guarded, opt-in mode, instead of leaving it reachable only through the standalone `ke-ai online-report` CLI command disconnected from the orchestrator. This closes docs/roadmap/research_report_v1.md's own recorded next step ('guarded Web one-request integration') and moves the capability's stated outcome -- one user request orchestrating online evidence into a structured report -- from a side CLI command toward the actual orchestrated request path other callers, including knowledge-engine-web, already use.",
           "acceptance": [
             "run_research_question() (or a thin wrapper beside it that existing callers can adopt without modification) accepts an explicit opt-in parameter or mode that, when set, produces a ResearchReport via the online-evidence adapter/report path instead of the indexed local-corpus path; the parameter defaults to current behavior and no existing caller's behavior or output changes unless it passes the new opt-in explicitly",
@@ -268,7 +268,10 @@
             "ai-online-evidence-core-contract-fixture"
           ],
           "capability_level": 4,
-          "roadmap_traceability": "docs/OWNER_APPROVED_ROADMAP_2026-10-25.md#next-slices"
+          "roadmap_traceability": "docs/OWNER_APPROVED_ROADMAP_2026-10-25.md#next-slices",
+          "verification": [
+            "https://github.com/jweter/knowledge-engine-ai/pull/220 merged (capable-builder pull request)"
+          ]
         }
       ]
     }
