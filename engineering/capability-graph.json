@@ -230,6 +230,45 @@
           "verification": [
             "https://github.com/jweter/knowledge-engine-ai/pull/217 merged (capable-builder pull request)"
           ]
+        },
+        {
+          "id": "ai-online-report-orchestrator-integration",
+          "state": "PLANNED",
+          "objective": "Wire the online-evidence Research Report path (knowledge_engine_ai/copilot/online_evidence_adapter.py and online_report.py) into run_research_question() as an explicit, guarded, opt-in mode, instead of leaving it reachable only through the standalone `ke-ai online-report` CLI command disconnected from the orchestrator. This closes docs/roadmap/research_report_v1.md's own recorded next step ('guarded Web one-request integration') and moves the capability's stated outcome -- one user request orchestrating online evidence into a structured report -- from a side CLI command toward the actual orchestrated request path other callers, including knowledge-engine-web, already use.",
+          "acceptance": [
+            "run_research_question() (or a thin wrapper beside it that existing callers can adopt without modification) accepts an explicit opt-in parameter or mode that, when set, produces a ResearchReport via the online-evidence adapter/report path instead of the indexed local-corpus path; the parameter defaults to current behavior and no existing caller's behavior or output changes unless it passes the new opt-in explicitly",
+            "before merging, verify against knowledge-engine-web's actual current structured-report consumption code (not assumption) that the opt-in result's shape is compatible with what Web already expects, or document precisely why it is not yet wired to Web and what would need to change there; do not assume cross-repository compatibility",
+            "a regression test exercises the opt-in path end to end with a stubbed Core bridge, covering a successful bundle, a bundle containing failed or unavailable sources, and bridge failure, each producing the correct ResearchReport or an explicit non-fabricated error with temporary storage cleaned up",
+            "the existing default local-corpus/GQR path, its Research-ISA close gates, and its existing tests are unchanged in behavior",
+            "docs/roadmap/research_report_v1.md's status note is updated to record this integration and the actual Web-contract verification performed",
+            "Canonical preflight, required CI checks and review must pass at the exact head; no gate may be weakened."
+          ],
+          "allowed_paths": [
+            "knowledge_engine_ai/**",
+            "tests/**",
+            "docs/**"
+          ],
+          "forbidden_paths": [
+            "**/*.key",
+            "**/*.pem",
+            ".env",
+            ".github/**",
+            "docs/OWNER_APPROVED_ROADMAP_2026-10-25.md",
+            "engineering/**",
+            "poetry.lock",
+            "private/**",
+            "pyproject.toml"
+          ],
+          "runner_requirements": [
+            "python 3.11+ with the repository's locked dev dependencies installed",
+            "no network access: a stubbed Core bridge only, matching the existing online-report test pattern",
+            "free local libraries already used by the repository only"
+          ],
+          "depends_on": [
+            "ai-online-evidence-core-contract-fixture"
+          ],
+          "capability_level": 4,
+          "roadmap_traceability": "docs/OWNER_APPROVED_ROADMAP_2026-10-25.md#next-slices"
         }
       ]
     }
