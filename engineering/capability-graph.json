@@ -191,7 +191,7 @@
         },
         {
           "id": "ai-online-evidence-core-contract-fixture",
-          "state": "PLANNED",
+          "state": "VERIFIED_COMPLETE",
           "objective": "Validate knowledge_engine_ai/copilot/online_evidence_adapter.py against knowledge-engine-core's own committed ke-online-evidence/v1 golden bundle (tests/fixtures/online_evidence/bundle.json and its contents/ directory, pinned at knowledge-engine-core commit 02da1f2666e643e6e6f2a42bc93f53ae57c1b977), instead of relying only on hand-authored test payloads that can drift from Core's real contract. Every existing online-evidence test in this repo (test_online_evidence_adapter.py, test_online_report.py, test_cli_online_report.py, test_online_report_monster_acceptance.py) constructs its own bundle JSON by hand; none of them parse Core's actual exported fixture, so a silent field-level drift between the two independently maintained implementations would currently go undetected.",
           "acceptance": [
             "a byte-identical copy of knowledge-engine-core's tests/fixtures/online_evidence/bundle.json and its contents/ directory is vendored under knowledge-engine-ai's tests/fixtures/online_evidence/, with a short header or adjacent note recording the exact knowledge-engine-core commit SHA it was copied from",
@@ -227,7 +227,9 @@
           ],
           "capability_level": 3,
           "roadmap_traceability": "docs/OWNER_APPROVED_ROADMAP_2026-10-25.md#next-slices",
-          "verification": []
+          "verification": [
+            "https://github.com/jweter/knowledge-engine-ai/pull/217 merged (capable-builder pull request)"
+          ]
         }
       ]
     }
