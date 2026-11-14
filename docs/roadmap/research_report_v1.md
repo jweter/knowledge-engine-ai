@@ -24,6 +24,17 @@ guarded Web one-request integration, provider-coverage
 projection, and actual Research Report Product Reality.
 Parent product contract: `knowledge-engine-core/docs/roadmap/research_report_v1.md`
 
+Cross-repo compatibility check (2026-11-14): `tests/fixtures/online_evidence/`
+vendors a byte-identical copy of `knowledge-engine-core`'s own committed
+`ke-online-evidence/v1` golden fixture (`bundle.json` and `contents/`), copied
+from Core commit `02da1f2666e643e6e6f2a42bc93f53ae57c1b977` (see the fixture
+directory's `README.md`). `tests/test_online_evidence_core_fixture.py` loads
+it from disk, with no network access and no pre-ingested corpus, and asserts
+`parse_content_checked_online_evidence()` and `build_online_research_report()`
+accept Core's real bundle unmodified — including its failed and unavailable
+sources landing in `missing_evidence` — catching drift that hand-authored test
+payloads cannot.
+
 ## Goal
 
 `knowledge-engine-ai` must produce a research result that is not merely grounded, but **clear, structured, decision-useful, and inspectably grounded**.
