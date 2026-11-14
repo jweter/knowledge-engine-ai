@@ -1,0 +1,80 @@
+{
+  "claims": [
+    {
+      "citations": [
+        {
+          "excerpt_id": "doi:10.1000/golden-trial#311492c46437",
+          "stance": "supports"
+        }
+      ],
+      "claim_id": "c1",
+      "status": "supported",
+      "text": "Semaglutide reduces body weight versus placebo."
+    },
+    {
+      "citations": [],
+      "claim_id": "c2",
+      "status": "insufficient_evidence",
+      "text": "The effect persists beyond five years."
+    }
+  ],
+  "excerpts": [
+    {
+      "char_end": 113,
+      "char_start": 9,
+      "excerpt_id": "doi:10.1000/golden-trial#311492c46437",
+      "locator": "Results",
+      "source_id": "doi:10.1000/golden-trial",
+      "text": "Mean change in body weight from baseline to week 104 was -15.2% with semaglutide and -2.6% with placebo."
+    }
+  ],
+  "question": "Does semaglutide reduce body weight in adults with obesity?",
+  "schema": "ke-online-evidence/v1",
+  "sources": [
+    {
+      "arxiv_id": null,
+      "content_sha256": "fd1fb5627b149015082a2a253b0632c0e36d80af4d3c1a2e50ed06057422c6a6",
+      "doi": "10.1000/golden-trial",
+      "failure_reason": null,
+      "license": "cc-by",
+      "pmcid": null,
+      "pmid": null,
+      "provider": "europe_pmc",
+      "retrieved_at": "2026-10-31T15:00:00+00:00",
+      "source_id": "doi:10.1000/golden-trial",
+      "status": "retrieved",
+      "title": "A golden trial",
+      "url": "https://example.org/articles/golden-trial"
+    },
+    {
+      "arxiv_id": null,
+      "content_sha256": null,
+      "doi": null,
+      "failure_reason": "HTTP 503 from provider.",
+      "license": null,
+      "pmcid": null,
+      "pmid": "424242",
+      "provider": "pubmed",
+      "retrieved_at": "2026-10-31T15:00:00+00:00",
+      "source_id": "pmid:424242",
+      "status": "failed",
+      "title": null,
+      "url": "https://example.org/articles/424242"
+    },
+    {
+      "arxiv_id": "2501.00001",
+      "content_sha256": null,
+      "doi": null,
+      "failure_reason": "No accessible full text.",
+      "license": null,
+      "pmcid": null,
+      "pmid": null,
+      "provider": "arxiv",
+      "retrieved_at": "2026-10-31T15:00:00+00:00",
+      "source_id": "arxiv:2501.00001",
+      "status": "unavailable",
+      "title": null,
+      "url": "https://example.org/abs/2501.00001"
+    }
+  ]
+}
