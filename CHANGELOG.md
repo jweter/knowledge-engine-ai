@@ -9,6 +9,22 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Orchestrator entry point for the online-evidence Research Report path
+  (Research Report v1).** `copilot/run_research_question.py` now also exposes
+  `run_online_research_question()`, a thin opt-in wrapper beside
+  `run_research_question()` that composes `ke_client.online_research_evidence()`
+  and `online_report.build_online_research_report()` -- the same two calls
+  `ke-ai online-report` already makes -- as a function other orchestrators can
+  call directly instead of only reaching this path through that standalone CLI
+  command. It returns an additive `OnlineResearchQuestionResult` (report,
+  search_run_id, stable error_code) rather than raising, and never affects the
+  default local-corpus/GQR path. Verified against knowledge-engine-web's actual
+  current structured-report consumption code: the `ResearchReport` data
+  contract already matches what Web renders, but Web's `/ask` job path is
+  still built around the local-corpus `ResearchQuestionResult` shape, so this
+  wrapper is not yet called from Web; see `docs/roadmap/research_report_v1.md`
+  for the precise gap.
+
 - **Opt-in corpus-free Core CLI evidence bridge (Research Report v1).**
   `ke_client.online_research_evidence()` invokes `ke online-research` and
   `ke online-evidence-validate` through the existing supported subprocess

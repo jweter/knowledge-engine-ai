@@ -35,6 +35,55 @@ accept Core's real bundle unmodified — including its failed and unavailable
 sources landing in `missing_evidence` — catching drift that hand-authored test
 payloads cannot.
 
+Orchestrator integration (2026-11-14): `copilot/run_research_question.py` now
+also exposes `run_online_research_question()`, a thin, independent opt-in
+wrapper beside `run_research_question()` that composes the same two calls
+`ke-ai online-report` already makes (`ke_client.online_research_evidence()`
+then `online_report.build_online_research_report()`) as a plain function other
+orchestrators can call directly, instead of only reaching this path by
+shelling out to the standalone CLI command. It returns an additive
+`OnlineResearchQuestionResult` (`report`, `search_run_id`, stable
+`error_code`) rather than raising, following the same convention
+`research_report_integration.ResearchReportBuildResult` already uses. The
+default local-corpus/GQR path in `run_research_question()` is untouched: this
+wrapper is not called from it and has no effect unless a caller invokes it
+explicitly. `tests/copilot/test_run_online_research_question.py` exercises a
+successful bundle, a bundle with a failed/unavailable source, and two bridge-
+failure shapes (a hard CLI failure and a rejected-at-validation failure)
+against a stubbed Core CLI, asserting both the produced `ResearchReport` (or
+stable error code) and that Core's temporary retrieved content and discovery
+ledger are actually removed in every case.
+
+Web-contract verification performed for this integration (2026-11-14):
+read `knowledge-engine-web`'s actual current structured-report consumption at
+commit `1927bca933fa1485b73aca53f06cd8154e0b811e` —
+`knowledge_engine_web/ai_orchestration.py`'s `run_ai_orchestration()` /
+`run_guarded_ai_orchestration()` and `knowledge_engine_web/research_jobs.py`'s
+`_presentation_payload()`. Web's `/ask` research-job path is built entirely
+around the local-corpus `ResearchQuestionResult` this new wrapper does not
+return: `_presentation_payload()` reads `research.progress_report`,
+`research.conversion_funnel_report`, `result.research_state`,
+`result.narrative_releaseable`, `result.verification`, and
+`result.close_result` directly off that object, and
+`_build_research_report_projection()` builds its `ResearchReport` via
+`research_report_integration.build_research_report_for_result()`, which itself
+requires `narrative_releaseable`, `effective_evidence_report`, and
+`progress_report` — an LLM-synthesized report over the local-corpus
+evidence, not this deterministic online-evidence projection. The
+`ResearchReport` *data contract* this wrapper returns is the identical typed
+`research_report.ResearchReport` class Web already renders (same
+`schema_version`, same `to_dict()`/`to_json()` shape), so there is no schema
+drift to close. What is not yet wired is the call path: Web would need a new
+branch — in `research_jobs._execute_research_job()`/`_presentation_payload()`
+and `ai_orchestration.run_guarded_ai_orchestration()` — that, for an
+online-evidence-mode request, calls `run_online_research_question()` directly
+and persists a trimmed presentation payload (no `progress`, no
+`conversion_funnel`, no `verification`, no `close_gate`, since this path
+produces none of those) instead of today's single
+`run_ai_orchestration()` → `_presentation_payload()` shape. That Web-side
+routing change is out of scope for this AI-repository slice and belongs to a
+`knowledge-engine-web` PR that opts into it explicitly.
+
 ## Goal
 
 `knowledge-engine-ai` must produce a research result that is not merely grounded, but **clear, structured, decision-useful, and inspectably grounded**.

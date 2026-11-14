@@ -12,6 +12,12 @@ Grounded completion is explicit opt-in because it performs side-effecting acquis
 and local-model grounding work. It requires a discovery policy with acquisition-plan
 requests enabled. Discovery candidates and merely acquired papers are never passed to
 synthesis directly.
+
+``run_online_research_question`` is a second, independent opt-in entry point beside
+``run_research_question``. It does not touch the local-corpus workflow above, has no
+``ResearchQuestionResult`` of its own, and is not reachable from the default path --
+see its own docstring for why it has a different return shape and what a caller must
+still verify before treating it as a drop-in replacement.
 """
 
 from __future__ import annotations
@@ -40,11 +46,14 @@ from knowledge_engine_ai.copilot.intent import (
     IdealStateCriterion,
     ResearchISA,
 )
+from knowledge_engine_ai.copilot.online_report import build_online_research_report
 from knowledge_engine_ai.copilot.progress_report import (
     ResearchProgressReport,
     build_research_progress_report,
 )
+from knowledge_engine_ai.copilot.research_report import ResearchReport
 from knowledge_engine_ai.execution import ExecutionBudget, ExecutionBudgetExceeded
+from knowledge_engine_ai.ke_client import KeCommandError, online_research_evidence
 from knowledge_engine_ai.llm import LocalLLM, LocalLLMError
 from knowledge_engine_ai.models import EvidenceReport
 from knowledge_engine_ai.orchestrator.close_gate import SessionCloseResult, attempt_session_close
@@ -343,6 +352,114 @@ def run_research_question(
     # See `docs/roadmap/research_pipeline_bottlenecks.md`'s BT-2 section.
     conversion_funnel_report = build_research_conversion_funnel_report(question_result)
     return replace(question_result, conversion_funnel_report=conversion_funnel_report)
+
+
+_ONLINE_RESEARCH_INVALID_REQUEST = "online_research_invalid_request"
+_ONLINE_RESEARCH_BRIDGE_FAILED = "online_research_bridge_failed"
+
+
+@dataclass(frozen=True)
+class OnlineResearchQuestionResult:
+    """The additive, opt-in outcome of the guarded online-evidence report path.
+
+    This is deliberately not a ``ResearchQuestionResult``: that type's fields
+    (``workflow``, ``trace``, ``close_result``, ``session_report``, ...) describe the
+    local-corpus session lifecycle -- retrieval, optional discovery/grounded
+    completion, synthesis, verification, and Research-ISA close -- none of which this
+    path runs. Fabricating placeholder values for those fields to force a shared
+    return type would misrepresent a session that never happened, which the family
+    policy on non-fabricated state forbids. Callers that want this path's result in a
+    durable session/progress-report shape (for example Web's current
+    ``WebResearchResult``/``_presentation_payload``) must add their own projection;
+    see ``docs/roadmap/research_report_v1.md`` for the exact compatibility gap this
+    was checked against before this function was added.
+
+    ``error_code`` is populated, and ``report``/``search_run_id`` stay ``None``, when
+    the request was invalid or Core's bridge failed or exceeded budget -- the same
+    stable-error-code convention ``research_report_integration.ResearchReportBuildResult``
+    uses, so a failure here never raises an exception a caller must additionally guard.
+    """
+
+    question: str
+    report: ResearchReport | None
+    search_run_id: str | None
+    error_code: str | None
+
+    @property
+    def available(self) -> bool:
+        return self.report is not None
+
+
+def run_online_research_question(
+    question: str,
+    *,
+    max_sources: int = 3,
+    providers: str | None = None,
+    ke_executable: str = "ke",
+    timeout_seconds: float = 90.0,
+) -> OnlineResearchQuestionResult:
+    """Explicit opt-in: answer one question from Core's on-demand online evidence.
+
+    This composes the existing ``ke_client.online_research_evidence()`` bridge with
+    ``online_report.build_online_research_report()`` -- the same two calls
+    ``ke-ai online-report`` already makes -- as a function other orchestrators
+    (including, eventually, knowledge-engine-web) can call directly instead of
+    shelling out to that standalone CLI command. It needs neither an indexed corpus,
+    a ``SessionRepository``, nor a local LLM: the returned ``ResearchReport`` is
+    Core's retrieved, content-checked evidence deterministically projected, not a
+    synthesized answer. It is reachable only by calling this function; nothing in
+    ``run_research_question``'s default or grounded-completion paths calls it.
+
+    Any invalid request, bridge failure, rejected evidence, or exhausted time budget
+    returns a stable ``error_code`` instead of raising or fabricating a report; Core's
+    temporary retrieved content and discovery ledger are removed in every case
+    (``online_research_evidence`` owns that cleanup unconditionally).
+    """
+
+    try:
+        budget = ExecutionBudget.from_timeout(timeout_seconds)
+    except ValueError:
+        return OnlineResearchQuestionResult(
+            question=question,
+            report=None,
+            search_run_id=None,
+            error_code=_ONLINE_RESEARCH_INVALID_REQUEST,
+        )
+
+    try:
+        bridge_result = online_research_evidence(
+            question,
+            max_sources=max_sources,
+            providers=providers,
+            ke_executable=ke_executable,
+            execution_budget=budget,
+        )
+    except KeCommandError:
+        return OnlineResearchQuestionResult(
+            question=question,
+            report=None,
+            search_run_id=None,
+            error_code=_ONLINE_RESEARCH_BRIDGE_FAILED,
+        )
+
+    try:
+        report = build_online_research_report(
+            bridge_result.evidence, search_run_id=bridge_result.search_run_id
+        )
+    except ValueError:
+        return OnlineResearchQuestionResult(
+            question=question,
+            report=None,
+            search_run_id=bridge_result.search_run_id,
+            error_code=_ONLINE_RESEARCH_INVALID_REQUEST,
+        )
+
+    return OnlineResearchQuestionResult(
+        question=question,
+        report=report,
+        search_run_id=bridge_result.search_run_id,
+        error_code=None,
+    )
 
 
 def _validate_grounded_completion_configuration(
@@ -910,4 +1027,9 @@ def _derive_research_question_id(question: str) -> str:
     return f"rq-{hashlib.sha256(normalized.encode('utf-8')).hexdigest()[:16]}"
 
 
-__all__ = ["ResearchQuestionResult", "run_research_question"]
+__all__ = [
+    "OnlineResearchQuestionResult",
+    "ResearchQuestionResult",
+    "run_online_research_question",
+    "run_research_question",
+]
