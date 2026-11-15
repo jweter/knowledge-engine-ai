@@ -413,8 +413,27 @@ def run_online_research_question(
     Any invalid request, bridge failure, rejected evidence, or exhausted time budget
     returns a stable ``error_code`` instead of raising or fabricating a report; Core's
     temporary retrieved content and discovery ledger are removed in every case
-    (``online_research_evidence`` owns that cleanup unconditionally).
+    (``online_research_evidence`` owns that cleanup unconditionally). Request shape
+    (``question``, ``max_sources``, ``providers``) is validated here, before Core is
+    invoked, so a caller-side mistake is reported as ``_ONLINE_RESEARCH_INVALID_REQUEST``
+    rather than being conflated with an actual Core/bridge failure: ``online_research_evidence``
+    raises the same ``KeCommandError`` for both, so without this check a bad ``max_sources``
+    or an empty ``question`` would be misreported as a bridge failure.
     """
+
+    if (
+        not isinstance(question, str)
+        or not question.strip()
+        or type(max_sources) is not int
+        or not 1 <= max_sources <= 10
+        or (providers is not None and (not isinstance(providers, str) or not providers.strip()))
+    ):
+        return OnlineResearchQuestionResult(
+            question=question,
+            report=None,
+            search_run_id=None,
+            error_code=_ONLINE_RESEARCH_INVALID_REQUEST,
+        )
 
     try:
         budget = ExecutionBudget.from_timeout(timeout_seconds)
