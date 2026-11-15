@@ -219,3 +219,53 @@ def test_invalid_timeout_is_rejected_before_any_core_invocation(
     assert result.error_code == "online_research_invalid_request"
     assert result.report is None
     assert calls == []
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"max_sources": 0},
+        {"max_sources": 11},
+        {"providers": "   "},
+    ],
+)
+def test_invalid_request_shape_is_rejected_before_any_core_invocation(
+    monkeypatch: pytest.MonkeyPatch, kwargs: dict[str, Any]
+) -> None:
+    """A caller-side mistake must not be reported as a bridge/Core failure.
+
+    ``online_research_evidence`` raises the same ``KeCommandError`` for both an
+    invalid request and an actual Core failure. Without validating request shape
+    before calling it, these cases regressed to ``online_research_bridge_failed``.
+    """
+    calls: list[list[str]] = []
+
+    def fail_if_called(*args: Any, **kwargs: Any) -> Any:
+        calls.append(list(args))
+        raise AssertionError("Core must not be invoked for an invalid request.")
+
+    monkeypatch.setattr(ke_client, "_run_ke_command", fail_if_called)
+
+    result = run_online_research_question("Does X help?", **kwargs)
+
+    assert result.error_code == "online_research_invalid_request"
+    assert result.report is None
+    assert calls == []
+
+
+def test_blank_question_is_rejected_before_any_core_invocation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[list[str]] = []
+
+    def fail_if_called(*args: Any, **kwargs: Any) -> Any:
+        calls.append(list(args))
+        raise AssertionError("Core must not be invoked for an invalid request.")
+
+    monkeypatch.setattr(ke_client, "_run_ke_command", fail_if_called)
+
+    result = run_online_research_question("   ")
+
+    assert result.error_code == "online_research_invalid_request"
+    assert result.report is None
+    assert calls == []

@@ -25,6 +25,18 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   wrapper is not yet called from Web; see `docs/roadmap/research_report_v1.md`
   for the precise gap.
 
+### Fixed
+
+- **`run_online_research_question()` misreported an invalid request (bad
+  `max_sources`, blank `providers`, empty `question`) as
+  `online_research_bridge_failed` instead of `online_research_invalid_request`.**
+  `online_research_evidence()` raises the same `KeCommandError` for its own
+  request-shape validation and for an actual Core/bridge failure, and the
+  wrapper only distinguished the two for an invalid `timeout_seconds`. Request
+  shape is now validated in the wrapper itself, before Core is invoked, so a
+  caller-side mistake is never conflated with an infrastructure failure.
+  Regression tests added to `tests/copilot/test_run_online_research_question.py`.
+
 - **Opt-in corpus-free Core CLI evidence bridge (Research Report v1).**
   `ke_client.online_research_evidence()` invokes `ke online-research` and
   `ke online-evidence-validate` through the existing supported subprocess
