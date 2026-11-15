@@ -272,6 +272,98 @@
           "verification": [
             "https://github.com/jweter/knowledge-engine-ai/pull/220 merged (capable-builder pull request)"
           ]
+        },
+        {
+          "id": "ai-build-online-citation-provenance-index",
+          "state": "PLANNED",
+          "objective": "Return a dict mapping each excerpt_id in `excerpts` to a {\"source_id\", \"url\", \"provider\", \"retrieved_at\", \"title\"} dict copied from the matching entry in `sources` (matched by source_id). Excerpts whose source_id has no matching entry in `sources` are omitted from the result. If `excerpts` contains duplicate excerpt_id values, only the first occurrence is kept. `sources` and `excerpts` are lists of plain dicts; returns a new dict and never mutates its arguments.",
+          "acceptance": [
+            "a new pure function build_citation_provenance_index(sources, excerpts) lives in a new module knowledge_engine_ai/copilot/citation_provenance.py",
+            "acceptance_examples below pass exactly as computed",
+            "Canonical preflight, required CI checks and review must pass at the exact head; no gate may be weakened."
+          ],
+          "acceptance_examples": [
+            {
+              "call": "build_citation_provenance_index([{\"source_id\": \"s1\", \"url\": \"https://a.example/x\", \"provider\": \"web\", \"retrieved_at\": \"2026-01-01T00:00:00Z\", \"title\": \"A\"}], [{\"excerpt_id\": \"s1#abc\", \"source_id\": \"s1\", \"text\": \"hello\"}])",
+              "expected": {"s1#abc": {"source_id": "s1", "url": "https://a.example/x", "provider": "web", "retrieved_at": "2026-01-01T00:00:00Z", "title": "A"}},
+              "why": "a single excerpt copies exactly its matching source's fields, keyed by excerpt_id."
+            },
+            {
+              "call": "build_citation_provenance_index([], [{\"excerpt_id\": \"s1#abc\", \"source_id\": \"s1\", \"text\": \"hello\"}])",
+              "expected": {},
+              "why": "an excerpt whose source_id has no matching source is omitted rather than erroring."
+            },
+            {
+              "call": "build_citation_provenance_index([{\"source_id\": \"s1\", \"url\": \"https://a.example/x\", \"provider\": \"web\", \"retrieved_at\": \"t1\", \"title\": null}, {\"source_id\": \"s2\", \"url\": \"https://b.example/y\", \"provider\": \"news\", \"retrieved_at\": \"t2\", \"title\": null}], [{\"excerpt_id\": \"e1\", \"source_id\": \"s1\", \"text\": \"first\"}, {\"excerpt_id\": \"e1\", \"source_id\": \"s2\", \"text\": \"second\"}])",
+              "expected": {"e1": {"source_id": "s1", "url": "https://a.example/x", "provider": "web", "retrieved_at": "t1", "title": null}},
+              "why": "a duplicate excerpt_id keeps only the first occurrence's provenance, never the later overwrite."
+            }
+          ],
+          "allowed_paths": [
+            "knowledge_engine_ai/copilot/citation_provenance.py",
+            "tests/copilot/test_citation_provenance.py"
+          ],
+          "forbidden_paths": [
+            "**/*.key",
+            "**/*.pem",
+            ".env",
+            ".github/**",
+            "docs/OWNER_APPROVED_ROADMAP_2026-10-25.md",
+            "engineering/**",
+            "poetry.lock",
+            "private/**",
+            "pyproject.toml"
+          ],
+          "runner_requirements": [
+            "code",
+            "local",
+            "offline"
+          ],
+          "depends_on": [
+            "ai-online-report-orchestrator-integration"
+          ],
+          "capability_level": 1,
+          "roadmap_traceability": "docs/OWNER_APPROVED_ROADMAP_2026-10-25.md#next-slices",
+          "verification": []
+        },
+        {
+          "id": "ai-online-research-question-citation-provenance",
+          "state": "PLANNED",
+          "objective": "Wire citeable-source provenance into the opt-in online-evidence orchestrator path so a caller of run_online_research_question() -- not only the standalone `ke-ai online-report --provenance-output` CLI flag -- can resolve a returned ResearchReport's excerpt_id citations after Core's temporary retrieved content is removed, using the pure knowledge_engine_ai/copilot/citation_provenance.build_citation_provenance_index() function instead of duplicating that mapping logic inline in the CLI.",
+          "acceptance": [
+            "OnlineResearchQuestionResult gains an additive citation_provenance field (default None/empty) populated, whenever a report is produced, by calling build_citation_provenance_index() over the bridge result's sources and excerpts; existing callers that only read report/search_run_id/error_code are unaffected",
+            "knowledge_engine_ai/cli.py's online-report command's --provenance-output branch is refactored to call the same build_citation_provenance_index() function instead of its own inline dict construction, producing the same resolvable mapping as before for every excerpt_id cited in the report",
+            "a regression test on run_online_research_question() with a stubbed Core bridge asserts every excerpt_id cited in the returned report's conclusion_rows resolves through citation_provenance to its source's url/provider/retrieved_at/title, and that citation_provenance is empty/None on every error_code path (bridge failure, invalid request, rejected evidence)",
+            "existing tests in tests/test_cli_online_report.py and tests/copilot/test_run_online_research_question.py continue to pass with only additive field changes; no existing assertion's prior behavior changes",
+            "Canonical preflight, required CI checks and review must pass at the exact head; no gate may be weakened."
+          ],
+          "allowed_paths": [
+            "knowledge_engine_ai/**",
+            "tests/**",
+            "docs/**"
+          ],
+          "forbidden_paths": [
+            "**/*.key",
+            "**/*.pem",
+            ".env",
+            ".github/**",
+            "docs/OWNER_APPROVED_ROADMAP_2026-10-25.md",
+            "engineering/**",
+            "poetry.lock",
+            "private/**",
+            "pyproject.toml"
+          ],
+          "runner_requirements": [
+            "python 3.11+ with the repository's locked dev dependencies installed",
+            "no network access: a stubbed Core bridge only, matching the existing online-report test pattern",
+            "free local libraries already used by the repository only"
+          ],
+          "depends_on": [
+            "ai-build-online-citation-provenance-index"
+          ],
+          "capability_level": 3,
+          "roadmap_traceability": "docs/OWNER_APPROVED_ROADMAP_2026-10-25.md#next-slices",
+          "verification": []
         }
       ]
     }
