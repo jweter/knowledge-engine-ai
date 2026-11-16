@@ -21,10 +21,12 @@ def build_citation_provenance_index(
         source_by_id[source["source_id"]] = source
 
     index: dict[str, dict[str, Any]] = {}
+    seen_excerpt_ids: set[str] = set()
     for excerpt in excerpts:
         excerpt_id = excerpt["excerpt_id"]
-        if excerpt_id in index:
+        if excerpt_id in seen_excerpt_ids:
             continue
+        seen_excerpt_ids.add(excerpt_id)
         matched_source = source_by_id.get(excerpt["source_id"])
         if matched_source is None:
             continue
