@@ -364,6 +364,165 @@
           "capability_level": 3,
           "roadmap_traceability": "docs/OWNER_APPROVED_ROADMAP_2026-10-25.md#next-slices",
           "verification": []
+        },
+        {
+          "id": "ai-extract-cited-excerpt-ids",
+          "state": "PLANNED",
+          "objective": "Return a list of every excerpt_id in any conclusion row's supporting_evidence_ids or contradicting_or_null_evidence_ids, deduplicated, in first-occurrence order across rows (supporting ids before contradicting ids within a row). An empty conclusion_rows list returns an empty list. Matching is exact-string only, so no case normalization or rounding applies, and each row must supply both keys as lists of strings; the input list is never mutated.",
+          "acceptance": [
+            "a new pure function extract_cited_excerpt_ids(conclusion_rows) lives in a new module knowledge_engine_ai/copilot/cited_excerpt_ids.py",
+            "acceptance_examples below pass exactly as computed",
+            "Canonical preflight, required CI checks and review must pass at the exact head; no gate may be weakened."
+          ],
+          "acceptance_examples": [
+            {
+              "call": "extract_cited_excerpt_ids([])",
+              "expected": [],
+              "why": "an empty conclusion_rows list has no excerpt_ids to collect."
+            },
+            {
+              "call": "extract_cited_excerpt_ids([{\"supporting_evidence_ids\": [\"e1\", \"e2\"], \"contradicting_or_null_evidence_ids\": [\"e2\"]}])",
+              "expected": ["e1", "e2"],
+              "why": "e2 repeats within one row's two id lists but is kept once, at its first occurrence."
+            },
+            {
+              "call": "extract_cited_excerpt_ids([{\"supporting_evidence_ids\": [\"e1\"], \"contradicting_or_null_evidence_ids\": []}, {\"supporting_evidence_ids\": [], \"contradicting_or_null_evidence_ids\": [\"e2\", \"e1\"]}])",
+              "expected": ["e1", "e2"],
+              "why": "ids are collected in row order and first-occurrence order; the later repeat of e1 in row 2 does not move or duplicate it."
+            }
+          ],
+          "allowed_paths": [
+            "knowledge_engine_ai/copilot/cited_excerpt_ids.py",
+            "tests/copilot/test_cited_excerpt_ids.py"
+          ],
+          "forbidden_paths": [
+            "**/*.key",
+            "**/*.pem",
+            ".env",
+            ".github/**",
+            "docs/OWNER_APPROVED_ROADMAP_2026-10-25.md",
+            "engineering/**",
+            "poetry.lock",
+            "private/**",
+            "pyproject.toml"
+          ],
+          "runner_requirements": [
+            "code",
+            "local",
+            "offline"
+          ],
+          "depends_on": [
+            "ai-build-online-citation-provenance-index"
+          ],
+          "capability_level": 1,
+          "roadmap_traceability": "docs/OWNER_APPROVED_ROADMAP_2026-10-25.md#next-slices",
+          "verification": []
+        },
+        {
+          "id": "ai-find-unresolved-citations",
+          "state": "PLANNED",
+          "objective": "Return a list of every id in cited_excerpt_ids that is not a key of citation_provenance, deduplicated, in first-occurrence order. An empty cited_excerpt_ids list returns an empty list, as does a list whose every id already is a key of citation_provenance. Matching is exact-string equality only, so no case normalization or rounding applies. Neither argument is mutated and a new list is always returned.",
+          "acceptance": [
+            "a new pure function find_unresolved_citations(cited_excerpt_ids, citation_provenance) lives in a new module knowledge_engine_ai/copilot/unresolved_citations.py",
+            "acceptance_examples below pass exactly as computed",
+            "Canonical preflight, required CI checks and review must pass at the exact head; no gate may be weakened."
+          ],
+          "acceptance_examples": [
+            {
+              "call": "find_unresolved_citations([], {})",
+              "expected": [],
+              "why": "an empty cited_excerpt_ids list returns an empty list regardless of the provenance mapping."
+            },
+            {
+              "call": "find_unresolved_citations([\"e1\", \"e2\"], {\"e1\": {\"source_id\": \"s1\"}})",
+              "expected": ["e2"],
+              "why": "e1 resolves through a key in citation_provenance so only the unresolved e2 remains."
+            },
+            {
+              "call": "find_unresolved_citations([\"e1\", \"e2\", \"e1\"], {})",
+              "expected": ["e1", "e2"],
+              "why": "duplicate unresolved ids are reported once, at their first occurrence, when the provenance mapping is empty."
+            }
+          ],
+          "allowed_paths": [
+            "knowledge_engine_ai/copilot/unresolved_citations.py",
+            "tests/copilot/test_unresolved_citations.py"
+          ],
+          "forbidden_paths": [
+            "**/*.key",
+            "**/*.pem",
+            ".env",
+            ".github/**",
+            "docs/OWNER_APPROVED_ROADMAP_2026-10-25.md",
+            "engineering/**",
+            "poetry.lock",
+            "private/**",
+            "pyproject.toml"
+          ],
+          "runner_requirements": [
+            "code",
+            "local",
+            "offline"
+          ],
+          "depends_on": [
+            "ai-build-online-citation-provenance-index"
+          ],
+          "capability_level": 1,
+          "roadmap_traceability": "docs/OWNER_APPROVED_ROADMAP_2026-10-25.md#next-slices",
+          "verification": []
+        },
+        {
+          "id": "ai-select-cited-provenance",
+          "state": "PLANNED",
+          "objective": "Return a new dict containing only citation_provenance's entries whose key appears in cited_excerpt_ids, preserving citation_provenance's own key order. A key in cited_excerpt_ids that is not present in citation_provenance contributes nothing. An empty citation_provenance or an empty cited_excerpt_ids returns an empty dict. Values are not copied, but neither argument is mutated, and the returned dict is always new.",
+          "acceptance": [
+            "a new pure function select_cited_provenance(citation_provenance, cited_excerpt_ids) lives in a new module knowledge_engine_ai/copilot/cited_provenance_subset.py",
+            "acceptance_examples below pass exactly as computed",
+            "Canonical preflight, required CI checks and review must pass at the exact head; no gate may be weakened."
+          ],
+          "acceptance_examples": [
+            {
+              "call": "select_cited_provenance({}, [\"e1\"])",
+              "expected": {},
+              "why": "an empty provenance mapping has no entries to select regardless of requested ids."
+            },
+            {
+              "call": "select_cited_provenance({\"e1\": {\"source_id\": \"s1\"}, \"e2\": {\"source_id\": \"s2\"}}, [\"e2\"])",
+              "expected": {"e2": {"source_id": "s2"}},
+              "why": "only the requested, present id's entry is kept; e1 is dropped."
+            },
+            {
+              "call": "select_cited_provenance({\"e1\": {\"source_id\": \"s1\"}}, [\"e9\"])",
+              "expected": {},
+              "why": "a requested id absent from citation_provenance contributes nothing rather than erroring."
+            }
+          ],
+          "allowed_paths": [
+            "knowledge_engine_ai/copilot/cited_provenance_subset.py",
+            "tests/copilot/test_cited_provenance_subset.py"
+          ],
+          "forbidden_paths": [
+            "**/*.key",
+            "**/*.pem",
+            ".env",
+            ".github/**",
+            "docs/OWNER_APPROVED_ROADMAP_2026-10-25.md",
+            "engineering/**",
+            "poetry.lock",
+            "private/**",
+            "pyproject.toml"
+          ],
+          "runner_requirements": [
+            "code",
+            "local",
+            "offline"
+          ],
+          "depends_on": [
+            "ai-build-online-citation-provenance-index"
+          ],
+          "capability_level": 1,
+          "roadmap_traceability": "docs/OWNER_APPROVED_ROADMAP_2026-10-25.md#next-slices",
+          "verification": []
         }
       ]
     }
