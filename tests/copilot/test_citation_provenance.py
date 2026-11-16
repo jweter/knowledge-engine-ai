@@ -132,19 +132,28 @@ def test_does_not_mutate_its_arguments() -> None:
     assert sources == sources_before
     assert excerpts == excerpts_before
 
+
 def test_missing_first_duplicate_cannot_use_later_source() -> None:
-    sources = [{
-        "source_id": "s2",
-        "url": "https://b.example/y",
-        "provider": "web",
-        "retrieved_at": "t2",
-        "title": "B",
-    }]
+    sources = [
+        {
+            "source_id": "s2",
+            "url": "https://b.example/y",
+            "provider": "web",
+            "retrieved_at": "t2",
+            "title": "B",
+        }
+    ]
     excerpts = [
         {"excerpt_id": "e1", "source_id": "missing"},
         {"excerpt_id": "e1", "source_id": "s2"},
         {"excerpt_id": "e2", "source_id": "s2"},
     ]
     assert build_citation_provenance_index(sources, excerpts) == {
-        "e2": {key: sources[0][key] for key in ("source_id", "url", "provider", "retrieved_at", "title")}
+        "e2": {
+            "source_id": "s2",
+            "url": "https://b.example/y",
+            "provider": "web",
+            "retrieved_at": "t2",
+            "title": "B",
+        }
     }
