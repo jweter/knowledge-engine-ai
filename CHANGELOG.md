@@ -9,6 +9,32 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Real, non-mocked subprocess proof against Core's published online-evidence
+  fixture harness.** `knowledge-engine-core`'s `ke online-evidence-fixture-server`
+  command was published specifically so this repository could run its own
+  pipeline against a known Core response instead of mocking the Core CLI
+  boundary; its own docstring named this as owed. `tests/test_online_research_live_fixture.py`
+  starts that real fixture server and runs this project's own unmodified
+  `ke_client.online_research_evidence()` bridge and
+  `online_report.build_online_research_report()` projection against it end to
+  end -- real `ke online-research`/`ke online-evidence-validate` subprocesses,
+  no monkeypatching. It skips cleanly when `ke` is not on `PATH`.
+  `ke_client.online_research_evidence()` gained an additive, test-only
+  `fixture_server_port` parameter (and `_run_ke_command()` gained a matching
+  `env` passthrough) to point that one real subprocess call at the fixture
+  server via Core's documented `--fixture-server-port`/
+  `KE_ALLOW_LOOPBACK_FIXTURE=1` opt-in; ordinary callers are unaffected. The
+  new `.github/workflows/online-evidence-live-fixture.yml` installs
+  knowledge-engine-core alongside this repository and runs this one test for
+  real in CI, since the main `Quality` job does not install Core. Verified
+  locally end to end against an installed `knowledge-engine-core` checkout:
+  the fixture run reproduces Core's own documented three-source outcome
+  (`doi:10.1/good` retrieved, `doi:10.1/broken` failed with an HTTP 500
+  reason), `evidence.claims` is empty (Core's documented retrieval-vs-analysis
+  boundary), and the projected report's `missing_evidence` names every
+  non-retrieved source plus "Core supplied no claims for this question." Full
+  local gate (`ruff format --check`, `ruff check`, `mypy`, `pytest`) is clean.
+
 - **Orchestrator entry point for the online-evidence Research Report path
   (Research Report v1).** `copilot/run_research_question.py` now also exposes
   `run_online_research_question()`, a thin opt-in wrapper beside

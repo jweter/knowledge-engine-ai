@@ -83,6 +83,7 @@ def _fake_cli(
         operation: str,
         execution_budget: Any,
         working_directory: Path | None = None,
+        env: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
         del operation, working_directory
         assert execution_budget is not None
@@ -201,6 +202,7 @@ def test_validation_timeout_cleans_temporary_files(
         operation: str,
         execution_budget: Any,
         working_directory: Path | None = None,
+        env: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
         if command[1] == "online-evidence-validate":
             raise KeCommandError("Core evidence validation exceeded the configured time limit.")
@@ -209,6 +211,7 @@ def test_validation_timeout_cleans_temporary_files(
             operation=operation,
             execution_budget=execution_budget,
             working_directory=working_directory,
+            env=env,
         )
 
     monkeypatch.setattr(ke_client, "_run_ke_command", timeout_during_validation)
@@ -229,12 +232,14 @@ def test_malformed_discovery_receipt_is_rejected(
         operation: str,
         execution_budget: Any,
         working_directory: Path | None = None,
+        env: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
         result = original(
             command,
             operation=operation,
             execution_budget=execution_budget,
             working_directory=working_directory,
+            env=env,
         )
         if command[1] == "online-research":
             output = Path(command[command.index("--output") + 1])
@@ -268,6 +273,7 @@ def test_permission_denied_on_core_launch_is_sanitized(
         operation: str,
         execution_budget: Any,
         working_directory: Path | None = None,
+        env: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
         if command[1] == stage:
             raise PermissionError(r"C:\private\secret-core-executable")
@@ -276,6 +282,7 @@ def test_permission_denied_on_core_launch_is_sanitized(
             operation=operation,
             execution_budget=execution_budget,
             working_directory=working_directory,
+            env=env,
         )
 
     monkeypatch.setattr(ke_client, "_run_ke_command", deny_launch)
