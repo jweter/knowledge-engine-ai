@@ -93,6 +93,7 @@ def _fake_cli(
         operation: str,
         execution_budget: Any,
         working_directory: Path | None = None,
+        env: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
         del operation, working_directory
         assert execution_budget is not None
@@ -183,6 +184,7 @@ def test_bridge_failure_during_validation_cleans_up_temp_storage(
         operation: str,
         execution_budget: Any,
         working_directory: Path | None = None,
+        env: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
         if command[1] == "online-evidence-validate":
             return subprocess.CompletedProcess(command, 1, "", "")
@@ -191,6 +193,7 @@ def test_bridge_failure_during_validation_cleans_up_temp_storage(
             operation=operation,
             execution_budget=execution_budget,
             working_directory=working_directory,
+            env=env,
         )
 
     monkeypatch.setattr(ke_client, "_run_ke_command", fail_validation)

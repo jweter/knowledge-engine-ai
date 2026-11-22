@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -69,8 +70,17 @@ def _run_ke_command(
     operation: str,
     execution_budget: ExecutionBudget | None,
     working_directory: Path | None = None,
+    env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    """Run one Core command inside the shared wall-clock budget."""
+    """Run one Core command inside the shared wall-clock budget.
+
+    ``env`` replaces the subprocess environment entirely when given (mirroring
+    ``subprocess.run``'s own ``env`` semantics); a caller that wants to extend
+    rather than replace the inherited environment passes a copy of
+    ``os.environ`` with its own additions merged in. Leaving it unset (the
+    default for every existing caller) preserves inheriting the real process
+    environment unchanged.
+    """
 
     try:
         timeout = execution_budget.remaining_seconds() if execution_budget is not None else None
@@ -81,6 +91,7 @@ def _run_ke_command(
             check=False,
             timeout=timeout,
             cwd=working_directory,
+            env=env,
         )
     except (ExecutionBudgetExceeded, subprocess.TimeoutExpired) as exc:
         raise KeCommandError(
@@ -1775,6 +1786,7 @@ def online_research_evidence(
     ke_executable: str = "ke",
     execution_budget: ExecutionBudget | None = None,
     working_directory: Path | None = None,
+    fixture_server_port: int | None = None,
 ) -> OnlineResearchEvidenceResult:
     """Explicitly opt in to one corpus-free Core retrieval and validation run.
 
@@ -1783,6 +1795,17 @@ def online_research_evidence(
     returned. This does not invoke Ollama, produce a ResearchReport, or claim
     that retrieved scientific assertions are true. No temporary cache survives
     either success or failure.
+
+    ``fixture_server_port`` is CI integration-test only: it points Core's
+    `ke online-research` at a loopback `ke online-evidence-fixture-server`
+    instance (see `docs/online_evidence_contract.md` in knowledge-engine-core)
+    instead of live discovery providers, so this project's own real pipeline
+    -- this bridge, `copilot/online_evidence_adapter.py`,
+    `copilot/online_report.py` -- can be proven end to end against a known
+    Core response with no network access and no mocking. It is mutually
+    exclusive with ``providers`` and sets ``KE_ALLOW_LOOPBACK_FIXTURE=1`` only
+    for this one subprocess call; ordinary callers never set it and get the
+    unmodified inherited environment exactly as before.
     """
     if not isinstance(question, str) or not question.strip():
         raise KeCommandError("Online research requires a non-empty question.")
@@ -1790,6 +1813,11 @@ def online_research_evidence(
         raise KeCommandError("Online research max_sources must be between 1 and 10.")
     if providers is not None and (not isinstance(providers, str) or not providers.strip()):
         raise KeCommandError("Online research providers must be non-empty text.")
+    if fixture_server_port is not None:
+        if type(fixture_server_port) is not int or not 1 <= fixture_server_port <= 65535:
+            raise KeCommandError("Online research fixture_server_port must be a valid port.")
+        if providers is not None:
+            raise KeCommandError("Online research fixture mode cannot combine with providers.")
     try:
         budget = execution_budget or ExecutionBudget.from_timeout(90.0)
     except ValueError as exc:
@@ -1816,6 +1844,10 @@ def online_research_evidence(
         ]
         if providers is not None:
             command.extend(["--providers", providers])
+        retrieval_env = None
+        if fixture_server_port is not None:
+            command.extend(["--fixture-server-port", str(fixture_server_port)])
+            retrieval_env = {**os.environ, "KE_ALLOW_LOOPBACK_FIXTURE": "1"}
 
         try:
             retrieval = _run_ke_command(
@@ -1823,6 +1855,7 @@ def online_research_evidence(
                 operation="ke online-research",
                 execution_budget=budget,
                 working_directory=working_directory,
+                env=retrieval_env,
             )
         except OSError as exc:
             raise KeCommandError("Core online-research CLI is unavailable.") from exc
