@@ -26,10 +26,12 @@ import hashlib
 import math
 import time
 import uuid
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
+from knowledge_engine_ai.copilot.citation_provenance import build_citation_provenance_index
 from knowledge_engine_ai.copilot.discovery_policy import (
     DiscoveryAugmentationResult,
     FederatedDiscoveryPolicy,
@@ -378,12 +380,19 @@ class OnlineResearchQuestionResult:
     the request was invalid or Core's bridge failed or exceeded budget -- the same
     stable-error-code convention ``research_report_integration.ResearchReportBuildResult``
     uses, so a failure here never raises an exception a caller must additionally guard.
+
+    ``citation_provenance`` maps each cited ``excerpt_id`` to its source's citeable
+    ``{source_id, url, provider, retrieved_at, title}`` record, so a caller can resolve
+    the report's citations after Core's temporary retrieved content has been removed
+    (the standalone ``ke-ai online-report --provenance-output`` command offers the same
+    resolution to a shell caller). It is empty whenever there is no report.
     """
 
     question: str
     report: ResearchReport | None
     search_run_id: str | None
     error_code: str | None
+    citation_provenance: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     @property
     def available(self) -> bool:
@@ -478,6 +487,10 @@ def run_online_research_question(
         report=report,
         search_run_id=bridge_result.search_run_id,
         error_code=None,
+        citation_provenance=build_citation_provenance_index(
+            [asdict(source) for source in bridge_result.evidence.sources],
+            [asdict(excerpt) for excerpt in bridge_result.evidence.excerpts],
+        ),
     )
 
 

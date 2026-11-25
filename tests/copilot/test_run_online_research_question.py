@@ -144,6 +144,58 @@ def test_successful_bundle_produces_report_and_cleans_up_temp_storage(
     assert roots and all(not root.exists() for root in roots)
 
 
+def test_successful_bundle_resolves_every_cited_excerpt_to_its_source(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    roots = _fake_cli(monkeypatch)
+
+    result = run_online_research_question("Does X help?")
+
+    report = result.report
+    assert report is not None
+    cited = [i for row in report.conclusion_rows for i in row.supporting_evidence_ids]
+    assert cited
+    assert set(cited) <= set(result.citation_provenance)
+    entry = result.citation_provenance[cited[0]]
+    assert entry == {
+        "source_id": "src1",
+        "url": "https://example.org/study",
+        "provider": "pubmed",
+        "retrieved_at": "2026-11-14T00:00:00+00:00",
+        "title": "Example",
+    }
+    assert roots and all(not root.exists() for root in roots)
+
+
+def test_failed_source_has_no_provenance_entry_because_it_has_no_excerpt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _fake_cli(monkeypatch, with_unavailable_source=True)
+
+    result = run_online_research_question("Does X help?")
+
+    assert result.error_code is None
+    assert {v["source_id"] for v in result.citation_provenance.values()} == {"src1"}
+
+
+@pytest.mark.parametrize("kwargs", [{"timeout_seconds": 0}, {"max_sources": 0}])
+def test_invalid_request_has_empty_citation_provenance(kwargs: dict[str, Any]) -> None:
+    result = run_online_research_question("Does X help?", **kwargs)
+
+    assert result.report is None
+    assert result.citation_provenance == {}
+
+
+def test_bridge_failure_has_empty_citation_provenance(monkeypatch: pytest.MonkeyPatch) -> None:
+    _fake_cli(monkeypatch, retrieval_returncode=2)
+
+    result = run_online_research_question("Does X help?")
+
+    assert result.report is None
+    assert result.error_code is not None
+    assert result.citation_provenance == {}
+
+
 def test_bundle_with_failed_source_still_produces_report_with_missing_evidence(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
