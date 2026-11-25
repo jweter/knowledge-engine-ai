@@ -1,4 +1,4 @@
-﻿"""Report which cited excerpt ids have no provenance entry.
+"""Report which cited excerpt ids have no provenance entry.
 
 Pure check over plain values: an id is unresolved when it is not a key of
 the citation provenance mapping. Matching is exact string equality, the
