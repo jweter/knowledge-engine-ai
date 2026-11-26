@@ -108,6 +108,12 @@ def test_online_research_evidence_against_real_fixture_server(
     assert broken.content_sha256 is None
     assert broken.failure_reason is not None and "500" in broken.failure_reason
 
+    # Core's fixture server always fails the oversized page (knowledge-engine-core #611),
+    # whether or not the consumer passes --max-response-mb.
+    huge = by_id["doi:10.1/huge"]
+    assert huge.status == "failed"
+    assert huge.failure_reason is not None and "exceeds 100000 bytes" in huge.failure_reason
+
     # Core's own documentation records claims as always empty from a bare
     # retrieval run (claim synthesis is analysis, not retrieval) -- proven
     # here against a real run rather than assumed.
