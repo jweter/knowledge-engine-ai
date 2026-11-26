@@ -51,9 +51,15 @@ from knowledge_engine_ai.copilot.intent import (
 from knowledge_engine_ai.copilot.online_report import build_online_research_report
 from knowledge_engine_ai.copilot.progress_report import (
     ResearchProgressReport,
+    ResearchProgressStage,
     build_research_progress_report,
 )
 from knowledge_engine_ai.copilot.research_report import ResearchReport
+from knowledge_engine_ai.copilot.stage_updates import (
+    ResearchStageCallback,
+    ResearchStageNotifier,
+    ResearchStageUpdate,
+)
 from knowledge_engine_ai.execution import ExecutionBudget, ExecutionBudgetExceeded
 from knowledge_engine_ai.ke_client import KeCommandError, online_research_evidence
 from knowledge_engine_ai.llm import LocalLLM, LocalLLMError
@@ -129,6 +135,9 @@ class ResearchQuestionResult:
     grounded_completion: GroundedCompletionResult | None = None
     progress_report: ResearchProgressReport | None = None
     conversion_funnel_report: ResearchConversionFunnelReport | None = None
+    #: Ordered in-flight stage updates this call announced (``stage_updates.py``); empty
+    #: for a result constructed directly. Observation only.
+    stage_updates: tuple[ResearchStageUpdate, ...] = ()
 
     @property
     def narrative_releaseable(self) -> bool:
@@ -180,8 +189,16 @@ def run_research_question(
     ke_executable: str = "ke",
     timeout_seconds: float | None = None,
     min_synthesis_seconds: float | None = None,
+    on_stage: ResearchStageCallback | None = None,
 ) -> ResearchQuestionResult:
     """Create one session and run retrieval, optional grounded completion, and synthesis.
+
+    ``on_stage`` (optional) is called with a ``ResearchStageUpdate`` each time the run
+    enters ``searching_indexed_evidence``, ``discovering_sources``, ``acquiring_sources``,
+    ``validating_extracting_evidence``, or ``reretrieving`` -- only for work that actually
+    runs -- and once more with the final progress stage. It is observation-only and a
+    failing callback never affects the research. The same ordered updates are returned
+    on ``ResearchQuestionResult.stage_updates``. See ``stage_updates.py``.
 
     Grounded completion is fail-closed at configuration time: a caller cannot request
     acquisition/extraction without also opting into discovery and its acquisition-plan
@@ -242,6 +259,8 @@ def run_research_question(
         )
     )
 
+    stage_notifier = ResearchStageNotifier(session_id, on_stage)
+    stage_notifier.notify(ResearchProgressStage.SEARCHING_INDEXED_EVIDENCE)
     workflow_result = run_fixed_evidence_workflow(
         session_id=session_id,
         question=question,
@@ -263,6 +282,7 @@ def run_research_question(
             policy=discovery_policy,
             execution_budget=upstream_execution_budget,
             research_question_id=resolved_research_question_id,
+            on_stage=stage_notifier.as_hook(),
         )
 
     grounded_completion: GroundedCompletionResult | None = None
@@ -279,6 +299,7 @@ def run_research_question(
             policy=grounded_completion_policy,
             ke_executable=ke_executable,
             execution_budget=upstream_execution_budget,
+            on_stage=stage_notifier.as_hook(),
         )
         _record_grounded_completion_events(
             session_repository,
@@ -353,7 +374,14 @@ def run_research_question(
     # this call just produced, including the progress report just built above.
     # See `docs/roadmap/research_pipeline_bottlenecks.md`'s BT-2 section.
     conversion_funnel_report = build_research_conversion_funnel_report(question_result)
-    return replace(question_result, conversion_funnel_report=conversion_funnel_report)
+    # Final update: the stage the finished call resolved to, so an observer always
+    # sees a terminal stage, never only in-flight ones.
+    stage_notifier.notify(progress_report.progress_stage, "final" if progress_report.final else "")
+    return replace(
+        question_result,
+        conversion_funnel_report=conversion_funnel_report,
+        stage_updates=stage_notifier.updates,
+    )
 
 
 _ONLINE_RESEARCH_INVALID_REQUEST = "online_research_invalid_request"

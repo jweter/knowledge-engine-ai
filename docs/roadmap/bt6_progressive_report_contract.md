@@ -117,6 +117,14 @@ bumped and it opts into rendering the new field. No existing field on
 
 ## Deferred (explicitly out of scope for this slice)
 
+- **First in-flight slice (implemented, `stage_updates.py`):** `run_research_question(on_stage=...)` now
+  announces `searching_indexed_evidence`, `discovering_sources` (only with a discovery policy),
+  `acquiring_sources`, `validating_extracting_evidence` and `reretrieving` the moment each stage that
+  actually runs is entered (a stage skipped for adequacy is never announced), then the final progress
+  stage. The ordered updates are also returned on `ResearchQuestionResult.stage_updates`. Observation
+  only: a failing callback is swallowed and never affects research, nothing is written to session
+  state, and omitting `on_stage` leaves behavior unchanged. What remains deferred below is a *durable*
+  polling entry point (a separate process or restart-safe caller), not the in-process announcements.
 - A durable/polling entry point that can build a `ResearchProgressReport`
   *while* discovery/acquisition/extraction/re-retrieval are still running,
   which would let `searching_indexed_evidence`, `discovering_sources`,
