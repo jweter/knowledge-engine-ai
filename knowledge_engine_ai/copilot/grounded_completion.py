@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import tempfile
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -200,6 +201,25 @@ class _ExtractionResult:
     grounding_failures: tuple[str, ...] = ()
 
 
+#: Stage names announced through ``complete_discovered_research``'s optional ``on_stage``
+#: hook. They are the string values of ``progress_report.ResearchProgressStage`` (this
+#: module cannot import that enum without a cycle); a test pins them together.
+STAGE_ACQUIRING_SOURCES = "acquiring_sources"
+STAGE_VALIDATING_EXTRACTING_EVIDENCE = "validating_extracting_evidence"
+STAGE_RERETRIEVING = "reretrieving"
+
+
+def _signal(on_stage: Callable[[str, str], None] | None, stage: str, detail: str) -> None:
+    """Announce a stage about to run; an observer failure never affects research."""
+
+    if on_stage is None:
+        return
+    try:
+        on_stage(stage, detail)
+    except Exception:  # noqa: BLE001 - an observer must never break research
+        return
+
+
 def complete_discovered_research(
     question: str,
     *,
@@ -209,8 +229,13 @@ def complete_discovered_research(
     policy: GroundedCompletionPolicy,
     ke_executable: str = "ke",
     execution_budget: ExecutionBudget | None = None,
+    on_stage: Callable[[str, str], None] | None = None,
 ) -> GroundedCompletionResult:
     """Acquire, ground, promote, and re-retrieve one discovery augmentation.
+
+    ``on_stage`` is an optional, observation-only hook called with ``(stage, detail)``
+    immediately before each stage that is actually about to run (never for a skipped
+    stage); see ``stage_updates.py``. Its failures are swallowed.
 
     BT-7 (issue #92): already-indexed candidates cost nothing to acquire, so they
     are extracted/grounded/promoted first, before any network acquisition. If that
@@ -265,6 +290,11 @@ def complete_discovered_research(
 
     if already_indexed:
         processed_paper_ids.extend(already_indexed)
+        _signal(
+            on_stage,
+            STAGE_VALIDATING_EXTRACTING_EVIDENCE,
+            f"already-indexed papers: {len(already_indexed)}",
+        )
         already_indexed_extraction_start = time.monotonic()
         try:
             extraction = _extract_ground_promote(
@@ -300,6 +330,11 @@ def complete_discovered_research(
                 for route, candidate_ids in route_candidates
             )
         else:
+            _signal(
+                on_stage,
+                STAGE_ACQUIRING_SOURCES,
+                f"acquisition routes: {len(route_candidates)}",
+            )
             acquisition_start = time.monotonic()
             acquired_paper_ids: list[int] = []
             for route, candidate_ids in route_candidates:
@@ -321,6 +356,11 @@ def complete_discovered_research(
             )
             if newly_acquired:
                 processed_paper_ids.extend(newly_acquired)
+                _signal(
+                    on_stage,
+                    STAGE_VALIDATING_EXTRACTING_EVIDENCE,
+                    f"newly acquired papers: {len(newly_acquired)}",
+                )
                 acquired_extraction_start = time.monotonic()
                 try:
                     acquired_extraction = _extract_ground_promote(
@@ -365,6 +405,11 @@ def complete_discovered_research(
     reretrieval_error: str | None = None
     reretrieval_duration_ms: int | None = None
     if extraction.promoted_record_ids:
+        _signal(
+            on_stage,
+            STAGE_RERETRIEVING,
+            f"promoted records: {len(extraction.promoted_record_ids)}",
+        )
         reretrieval_start = time.monotonic()
         try:
             reretrieval = evidence_report(
