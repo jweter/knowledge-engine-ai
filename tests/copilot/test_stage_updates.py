@@ -31,6 +31,7 @@ from tests.copilot.test_grounded_completion import _discovery, _item, _plan, _po
 from tests.copilot.test_run_research_question import (
     _GROUNDED_RECORD,
     _fake_run,
+    _FakeCompletedProcess,
     _FakeLLM,
     _payload,
 )
@@ -327,3 +328,101 @@ def test_omitting_on_stage_keeps_prior_result_shape(
     )
     assert result.progress_report is not None
     assert len(result.stage_updates) >= 2
+
+
+def _stage_names(updates: tuple[ResearchStageUpdate, ...]) -> list[str]:
+    return [u.stage.value for u in updates]
+
+
+def test_discovery_is_announced_only_when_coverage_gap_authorizes_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from knowledge_engine_ai.copilot import discovery_policy
+    from knowledge_engine_ai.copilot.discovery_policy import FederatedDiscoveryPolicy
+    from tests.copilot.test_run_research_question import (
+        _citation_snowball_stub,
+        _federated_discovery_stub,
+    )
+
+    monkeypatch.setattr(discovery_policy, "execute_discovery_plan", _federated_discovery_stub)
+    monkeypatch.setattr(discovery_policy, "citation_snowball", _citation_snowball_stub)
+    monkeypatch.setattr(subprocess, "run", _fake_run(_payload(evidence_records=[_GROUNDED_RECORD])))
+
+    result = run_research_question(
+        "does semaglutide reduce body weight",
+        session_repository=SessionRepository(new_connection(":memory:")),
+        sources=tmp_path / "s.csv",
+        evidence=tmp_path / "e.jsonl",
+        llm=_FakeLLM(),
+        discovery_policy=FederatedDiscoveryPolicy(
+            ledger_root=tmp_path / "ledger", min_evidence_record_coverage=5
+        ),
+    )
+
+    assert result.discovery is not None and result.discovery.triggered is True
+    names = _stage_names(result.stage_updates)
+    assert names[0] == "searching_indexed_evidence"
+    assert names[1] == "discovering_sources"
+    assert names.count("discovering_sources") == 1
+
+
+def test_discovery_is_not_announced_when_coverage_is_already_sufficient(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from knowledge_engine_ai.copilot import discovery_policy
+    from knowledge_engine_ai.copilot.discovery_policy import FederatedDiscoveryPolicy
+
+    def fail(*_a: object, **_k: object) -> None:
+        raise AssertionError("discovery must not run")
+
+    monkeypatch.setattr(discovery_policy, "execute_discovery_plan", fail)
+    monkeypatch.setattr(discovery_policy, "citation_snowball", fail)
+    monkeypatch.setattr(subprocess, "run", _fake_run(_payload(evidence_records=[_GROUNDED_RECORD])))
+    seen: list[str] = []
+
+    result = run_research_question(
+        "does semaglutide reduce body weight",
+        session_repository=SessionRepository(new_connection(":memory:")),
+        sources=tmp_path / "s.csv",
+        evidence=tmp_path / "e.jsonl",
+        llm=_FakeLLM(),
+        discovery_policy=FederatedDiscoveryPolicy(
+            ledger_root=tmp_path / "ledger", min_evidence_record_coverage=1
+        ),
+        on_stage=lambda update: seen.append(update.stage.value),
+    )
+
+    assert result.discovery is not None and result.discovery.triggered is False
+    assert "discovering_sources" not in seen
+    assert "discovering_sources" not in _stage_names(result.stage_updates)
+    assert seen == _stage_names(result.stage_updates)
+
+
+def test_discovery_is_not_announced_when_primary_retrieval_failed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from knowledge_engine_ai.copilot import discovery_policy
+    from knowledge_engine_ai.copilot.discovery_policy import FederatedDiscoveryPolicy
+
+    def fail_retrieval(command: list[str], **_k: object) -> Any:
+        del command
+        return _FakeCompletedProcess(1, "", "Core retrieval failed.")
+
+    def fail(*_a: object, **_k: object) -> None:
+        raise AssertionError("discovery must not run")
+
+    monkeypatch.setattr(discovery_policy, "execute_discovery_plan", fail)
+    monkeypatch.setattr(subprocess, "run", fail_retrieval)
+
+    result = run_research_question(
+        "does semaglutide reduce body weight",
+        session_repository=SessionRepository(new_connection(":memory:")),
+        sources=tmp_path / "s.csv",
+        evidence=tmp_path / "e.jsonl",
+        llm=_FakeLLM(),
+        discovery_policy=FederatedDiscoveryPolicy(
+            ledger_root=tmp_path / "ledger", min_evidence_record_coverage=5
+        ),
+    )
+
+    assert "discovering_sources" not in _stage_names(result.stage_updates)

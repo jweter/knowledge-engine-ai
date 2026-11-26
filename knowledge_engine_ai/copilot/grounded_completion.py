@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from knowledge_engine_ai.copilot.discovery_policy import DiscoveryAugmentationResult
+from knowledge_engine_ai.copilot.stage_hook import signal_stage as _signal
 from knowledge_engine_ai.execution import ExecutionBudget, ExecutionBudgetExceeded
 from knowledge_engine_ai.ke_client import (
     GeneralQuestionAcquisitionPlanResult,
@@ -207,17 +208,6 @@ class _ExtractionResult:
 STAGE_ACQUIRING_SOURCES = "acquiring_sources"
 STAGE_VALIDATING_EXTRACTING_EVIDENCE = "validating_extracting_evidence"
 STAGE_RERETRIEVING = "reretrieving"
-
-
-def _signal(on_stage: Callable[[str, str], None] | None, stage: str, detail: str) -> None:
-    """Announce a stage about to run; an observer failure never affects research."""
-
-    if on_stage is None:
-        return
-    try:
-        on_stage(stage, detail)
-    except Exception:  # noqa: BLE001 - an observer must never break research
-        return
 
 
 def complete_discovered_research(

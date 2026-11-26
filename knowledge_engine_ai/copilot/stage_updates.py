@@ -26,6 +26,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from knowledge_engine_ai.copilot.progress_report import ResearchProgressStage
+from knowledge_engine_ai.copilot.stage_hook import StageHook
 
 RESEARCH_STAGE_UPDATE_SCHEMA_VERSION = 1
 
@@ -53,9 +54,6 @@ class ResearchStageUpdate:
 
 
 ResearchStageCallback = Callable[[ResearchStageUpdate], None]
-#: Narrow hook shape handed to lower layers (e.g. grounded completion) that must not
-#: import the progress contract: ``(stage_value, detail)``.
-StageHook = Callable[[str, str], None]
 
 
 class ResearchStageNotifier:

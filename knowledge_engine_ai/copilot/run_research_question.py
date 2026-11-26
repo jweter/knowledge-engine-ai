@@ -275,7 +275,6 @@ def run_research_question(
 
     discovery_augmentation: DiscoveryAugmentationResult | None = None
     if discovery_policy is not None:
-        stage_notifier.notify(ResearchProgressStage.DISCOVERING_SOURCES)
         discovery_augmentation = evaluate_and_run_discovery_augmentation(
             session_repository=session_repository,
             session_id=session_id,
@@ -283,6 +282,7 @@ def run_research_question(
             policy=discovery_policy,
             execution_budget=upstream_execution_budget,
             research_question_id=resolved_research_question_id,
+            on_stage=stage_notifier.as_hook(),
         )
 
     grounded_completion: GroundedCompletionResult | None = None

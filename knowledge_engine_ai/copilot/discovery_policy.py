@@ -103,6 +103,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
+from knowledge_engine_ai.copilot.stage_hook import StageHook, signal_stage
 from knowledge_engine_ai.discovery_plan import (
     DiscoveryPlanError,
     compile_discovery_plan,
@@ -291,8 +292,14 @@ def evaluate_and_run_discovery_augmentation(
     policy: FederatedDiscoveryPolicy,
     execution_budget: ExecutionBudget | None,
     research_question_id: str | None = None,
+    on_stage: StageHook | None = None,
 ) -> DiscoveryAugmentationResult:
     """Evaluate the coverage-gap trigger and run the bounded steps it authorizes.
+
+    ``on_stage`` is an optional observation-only hook, called once with
+    ``discovering_sources`` only after every skip condition has passed and immediately
+    before discovery work starts (never when discovery is skipped). Its failures are
+    swallowed.
 
     Never raises: a `KeCommandError` (Core not installed, provider
     failure, malformed output -- already sanitized by `ke_client.py`) or an
@@ -340,6 +347,8 @@ def evaluate_and_run_discovery_augmentation(
         f"Evidence-record coverage ({coverage}) fell below the configured threshold "
         f"({policy.min_evidence_record_coverage}); broadening the search."
     )
+
+    signal_stage(on_stage, "discovering_sources", trigger_reason)
 
     federated_result: FederatedDiscoveryResult | None = None
     federated_error: str | None = None
