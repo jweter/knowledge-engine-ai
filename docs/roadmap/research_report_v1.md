@@ -191,3 +191,9 @@ New orchestration abstractions should not outrank these unless they unblock the 
 - #92 — time-to-sufficient-evidence policy
 - `docs/golden_research_case_benchmark.md`
 - `docs/roadmap/gqr2_general_query_plan.md`
+
+## Online provider coverage boundary
+
+Returned-source retrieval status is not provider-search coverage. Until Core supplies
+an attempted-provider ledger, online reports leave provider coverage completeness
+unavailable and retain observed retrieval outcomes and failures.
