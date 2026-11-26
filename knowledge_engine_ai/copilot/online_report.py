@@ -1,7 +1,7 @@
 """Deterministic Research Report v1 projection over content-checked online evidence.
 
 No LLM, corpus, or network access is used. Every row restates a Core claim and
-its cited excerpt IDs; certainty is capped below HIGH because content checking
+its cited excerpt IDs; scientific certainty is unavailable because content checking
 is not independent verification. The projection never invents a synthesized
 answer, and it retains no source text (only IDs, claim text, and failure reasons).
 """
@@ -27,29 +27,18 @@ MAX_REPORT_CLAIMS = 25
 _NOT_ASSESSED = "Directness of the cited excerpts to the question was not assessed."
 
 
-def _row(claim: OnlineClaim, source_of: dict[str, str]) -> ConclusionRow:
+def _row(claim: OnlineClaim) -> ConclusionRow:
     supporting = tuple(c.excerpt_id for c in claim.citations if c.stance == "supports")
     opposing = tuple(c.excerpt_id for c in claim.citations if c.stance != "supports")
-    support_sources = {source_of[e] for e in supporting}
-    if claim.status == "supported":
-        if len(support_sources) >= 2 and not opposing:
-            certainty, why = ReportCertainty.MODERATE, "Supported by two or more distinct sources."
-        else:
-            certainty, why = (
-                ReportCertainty.LOW,
-                "Supported by a single source or with null results.",
-            )
-    elif claim.status == "insufficient_evidence":
-        certainty, why = ReportCertainty.UNAVAILABLE, "No supporting or contradicting citation."
-    elif claim.status == "contested":
-        certainty, why = ReportCertainty.LOW, "Cited sources both support and contradict."
-    else:
-        certainty, why = ReportCertainty.LOW, "Cited sources contradict the claim."
+    why = (
+        "Scientific certainty unavailable: study quality, independence, "
+        "directness and consistency have not been independently assessed."
+    )
     return ConclusionRow(
         question_dimension=claim.claim_id,
         conclusion=f"[{claim.status}] {claim.text}",
-        certainty=certainty,
-        certainty_rationale=why + " Not independently verified.",
+        certainty=ReportCertainty.UNAVAILABLE,
+        certainty_rationale=why,
         supporting_evidence_ids=supporting,
         contradicting_or_null_evidence_ids=opposing,
         directness=EvidenceDirectness.UNAVAILABLE,
@@ -99,9 +88,8 @@ def build_online_research_report(
     """Project online evidence into the stable report contract, bounded and lossless on IDs."""
     if not isinstance(search_run_id, str) or not search_run_id.strip():
         raise ValueError("search_run_id must be non-empty text.")
-    source_of = {e.excerpt_id: e.source_id for e in evidence.excerpts}
     claims = evidence.claims[:MAX_REPORT_CLAIMS]
-    rows = tuple(_row(c, source_of) for c in claims)
+    rows = tuple(_row(c) for c in claims)
     missing: list[str] = [
         f"Source {s.source_id} {s.status}: {s.failure_reason}"
         for s in evidence.sources
