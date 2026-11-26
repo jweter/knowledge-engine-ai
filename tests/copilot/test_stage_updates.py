@@ -2,22 +2,30 @@ from __future__ import annotations
 
 import json
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from knowledge_engine_ai.copilot import grounded_completion as gc
 from knowledge_engine_ai.copilot.grounded_completion import (
     AcquisitionRouteResult,
+    GroundedCompletionPolicy,
     complete_discovered_research,
 )
 from knowledge_engine_ai.copilot.progress_report import ResearchProgressStage
-from knowledge_engine_ai.copilot.run_research_question import run_research_question
+from knowledge_engine_ai.copilot.run_research_question import (
+    ResearchQuestionResult,
+    run_research_question,
+)
 from knowledge_engine_ai.copilot.stage_updates import (
     RESEARCH_STAGE_UPDATE_SCHEMA_VERSION,
+    ResearchStageCallback,
     ResearchStageNotifier,
     ResearchStageUpdate,
 )
+from knowledge_engine_ai.ke_client import GeneralQuestionAcquisitionPlanResult
 from knowledge_engine_ai.sessions.repository import SessionRepository, new_connection
 from tests.copilot.test_grounded_completion import _discovery, _item, _plan, _policy
 from tests.copilot.test_run_research_question import (
@@ -110,7 +118,14 @@ def _extraction(*record_ids: str) -> gc._ExtractionResult:
     return gc._ExtractionResult(count, count, record_ids, record_ids, record_ids)
 
 
-def _complete(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, plan, policy, hook, **fakes):  # type: ignore[no-untyped-def]
+def _complete(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    plan: GeneralQuestionAcquisitionPlanResult,
+    policy: GroundedCompletionPolicy,
+    hook: Callable[[str, str], None] | None,
+    **fakes: Any,
+) -> gc.GroundedCompletionResult:
     monkeypatch.setattr(gc, "_extract_ground_promote", fakes["extract"])
     monkeypatch.setattr(gc, "_execute_acquisition_route_attempts", fakes["acquire"])
     monkeypatch.setattr(gc, "evidence_report", fakes["report"])
@@ -217,7 +232,7 @@ def test_failing_stage_hook_does_not_change_the_completion_result(
 
     policy = _policy(tmp_path, min_promoted_records_for_early_stop=2)
 
-    def run(hook):  # type: ignore[no-untyped-def]
+    def run(hook: Callable[[str, str], None] | None) -> gc.GroundedCompletionResult:
         return _complete(
             tmp_path,
             monkeypatch,
@@ -232,7 +247,7 @@ def test_failing_stage_hook_does_not_change_the_completion_result(
     def broken(_stage: str, _detail: str) -> None:
         raise RuntimeError("boom")
 
-    def outcome(result):  # type: ignore[no-untyped-def]
+    def outcome(result: gc.GroundedCompletionResult) -> tuple[object, ...]:
         return (
             result.promoted_record_ids,
             result.paper_ids,
@@ -278,7 +293,7 @@ def test_run_research_question_ignores_a_failing_observer(
     def broken(_update: ResearchStageUpdate) -> None:
         raise RuntimeError("observer exploded")
 
-    def run(callback):  # type: ignore[no-untyped-def]
+    def run(callback: ResearchStageCallback | None) -> ResearchQuestionResult:
         return run_research_question(
             "does semaglutide reduce body weight",
             session_repository=SessionRepository(new_connection(":memory:")),
