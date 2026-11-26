@@ -18,7 +18,7 @@ storage on success or failure. It requires neither an indexed corpus nor
 Ollama. The bridge does not establish source authenticity, synthesize a
 ResearchReport, retain a durable provider ledger, or satisfy the Monster
 end-to-end gate. `copilot/online_report.py` deterministically projects that evidence into a
-Research Report v1 (claim rows, cited excerpt IDs, certainty capped below HIGH,
+Research Report v1 (claim rows, cited excerpt IDs, scientific certainty unavailable until independently assessed,
 unavailable sources as missing evidence, bounded claim count, no LLM). Next:
 guarded Web one-request integration, provider-coverage
 projection, and actual Research Report Product Reality.

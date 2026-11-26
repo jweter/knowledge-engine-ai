@@ -7,6 +7,11 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Online reports no longer infer scientific certainty from citation counts;
+  unassessed certainty is unavailable while citation stances remain visible.
+
 ### Added
 
 - **Real, non-mocked subprocess proof against Core's published online-evidence

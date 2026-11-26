@@ -38,7 +38,7 @@ def _ev(
     )
 
 
-def test_two_source_support_is_moderate_never_high() -> None:
+def test_two_source_support_cannot_establish_scientific_certainty() -> None:
     c = OnlineClaim(
         "c1",
         "T",
@@ -47,7 +47,8 @@ def test_two_source_support_is_moderate_never_high() -> None:
     )
     r = build_online_research_report(_ev((c,)), search_run_id="run1")
     row = r.conclusion_rows[0]
-    assert row.certainty.value == "moderate"
+    assert row.certainty.value == "unavailable"
+    assert "independence" in row.certainty_rationale
     assert row.supporting_evidence_ids == ("a#1", "b#1")
     assert r.research_state == "partial_answer" and r.session_id == "run1"
     assert r.acquired_during_run_evidence_ids == ("a#1", "b#1")
@@ -65,7 +66,7 @@ def test_contested_single_source_and_empty_are_disclosed() -> None:
     r = build_online_research_report(
         _ev((contested, single), (_src("z", "failed"),)), search_run_id="r"
     )
-    assert [x.certainty.value for x in r.conclusion_rows] == ["low", "low"]
+    assert [x.certainty.value for x in r.conclusion_rows] == ["unavailable", "unavailable"]
     assert r.conclusion_rows[0].contradicting_or_null_evidence_ids == ("b#1",)
     assert r.acquired_during_run_evidence_ids == ("a#1", "b#1")
     only_contra = OnlineClaim("c3", "V", "contradicted", (OnlineCitation("b#1", "contradicts"),))
@@ -140,3 +141,20 @@ def test_mixed_results_within_single_provider_stay_partial() -> None:
     assert r.provider_coverage_completeness == "partial"
     assert r.degraded_providers == ("p1",)
     assert r.provider_statuses[0].outcome == "failed"
+
+
+def test_duplicate_content_does_not_promote_certainty() -> None:
+    from dataclasses import replace
+
+    claim = OnlineClaim(
+        "c1",
+        "T",
+        "supported",
+        (OnlineCitation("a#1", "supports"), OnlineCitation("b#1", "supports")),
+    )
+    evidence = _ev((claim,))
+    duplicate = replace(evidence.sources[1], content_sha256=evidence.sources[0].content_sha256)
+    evidence = replace(evidence, sources=(evidence.sources[0], duplicate))
+    row = build_online_research_report(evidence, search_run_id="r").conclusion_rows[0]
+    assert row.certainty.value == "unavailable"
+    assert row.supporting_evidence_ids == ("a#1", "b#1")

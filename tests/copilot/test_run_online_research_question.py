@@ -139,7 +139,7 @@ def test_successful_bundle_produces_report_and_cleans_up_temp_storage(
     assert report.session_id == "run-online-1"
     assert len(report.conclusion_rows) == 1
     assert report.conclusion_rows[0].conclusion == "[supported] An effect was observed."
-    assert report.conclusion_rows[0].certainty is ReportCertainty.LOW
+    assert report.conclusion_rows[0].certainty is ReportCertainty.UNAVAILABLE
     assert report.missing_evidence == ()
     assert roots and all(not root.exists() for root in roots)
 

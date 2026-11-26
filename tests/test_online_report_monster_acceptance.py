@@ -281,7 +281,7 @@ def test_monster_case_online_report_separates_dimensions_and_preserves_evidence_
 
     # Null/contradictory evidence for the chronic dimension is retained, not
     # silently dropped.
-    assert chronic_row.certainty == ReportCertainty.LOW
+    assert chronic_row.certainty == ReportCertainty.UNAVAILABLE
     assert _sources_of(chronic_row.contradicting_or_null_evidence_ids) == {"chronic-null-cohort"}
 
     # The missing direct one-year Monster trial is stated explicitly in the
