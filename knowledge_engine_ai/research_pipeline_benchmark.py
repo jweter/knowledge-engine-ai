@@ -143,6 +143,12 @@ class ResearchBenchmarkRun:
     used_reretrieved_evidence: bool
     funnel: ResearchConversionFunnel
     bottleneck_report: SessionBottleneckReport
+    # In-flight stage observability (BT-6 follow-on, `copilot/stage_updates.py`). Optional
+    # with defaults so results that predate them (older fixtures, test doubles) still
+    # build: ``None`` / ``()`` / ``0`` mean "not recorded", never "no stages ran".
+    progress_stage: str | None = None
+    stage_sequence: tuple[str, ...] = ()
+    stage_update_count: int = 0
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -163,6 +169,9 @@ class ResearchBenchmarkRun:
             "used_reretrieved_evidence": self.used_reretrieved_evidence,
             "funnel": self.funnel.to_dict(),
             "bottleneck_report": self.bottleneck_report.to_dict(),
+            "progress_stage": self.progress_stage,
+            "stage_sequence": list(self.stage_sequence),
+            "stage_update_count": self.stage_update_count,
         }
 
 
@@ -220,6 +229,7 @@ def build_research_benchmark_run(
     state = derive_research_state(result)
     bottleneck = build_session_bottleneck_report(result.trace)
     funnel = _build_conversion_funnel(result, state)
+    stage_sequence = _stage_sequence(result)
     first_grounded_ms = _known_time_to_first_grounded_information_ms(
         bottleneck,
         indexed_evidence_record_count=funnel.indexed_evidence_record_count,
@@ -242,6 +252,9 @@ def build_research_benchmark_run(
         used_reretrieved_evidence=result.used_reretrieved_evidence,
         funnel=funnel,
         bottleneck_report=bottleneck,
+        progress_stage=_progress_stage(result),
+        stage_sequence=stage_sequence,
+        stage_update_count=len(stage_sequence),
     )
 
 
@@ -412,6 +425,30 @@ def _repeat_speedup_ratio(runs: tuple[ResearchBenchmarkRun, ...]) -> float | Non
     if second <= 0:
         return None
     return round(first / second, 3)
+
+
+def _progress_stage(result: BenchmarkResearchResult) -> str | None:
+    """Final progress stage of the run, or ``None`` when the result carries no report."""
+
+    report = getattr(result, "progress_report", None)
+    stage = getattr(report, "progress_stage", None)
+    value = getattr(stage, "value", stage)
+    return value if isinstance(value, str) else None
+
+
+def _stage_sequence(result: BenchmarkResearchResult) -> tuple[str, ...]:
+    """Ordered in-flight stage names announced during the run (empty when not recorded)."""
+
+    updates = getattr(result, "stage_updates", None)
+    if not updates:
+        return ()
+    names: list[str] = []
+    for update in updates:
+        stage = getattr(update, "stage", None)
+        value = getattr(stage, "value", stage)
+        if isinstance(value, str):
+            names.append(value)
+    return tuple(names)
 
 
 def _question_fingerprint(question: str) -> str:

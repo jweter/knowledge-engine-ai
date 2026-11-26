@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import dataclasses
+import json
+import types
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -12,6 +15,8 @@ from knowledge_engine_ai.copilot.grounded_completion import (
     GroundedCompletionResult,
 )
 from knowledge_engine_ai.copilot.intent import ISAValidationResult
+from knowledge_engine_ai.copilot.progress_report import ResearchProgressStage
+from knowledge_engine_ai.copilot.stage_updates import ResearchStageUpdate
 from knowledge_engine_ai.ke_client import (
     FederatedCandidateSummary,
     FederatedDiscoveryResult,
@@ -27,6 +32,7 @@ from knowledge_engine_ai.orchestrator.parallel_retrieval import (
 from knowledge_engine_ai.orchestrator.workflow import WorkflowResult
 from knowledge_engine_ai.research_pipeline_benchmark import (
     BENCHMARK_SCHEMA_VERSION,
+    ResearchBenchmarkRun,
     build_research_benchmark_run,
     compute_evidence_store_revision,
     execute_research_benchmark,
@@ -463,3 +469,100 @@ def test_benchmark_rejects_invalid_execution_contracts() -> None:
             run_once=lambda question: _result(),
             repeats=0,
         )
+
+
+@dataclass(frozen=True)
+class _StagedResult(_Result):
+    progress_report: object | None = None
+    stage_updates: tuple[object, ...] = ()
+
+
+def _fields(result: _Result) -> dict[str, Any]:
+    return {field.name: getattr(result, field.name) for field in dataclasses.fields(result)}
+
+
+def _staged_result(*, stages: tuple[ResearchProgressStage, ...]) -> _StagedResult:
+    base = _result()
+    updates = tuple(
+        ResearchStageUpdate(
+            schema_version=1,
+            sequence=index,
+            session_id=base.session_id,
+            stage=stage,
+            elapsed_ms=index * 10,
+        )
+        for index, stage in enumerate(stages, start=1)
+    )
+    report = types.SimpleNamespace(progress_stage=stages[-1]) if stages else None
+    return _StagedResult(**_fields(base), progress_report=report, stage_updates=updates)
+
+
+def _run(result: _Result) -> ResearchBenchmarkRun:
+    return build_research_benchmark_run(
+        result,
+        scenario_id="stages",
+        run_number=1,
+        run_temperature="cold",
+        wall_clock_duration_ms=1000,
+    )
+
+
+def test_benchmark_records_the_progress_stage_and_in_flight_stage_sequence() -> None:
+    stages = (
+        ResearchProgressStage.SEARCHING_INDEXED_EVIDENCE,
+        ResearchProgressStage.DISCOVERING_SOURCES,
+        ResearchProgressStage.ACQUIRING_SOURCES,
+        ResearchProgressStage.VALIDATING_EXTRACTING_EVIDENCE,
+        ResearchProgressStage.RERETRIEVING,
+        ResearchProgressStage.FINAL_ANSWER,
+    )
+    run = _run(_staged_result(stages=stages))
+
+    assert run.progress_stage == "final_answer"
+    assert run.stage_sequence == tuple(stage.value for stage in stages)
+    assert run.stage_update_count == 6
+
+
+def test_benchmark_without_stage_data_reads_as_not_recorded() -> None:
+    run = _run(_result())  # a result predating progress_report / stage_updates
+
+    assert run.progress_stage is None
+    assert run.stage_sequence == ()
+    assert run.stage_update_count == 0
+
+
+def test_benchmark_ignores_malformed_stage_entries() -> None:
+    result = _StagedResult(
+        **_fields(_result()),
+        progress_report=types.SimpleNamespace(progress_stage=42),
+        stage_updates=(
+            types.SimpleNamespace(stage=ResearchProgressStage.RERETRIEVING),
+            types.SimpleNamespace(stage=None),
+            types.SimpleNamespace(),
+        ),
+    )
+    run = _run(result)
+
+    assert run.progress_stage is None
+    assert run.stage_sequence == ("reretrieving",)
+    assert run.stage_update_count == 1
+
+
+def test_stage_fields_round_trip_through_json() -> None:
+    stages = (
+        ResearchProgressStage.SEARCHING_INDEXED_EVIDENCE,
+        ResearchProgressStage.FINAL_ANSWER,
+    )
+    payload = json.loads(json.dumps(_run(_staged_result(stages=stages)).to_dict()))
+
+    assert payload["progress_stage"] == "final_answer"
+    assert payload["stage_sequence"] == ["searching_indexed_evidence", "final_answer"]
+    assert payload["stage_update_count"] == 2
+
+
+def test_default_dict_still_carries_the_stage_keys() -> None:
+    payload = _run(_result()).to_dict()
+
+    assert payload["progress_stage"] is None
+    assert payload["stage_sequence"] == []
+    assert payload["stage_update_count"] == 0
