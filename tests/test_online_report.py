@@ -106,25 +106,27 @@ def _cov(sources: tuple[OnlineSource, ...]) -> ResearchReport:
     )
 
 
-def test_full_provider_coverage_is_complete() -> None:
+def test_successful_retrieval_does_not_establish_provider_coverage() -> None:
     r = _cov((_provider_src("a", "p1"), _provider_src("b", "p2")))
-    assert r.provider_coverage_completeness == "complete"
+    assert r.provider_coverage_completeness is None
     assert r.degraded_providers == ()
     assert [s.provider for s in r.provider_statuses] == ["p1", "p2"]
+    assert [s.outcome for s in r.provider_statuses] == ["retrieved", "retrieved"]
+    assert any("not the attempted-provider ledger" in x for x in r.limitations)
 
 
-def test_partial_coverage_surfaces_degraded_provider_and_missing_evidence() -> None:
+def test_mixed_retrieval_surfaces_degraded_provider_and_missing_evidence() -> None:
     r = _cov((_provider_src("a", "p1"), _provider_src("b", "p2", "failed")))
-    assert r.provider_coverage_completeness == "partial"
+    assert r.provider_coverage_completeness is None
     assert r.degraded_providers == ("p2",)
     assert any("Source b failed" in m for m in r.missing_evidence)
     assert r.provider_statuses[1].outcome == "failed"
     assert r.provider_statuses[1].reason == "timeout"
 
 
-def test_all_providers_failed_is_none_coverage() -> None:
+def test_all_returned_sources_failed_does_not_establish_search_coverage() -> None:
     r = _cov((_provider_src("a", "p1", "unavailable"),))
-    assert r.provider_coverage_completeness == "none"
+    assert r.provider_coverage_completeness is None
     assert r.degraded_providers == ("p1",)
 
 
@@ -136,9 +138,9 @@ def test_no_provider_data_stays_unavailable_not_fabricated() -> None:
     assert any("unavailable" in x for x in r.limitations)
 
 
-def test_mixed_results_within_single_provider_stay_partial() -> None:
+def test_mixed_results_within_single_provider_preserve_failure() -> None:
     r = _cov((_provider_src("a", "p1"), _provider_src("b", "p1", "failed")))
-    assert r.provider_coverage_completeness == "partial"
+    assert r.provider_coverage_completeness is None
     assert r.degraded_providers == ("p1",)
     assert r.provider_statuses[0].outcome == "failed"
 

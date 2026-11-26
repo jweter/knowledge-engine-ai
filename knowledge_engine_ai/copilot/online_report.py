@@ -51,8 +51,8 @@ def _provider_coverage(
 ) -> tuple[str | None, tuple[str, ...], tuple[ProviderStatusSummary, ...], tuple[str, ...]]:
     """Derive coverage only from the per-source statuses Core reported.
 
-    Returns (completeness, degraded providers, statuses, extra limitations). With no
-    sources there is no provider data, so completeness stays None (unavailable).
+    Returns (coverage completeness, degraded providers, source-derived statuses, limitations).
+    Source retrieval cannot establish provider-search completeness.
     """
     if not evidence.sources:
         return None, (), (), ("Provider coverage unavailable: Core reported no sources.",)
@@ -66,20 +66,16 @@ def _provider_coverage(
     for provider, found in by_provider.items():
         bad = next((x for x in found if x != "retrieved"), None)
         statuses.append(
-            ProviderStatusSummary(provider, True, bad or "complete", reasons.get(provider))
+            ProviderStatusSummary(provider, True, bad or "retrieved", reasons.get(provider))
         )
-    degraded = tuple(s.provider for s in statuses if s.outcome != "complete")
-    if not degraded:
-        completeness = "complete"
-    elif any(s.status == "retrieved" for s in evidence.sources):
-        completeness = "partial"
-    else:
-        completeness = "none"
+    degraded = tuple(s.provider for s in statuses if s.outcome != "retrieved")
     note = (
-        "Provider coverage is derived from the per-source retrieval statuses Core reported; "
-        "Core supplied no separate provider-level coverage."
+        "Provider search coverage unavailable: Core supplied only returned-source "
+        "retrieval statuses, "
+        "not the attempted-provider ledger or search completeness. Successful retrieval does not "
+        "establish comprehensive coverage."
     )
-    return completeness, degraded, tuple(statuses), (note,)
+    return None, degraded, tuple(statuses), (note,)
 
 
 def build_online_research_report(

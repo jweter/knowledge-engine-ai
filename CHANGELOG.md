@@ -7,6 +7,9 @@ and uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+- Online reports no longer infer provider-search completeness from returned-source retrieval;
+  retrieval outcomes and degraded sources remain inspectable.
+
 ### Fixed
 
 - Online reports no longer infer scientific certainty from citation counts;
