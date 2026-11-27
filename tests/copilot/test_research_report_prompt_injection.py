@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from knowledge_engine_ai.copilot.progress_report import (
     ProviderStatusSummary,
     ResearchProgressReport,
     ResearchProgressStage,
 )
 from knowledge_engine_ai.copilot.research_report import (
+    ResearchReportError,
     build_research_report_prompt,
     generate_research_report,
 )
@@ -247,10 +250,12 @@ def test_generate_report_exposes_quarantined_ids_without_dropping_them() -> None
     assert report.to_dict()["quarantined_evidence_ids"] == ["ev-bad"]
 
 
-def test_generate_report_does_not_require_citing_quarantined_counter_evidence() -> None:
+def test_generate_report_fails_closed_when_quarantined_counter_evidence_is_required() -> None:
     """A quarantined record that would otherwise require counter-evidence coverage
-    (e.g. `contradicts`) must not block report generation -- the model never saw
-    it, so it cannot be held to citing it."""
+    (e.g. `contradicts`) must not silently disappear from a report that looks
+    complete. The model never saw its text, so it cannot be held to citing it --
+    but letting generation succeed anyway would produce a report that hid
+    disclosed contradicting evidence, so this must fail closed instead."""
 
     papers = [
         _paper("Trial A", [_record("ev-positive")]),
@@ -261,14 +266,15 @@ def test_generate_report_does_not_require_citing_quarantined_counter_evidence() 
     ]
     llm = _FakeLLM(json.dumps(_payload()))
 
-    report = generate_research_report(
-        "Does the exposure increase blood pressure?",
-        _evidence_report(papers),
-        _progress_report(),
-        llm,
-    )
+    with pytest.raises(ResearchReportError, match="ev-bad"):
+        generate_research_report(
+            "Does the exposure increase blood pressure?",
+            _evidence_report(papers),
+            _progress_report(),
+            llm,
+        )
 
-    assert report.quarantined_evidence_ids == ("ev-bad",)
+    assert llm.prompts == []  # fails before ever calling the model
 
 
 def test_backward_compatible_default_has_no_quarantined_evidence() -> None:

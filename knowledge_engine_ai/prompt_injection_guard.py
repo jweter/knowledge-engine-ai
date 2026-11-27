@@ -48,7 +48,12 @@ _INJECTION_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
         r"\bnew\s+instructions?\s*:",
         r"\byou\s+are\s+now\s+(a|an)\b",
         r"\byour\s+(new\s+|only\s+)?(task|job|instruction)\s+is\s+(now\s+)?to\b",
-        r"\b(system|assistant)\s*:\s*\S",
+        # Anchored to the start of the field (or a line within it), not `\b`: an
+        # unanchored match flagged ordinary scientific text naming a biological
+        # system, e.g. "Renin-angiotensin system: no change was detected." A
+        # chat-role-label injection puts "system:"/"assistant:" at a message
+        # boundary, not mid-sentence after a noun phrase.
+        r"(?:\A|\n)\s*(system|assistant)\s*:\s*\S",
         r"<\|?\s*(system|im_start|im_end|endoftext)\s*\|?>",
         r"\[/?\s*(system|instructions?|inst)\s*\]",
         r"\bdo\s+not\s+cite\b",

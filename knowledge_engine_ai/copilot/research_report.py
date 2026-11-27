@@ -359,6 +359,18 @@ def generate_research_report(
     held to citing it, and a proposal citing a quarantined ID would be a
     hallucinated/unknown-ID error rather than a legitimate citation. Its IDs
     are instead reported on the result as `quarantined_evidence_ids`.
+
+    A quarantined record that would otherwise *require* counter-evidence
+    coverage (`contradicts`/`qualifies`, or carries `limitations`) raises
+    `ResearchReportError` instead of silently producing a one-sided report:
+    hiding it from the model to keep it off the prompt, then also letting the
+    report proceed without it, would leave a confident conclusion that never
+    disclosed it was drawn from an incomplete picture -- exactly what AGENTS.md's
+    "preserve contradiction review, coverage disclosure, and deterministic
+    release gates" and this project's broader fail-closed posture rule out. A
+    quarantined record that does not require counter-coverage (ordinary
+    `supports` evidence with no limitations) does not block generation; its ID
+    is still reported on `quarantined_evidence_ids`.
     """
 
     clean_pairs, quarantined_pairs = _partition_evidence_pairs(evidence_report)
@@ -375,6 +387,21 @@ def generate_research_report(
         for _paper, record in quarantined_pairs
         if record.evidence_record_id
     )
+    quarantined_counter_ids = tuple(
+        record.evidence_record_id
+        for _paper, record in quarantined_pairs
+        if record.evidence_record_id and _requires_counter_coverage(record)
+    )
+    if quarantined_counter_ids:
+        raise ResearchReportError(
+            "Research Report cannot be generated: qualifying/contradicting "
+            "EvidenceRecord(s) "
+            + ", ".join(sorted(quarantined_counter_ids))
+            + " were withheld from the model as suspected prompt injection, so "
+            "their required counter-evidence coverage cannot be safely obtained. "
+            "Producing a report without them would silently hide disclosed "
+            "contradicting or qualifying evidence."
+        )
 
     raw_output = llm.generate(
         build_research_report_prompt(
