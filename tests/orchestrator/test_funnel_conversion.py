@@ -25,7 +25,7 @@ def _plan(resolved: int = 10, indexed: int = 2, eligible: int = 6) -> Acquisitio
     )
 
 
-def _acquisition(persisted: int = 5, reused: int = 2) -> AcquisitionFunnel:
+def _acquisition(persisted: int = 4, reused: int = 1) -> AcquisitionFunnel:
     return AcquisitionFunnel(
         routes_attempted=7,
         routes_skipped=0,
@@ -136,7 +136,7 @@ def test_ties_go_to_the_earlier_link() -> None:
     report = _report(
         federated=20,
         plan=_plan(resolved=15, indexed=5, eligible=5),  # 20->15 loses 5; 15->10 loses 5
-        acquisition=_acquisition(persisted=10, reused=0),
+        acquisition=_acquisition(persisted=5, reused=0),
         extraction=_extraction(draft=10, classified=10, staged=10, grounded=10, promoted=10),
     )
 
@@ -185,7 +185,7 @@ def test_a_lossless_funnel_has_no_largest_drop_off() -> None:
     report = _report(
         federated=5,
         plan=_plan(resolved=5, indexed=2, eligible=3),
-        acquisition=_acquisition(persisted=5, reused=0),
+        acquisition=_acquisition(persisted=3, reused=0),
         extraction=_extraction(draft=5, classified=5, staged=5, grounded=5, promoted=5),
     )
 
@@ -214,3 +214,43 @@ def test_result_serializes_to_json_with_the_drop_off() -> None:
 
 def test_no_drop_off_serializes_as_null() -> None:
     assert compute_funnel_conversion(_report()).to_dict()["largest_drop_off"] is None
+
+
+def test_reusing_already_indexed_papers_is_not_reported_as_an_acquisition_loss() -> None:
+    # Codex review: 10 indexed papers go straight to extraction with nothing acquired. They
+    # must count as obtained, so the acquirable -> papers_obtained link loses nothing and is
+    # never the drop-off.
+    report = _report(
+        federated=10,
+        plan=_plan(resolved=10, indexed=10, eligible=0),
+        acquisition=_acquisition(persisted=0, reused=0),
+        extraction=_extraction(draft=10, classified=10, staged=10, grounded=10, promoted=10),
+    )
+
+    conversion = compute_funnel_conversion(report)
+    link = next(link for link in conversion.links if link.to_stage == "papers_obtained")
+
+    assert (link.entered, link.converted, link.lost, link.rate) == (10, 10, 0, 1.0)
+    assert link.consistent is True
+    assert conversion.largest_drop_off is None
+
+
+def test_obtained_papers_add_indexed_and_acquired() -> None:
+    plan = _plan(resolved=12, indexed=3, eligible=7)
+    report = _report(plan=plan, acquisition=_acquisition(persisted=4, reused=1))
+
+    links = compute_funnel_conversion(report).links
+    link = next(item for item in links if item.to_stage == "papers_obtained")
+
+    assert (link.entered, link.converted) == (10, 8)  # 3 indexed + 7 eligible -> 3 + 4 + 1
+    assert link.lost == 2
+
+
+def test_obtained_without_a_plan_counts_only_acquisition_results() -> None:
+    report = _report(
+        plan=None, acquisition=_acquisition(persisted=4, reused=1), extraction=_extraction()
+    )
+
+    stages = {link.to_stage: link for link in compute_funnel_conversion(report).links}
+
+    assert stages["draft_items"].entered == 5

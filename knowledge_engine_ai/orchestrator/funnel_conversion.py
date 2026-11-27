@@ -9,8 +9,8 @@ Chain (a stage is skipped, and the chain bridges across it, when the report has 
 
 ```text
 federated candidates -> plan-resolved candidates -> acquirable (already indexed + full-text
-eligible) -> papers obtained (persisted + reused) -> draft items -> classified -> staged
--> grounded -> promoted
+eligible) -> papers obtained (already indexed + persisted + reused) -> draft items ->
+classified -> staged -> grounded -> promoted
 ```
 
 A link where more came out than went in (reuse can inflate a later count) is reported with its
@@ -77,7 +77,16 @@ def _stage_counts(report: ResearchConversionFunnelReport) -> list[tuple[str, int
         stages.append(("acquirable", plan.already_indexed_count + plan.full_text_eligible_count))
     acquisition = report.acquisition
     if acquisition is not None:
-        stages.append(("papers_obtained", acquisition.papers_persisted + acquisition.papers_reused))
+        # Already-indexed papers go straight to extraction (they are not acquisition-route
+        # results), so they count as obtained; otherwise reusing the index would look like an
+        # acquisition loss.
+        already_indexed = plan.already_indexed_count if plan is not None else 0
+        stages.append(
+            (
+                "papers_obtained",
+                already_indexed + acquisition.papers_persisted + acquisition.papers_reused,
+            )
+        )
     extraction = report.extraction
     if extraction is not None:
         stages.append(("draft_items", extraction.draft_item_count))
