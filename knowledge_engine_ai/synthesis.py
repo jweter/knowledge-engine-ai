@@ -18,6 +18,7 @@ import re
 
 from knowledge_engine_ai.llm import LocalLLM, LocalLLMTimeoutError
 from knowledge_engine_ai.models import EvidenceRecord, EvidenceReport, RetrievedPaper
+from knowledge_engine_ai.prompt_injection_guard import partition_records
 
 _SYSTEM_INSTRUCTIONS = (
     "You are a careful research assistant summarizing evidence for a clinician or researcher. "
@@ -41,12 +42,18 @@ def build_synthesis_prompt(report: EvidenceReport) -> str:
     Only records that actually have ``claim_text`` are included. A matched paper
     with zero usable evidence records contributes nothing to ground on, so it is
     left out rather than padding the prompt with retrieval metadata.
+
+    A record whose text matches a known prompt-injection shape (see
+    `prompt_injection_guard`) is never included here -- it is quarantined and
+    appended deterministically after generation instead (see
+    `ensure_required_evidence_coverage`), so this prompt never carries
+    attacker-controlled directive text to the model.
     """
 
-    records = _grounded_records(report.papers)
-    evidence_blocks = [_render_evidence_record(record) for record in records]
+    clean_records, _quarantined = partition_records(_grounded_records(report.papers))
+    evidence_blocks = [_render_evidence_record(record) for record in clean_records]
     mandatory_ids = tuple(
-        record.evidence_record_id for record in records if _requires_explicit_coverage(record)
+        record.evidence_record_id for record in clean_records if _requires_explicit_coverage(record)
     )
 
     lines = [_SYSTEM_INSTRUCTIONS, "", f"Question: {report.question}"]
@@ -92,6 +99,13 @@ def synthesize_answer(
     if not records:
         return None
 
+    clean_records, _quarantined = partition_records(records)
+    if not clean_records:
+        # Every grounded record was quarantined; nothing safe to hand the
+        # model. Render deterministically rather than calling the LLM with
+        # an empty, policy-only prompt.
+        return build_grounded_evidence_fallback(report)
+
     prompt = build_synthesis_prompt(report)
     try:
         answer = llm.generate(prompt, max_tokens=max_tokens, timeout_seconds=timeout_seconds)
@@ -107,6 +121,11 @@ def ensure_required_evidence_coverage(narrative: str, report: EvidenceReport) ->
     Completely uncited free text is discarded. Hallucinated citation tokens are left
     untouched for the verifier to reject. When at least one real citation is present,
     any required qualifier the model omitted is appended from its exact EvidenceRecord.
+
+    A quarantined record (see `prompt_injection_guard`) was never shown to the
+    model, so it can never be legitimately cited here; it is always appended
+    alongside missed qualifiers, explicitly labeled, so quarantine is visible
+    to the reader rather than a silent gap in the narrative.
     """
 
     records = _grounded_records(report.papers)
@@ -124,16 +143,18 @@ def ensure_required_evidence_coverage(narrative: str, report: EvidenceReport) ->
         # Preserve hallucinated-only output so verify_synthesis can fail closed.
         return narrative
 
+    quarantined_ids = {record.evidence_record_id for record in partition_records(records)[1]}
     missing_required = tuple(
         record
         for record in records
-        if record.evidence_record_id not in cited_known_ids and _requires_explicit_coverage(record)
+        if record.evidence_record_id not in cited_known_ids
+        and (_requires_explicit_coverage(record) or record.evidence_record_id in quarantined_ids)
     )
     if not missing_required:
         return narrative
 
     lines = [narrative.rstrip(), "", "Evidence qualifications and limitations:"]
-    lines.extend(f"- {_render_evidence_record(record)}" for record in missing_required)
+    lines.extend(f"- {_render(record, quarantined_ids)}" for record in missing_required)
     return "\n".join(lines)
 
 
@@ -144,11 +165,12 @@ def build_grounded_evidence_fallback(report: EvidenceReport) -> str | None:
     if not records:
         return None
 
+    quarantined_ids = {record.evidence_record_id for record in partition_records(records)[1]}
     lines = [
         "A citation-grounded synthesized narrative was not available within the bounded run. "
         "The retrieved evidence is presented directly:",
     ]
-    lines.extend(f"- {_render_evidence_record(record)}" for record in records)
+    lines.extend(f"- {_render(record, quarantined_ids)}" for record in records)
     return "\n".join(lines)
 
 
@@ -165,7 +187,7 @@ def _evidence_blocks(papers: list[RetrievedPaper]) -> list[str]:
     return [_render_evidence_record(record) for record in _grounded_records(papers)]
 
 
-def _render_evidence_record(record: EvidenceRecord) -> str:
+def _render_evidence_record(record: EvidenceRecord, *, quarantined: bool = False) -> str:
     assert record.evidence_record_id is not None
     assert record.claim_text is not None
 
@@ -187,7 +209,17 @@ def _render_evidence_record(record: EvidenceRecord) -> str:
             f"Claim Confidence: {confidence_text} "
             f"({intelligence.claim_confidence.reliability})."
         )
+    if quarantined:
+        block += (
+            " [Withheld from the model: this record's text matched a known "
+            "prompt-injection pattern, so it was never included in the synthesis "
+            "prompt. Shown here verbatim, unsummarized, for human review.]"
+        )
     return block
+
+
+def _render(record: EvidenceRecord, quarantined_ids: set[str | None]) -> str:
+    return _render_evidence_record(record, quarantined=record.evidence_record_id in quarantined_ids)
 
 
 def _requires_explicit_coverage(record: EvidenceRecord) -> bool:
