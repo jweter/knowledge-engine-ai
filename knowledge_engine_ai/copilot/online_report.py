@@ -116,8 +116,9 @@ def build_online_research_report(
         schema_version=RESEARCH_REPORT_SCHEMA_VERSION,
         question=evidence.question,
         bottom_line=(
-            f"{len(supported)} of {len(rows)} claims have supporting citations from "
-            f"{retrieved} of {len(evidence.sources)} sources; no synthesized answer was produced."
+            f"{len(supported)} of {len(rows)} claims marked supported; "
+            f"{retrieved} of {len(evidence.sources)} sources retrieved; "
+            "no synthesized answer was produced."
         ),
         conclusion_rows=rows,
         narrative_sections=(
