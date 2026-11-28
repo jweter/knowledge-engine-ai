@@ -33,9 +33,7 @@ def _row(claim: OnlineClaim) -> ConclusionRow:
     supporting = tuple(
         dict.fromkeys(c.excerpt_id for c in claim.citations if c.stance == "supports")
     )
-    opposing = tuple(
-        dict.fromkeys(c.excerpt_id for c in claim.citations if c.stance != "supports")
-    )
+    opposing = tuple(dict.fromkeys(c.excerpt_id for c in claim.citations if c.stance != "supports"))
     why = (
         "Scientific certainty unavailable: study quality, independence, "
         "directness and consistency have not been independently assessed."
