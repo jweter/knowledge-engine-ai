@@ -406,3 +406,49 @@ def test_generate_report_rejects_model_output_without_json() -> None:
             _progress_report(),
             llm,
         )
+
+
+def test_parse_rejects_unknown_citation_in_missing_evidence() -> None:
+    payload = _payload()
+    payload["missing_evidence"] = ["Unverified gap [ev-invented]."]
+
+    with pytest.raises(ResearchReportError, match="validated evidence authority"):
+        parse_research_report_proposal(
+            payload,
+            known_evidence_ids=frozenset({"ev-positive", "ev-null"}),
+        )
+
+
+@pytest.mark.parametrize("citation", ["ev-invented", "ev-positive"])
+def test_parse_rejects_undeclared_citation_in_row_gap(citation: str) -> None:
+    payload = _payload()
+    rows = payload["conclusion_rows"]
+    assert isinstance(rows, list)
+    row = rows[1]
+    assert isinstance(row, dict)
+    row["missing_direct_evidence"] = f"Missing direct evidence [{citation}]."
+
+    with pytest.raises(ResearchReportError, match="validated evidence authority"):
+        parse_research_report_proposal(
+            payload,
+            known_evidence_ids=frozenset({"ev-positive", "ev-null"}),
+        )
+
+
+def test_parse_accepts_grounded_citations_in_evidence_gaps() -> None:
+    payload = _payload()
+    payload["missing_evidence"] = ["Long-term evidence gap [ev-null]."]
+    rows = payload["conclusion_rows"]
+    assert isinstance(rows, list)
+    row = rows[1]
+    assert isinstance(row, dict)
+    row["missing_direct_evidence"] = "Long-term evidence gap [ev-null]."
+
+    proposal = parse_research_report_proposal(
+        payload,
+        known_evidence_ids=frozenset({"ev-positive", "ev-null"}),
+    )
+    assert proposal.missing_evidence == ("Long-term evidence gap [ev-null].",)
+    assert proposal.conclusion_rows[1].missing_direct_evidence == (
+        "Long-term evidence gap [ev-null]."
+    )
