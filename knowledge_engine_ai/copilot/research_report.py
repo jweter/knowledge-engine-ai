@@ -327,7 +327,10 @@ def parse_research_report_proposal(
         ),
         conclusion_rows=rows,
         narrative_sections=_parse_sections(payload["narrative_sections"], known_evidence_ids),
-        missing_evidence=_string_tuple(payload["missing_evidence"], "missing_evidence"),
+        missing_evidence=tuple(
+            _validated_citation_text(gap, "missing_evidence", known_evidence_ids)
+            for gap in _string_tuple(payload["missing_evidence"], "missing_evidence")
+        ),
         direct_evidence_summary=_validated_citation_text(
             payload["direct_evidence_summary"],
             "direct_evidence_summary",
@@ -533,7 +536,15 @@ def _parse_conclusion_rows(
                 supporting_evidence_ids=supporting,
                 contradicting_or_null_evidence_ids=counter,
                 directness=directness,
-                missing_direct_evidence=missing_direct,
+                missing_direct_evidence=(
+                    _validated_citation_text(
+                        missing_direct,
+                        f"conclusion_rows[{index}].missing_direct_evidence",
+                        row_evidence_ids,
+                    )
+                    if missing_direct is not None
+                    else None
+                ),
             )
         )
     return tuple(rows)
