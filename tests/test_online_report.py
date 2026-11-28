@@ -160,3 +160,22 @@ def test_duplicate_content_does_not_promote_certainty() -> None:
     row = build_online_research_report(evidence, search_run_id="r").conclusion_rows[0]
     assert row.certainty.value == "unavailable"
     assert row.supporting_evidence_ids == ("a#1", "b#1")
+
+def test_duplicate_citations_are_not_counted_twice_per_stance() -> None:
+    claim = OnlineClaim(
+        "c1",
+        "Conflicting evidence",
+        "contested",
+        (
+            OnlineCitation("a#1", "supports"),
+            OnlineCitation("a#1", "supports"),
+            OnlineCitation("b#1", "contradicts"),
+            OnlineCitation("b#1", "contradicts"),
+            OnlineCitation("b#1", "inconclusive"),
+        ),
+    )
+    report = build_online_research_report(_ev((claim,)), search_run_id="r")
+    row = report.conclusion_rows[0]
+    assert row.supporting_evidence_ids == ("a#1",)
+    assert row.contradicting_or_null_evidence_ids == ("b#1",)
+    assert report.acquired_during_run_evidence_ids == ("a#1", "b#1")
