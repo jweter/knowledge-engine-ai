@@ -28,8 +28,14 @@ _NOT_ASSESSED = "Directness of the cited excerpts to the question was not assess
 
 
 def _row(claim: OnlineClaim) -> ConclusionRow:
-    supporting = tuple(c.excerpt_id for c in claim.citations if c.stance == "supports")
-    opposing = tuple(c.excerpt_id for c in claim.citations if c.stance != "supports")
+    # Keep each cited excerpt once per stance; repeating one citation must not
+    # inflate support or counter-evidence in the rendered report.
+    supporting = tuple(
+        dict.fromkeys(c.excerpt_id for c in claim.citations if c.stance == "supports")
+    )
+    opposing = tuple(
+        dict.fromkeys(c.excerpt_id for c in claim.citations if c.stance != "supports")
+    )
     why = (
         "Scientific certainty unavailable: study quality, independence, "
         "directness and consistency have not been independently assessed."
