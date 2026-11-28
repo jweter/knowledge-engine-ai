@@ -662,7 +662,10 @@ def _render_evidence_record(paper: RetrievedPaper, record: EvidenceRecord) -> st
     optional_fields = (
         ("source_doi", paper.doi),
         ("source_url", paper.source_url),
-        ("source_span", json.dumps(record.source_span, sort_keys=True) if record.source_span else None),
+        (
+            "source_span",
+            json.dumps(record.source_span, sort_keys=True) if record.source_span else None,
+        ),
         ("extraction_status", record.extraction_status),
         ("review_status", record.review_status),
         ("evidence_direction", record.evidence_direction),
@@ -685,14 +688,9 @@ def _requires_counter_coverage(record: EvidenceRecord) -> bool:
 
 
 def _is_pair_suspect(paper: RetrievedPaper, record: EvidenceRecord) -> bool:
-    """True when the record or its paper's title matches a known injection shape.
+    """Scan the complete rendered evidence block, including source metadata."""
 
-    `paper.title` is provider metadata, not an `EvidenceRecord` field, but
-    `_render_evidence_record` embeds it in every evidence block (`paper_title=...`),
-    so it must be checked alongside the record's own text fields.
-    """
-
-    return is_record_suspect(record, extra_texts=(paper.title,))
+    return is_record_suspect(record, extra_texts=(_render_evidence_record(paper, record),))
 
 
 def _partition_evidence_pairs(
