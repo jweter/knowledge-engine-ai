@@ -660,6 +660,11 @@ def _render_evidence_record(paper: RetrievedPaper, record: EvidenceRecord) -> st
         f"claim={record.claim_text}",
     ]
     optional_fields = (
+        ("source_doi", paper.doi),
+        ("source_url", paper.source_url),
+        ("source_span", json.dumps(record.source_span, sort_keys=True) if record.source_span else None),
+        ("extraction_status", record.extraction_status),
+        ("review_status", record.review_status),
         ("evidence_direction", record.evidence_direction),
         ("population", record.population),
         ("intervention_or_exposure", record.intervention),
