@@ -161,6 +161,7 @@ def test_duplicate_content_does_not_promote_certainty() -> None:
     assert row.certainty.value == "unavailable"
     assert row.supporting_evidence_ids == ("a#1", "b#1")
 
+
 def test_duplicate_citations_are_not_counted_twice_per_stance() -> None:
     claim = OnlineClaim(
         "c1",
