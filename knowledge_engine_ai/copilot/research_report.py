@@ -695,9 +695,7 @@ def _is_pair_suspect(paper: RetrievedPaper, record: EvidenceRecord) -> bool:
             return [value]
         if isinstance(value, dict):
             return [
-                text
-                for key, item in value.items()
-                for text in span_texts(key) + span_texts(item)
+                text for key, item in value.items() for text in span_texts(key) + span_texts(item)
             ]
         if isinstance(value, (list, tuple)):
             return [text for item in value for text in span_texts(item)]
