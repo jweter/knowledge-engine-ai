@@ -180,3 +180,10 @@ def test_duplicate_citations_are_not_counted_twice_per_stance() -> None:
     assert row.supporting_evidence_ids == ("a#1",)
     assert row.contradicting_or_null_evidence_ids == ("b#1",)
     assert report.acquired_during_run_evidence_ids == ("a#1", "b#1")
+
+
+def test_bottom_line_distinguishes_retrieval_from_citation_support() -> None:
+    claim = OnlineClaim("c1", "T", "supported", (OnlineCitation("a#1", "supports"),))
+    report = build_online_research_report(_ev((claim,)), search_run_id="r")
+    assert "1 of 1 claims marked supported" in report.bottom_line
+    assert "2 of 2 sources retrieved" in report.bottom_line
