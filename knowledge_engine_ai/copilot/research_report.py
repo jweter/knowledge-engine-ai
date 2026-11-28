@@ -20,6 +20,7 @@ from knowledge_engine_ai.copilot.progress_report import (
 )
 from knowledge_engine_ai.llm import LocalLLM
 from knowledge_engine_ai.models import EvidenceRecord, EvidenceReport, RetrievedPaper
+from knowledge_engine_ai.prompt_injection_guard import is_record_suspect
 
 RESEARCH_REPORT_SCHEMA_VERSION = 1
 DEFAULT_RESEARCH_REPORT_MAX_TOKENS = 2200
@@ -156,6 +157,10 @@ class ResearchReport:
     limitations: tuple[str, ...]
     session_id: str
     research_state: str
+    quarantined_evidence_ids: tuple[str, ...] = ()
+    """Evidence IDs withheld from the model as a suspected prompt-injection
+    source (see `prompt_injection_guard`). Additive field, default empty:
+    existing callers/consumers that do not know about it are unaffected."""
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -175,6 +180,7 @@ class ResearchReport:
             "limitations": list(self.limitations),
             "session_id": self.session_id,
             "research_state": self.research_state,
+            "quarantined_evidence_ids": list(self.quarantined_evidence_ids),
         }
 
     def to_json(self) -> str:
@@ -187,17 +193,20 @@ def build_research_report_prompt(
     *,
     answer_dimensions: tuple[str, ...] = (),
 ) -> str:
-    """Build an evidence-only JSON synthesis prompt for Research Report v1."""
+    """Build an evidence-only JSON synthesis prompt for Research Report v1.
+
+    An EvidenceRecord (or its paper's title) whose text matches a known
+    prompt-injection shape (see `prompt_injection_guard`) is quarantined: it
+    is excluded here and surfaced deterministically after generation instead
+    (see `generate_research_report`'s `quarantined_evidence_ids`), so this
+    prompt never carries attacker-controlled directive text to the model.
+    """
 
     if not question.strip():
         raise ValueError("question must not be blank.")
 
-    evidence_blocks = [
-        _render_evidence_record(paper, record)
-        for paper in evidence_report.papers
-        for record in paper.evidence_records
-        if record.evidence_record_id and record.claim_text
-    ]
+    clean_pairs, _quarantined_pairs = _partition_evidence_pairs(evidence_report)
+    evidence_blocks = [_render_evidence_record(paper, record) for paper, record in clean_pairs]
     if not evidence_blocks:
         raise ResearchReportError("Research Report requires at least one grounded EvidenceRecord.")
 
@@ -342,20 +351,57 @@ def generate_research_report(
     max_tokens: int = DEFAULT_RESEARCH_REPORT_MAX_TOKENS,
     timeout_seconds: float | None = None,
 ) -> ResearchReport:
-    """Generate, validate, and attach deterministic provenance to Research Report v1."""
+    """Generate, validate, and attach deterministic provenance to Research Report v1.
 
+    Evidence quarantined by `prompt_injection_guard` (see
+    `build_research_report_prompt`) is excluded from `known_ids` and
+    `required_counter_ids`: the model never saw that text, so it cannot be
+    held to citing it, and a proposal citing a quarantined ID would be a
+    hallucinated/unknown-ID error rather than a legitimate citation. Its IDs
+    are instead reported on the result as `quarantined_evidence_ids`.
+
+    A quarantined record that would otherwise *require* counter-evidence
+    coverage (`contradicts`/`qualifies`, or carries `limitations`) raises
+    `ResearchReportError` instead of silently producing a one-sided report:
+    hiding it from the model to keep it off the prompt, then also letting the
+    report proceed without it, would leave a confident conclusion that never
+    disclosed it was drawn from an incomplete picture -- exactly what AGENTS.md's
+    "preserve contradiction review, coverage disclosure, and deterministic
+    release gates" and this project's broader fail-closed posture rule out. A
+    quarantined record that does not require counter-coverage (ordinary
+    `supports` evidence with no limitations) does not block generation; its ID
+    is still reported on `quarantined_evidence_ids`.
+    """
+
+    clean_pairs, quarantined_pairs = _partition_evidence_pairs(evidence_report)
     known_ids = frozenset(
-        record.evidence_record_id
-        for paper in evidence_report.papers
-        for record in paper.evidence_records
-        if record.evidence_record_id
+        record.evidence_record_id for _paper, record in clean_pairs if record.evidence_record_id
     )
     required_counter_ids = frozenset(
         record.evidence_record_id
-        for paper in evidence_report.papers
-        for record in paper.evidence_records
+        for _paper, record in clean_pairs
         if record.evidence_record_id and _requires_counter_coverage(record)
     )
+    quarantined_ids = tuple(
+        record.evidence_record_id
+        for _paper, record in quarantined_pairs
+        if record.evidence_record_id
+    )
+    quarantined_counter_ids = tuple(
+        record.evidence_record_id
+        for _paper, record in quarantined_pairs
+        if record.evidence_record_id and _requires_counter_coverage(record)
+    )
+    if quarantined_counter_ids:
+        raise ResearchReportError(
+            "Research Report cannot be generated: qualifying/contradicting "
+            "EvidenceRecord(s) "
+            + ", ".join(sorted(quarantined_counter_ids))
+            + " were withheld from the model as suspected prompt injection, so "
+            "their required counter-evidence coverage cannot be safely obtained. "
+            "Producing a report without them would silently hide disclosed "
+            "contradicting or qualifying evidence."
+        )
 
     raw_output = llm.generate(
         build_research_report_prompt(
@@ -402,6 +448,7 @@ def generate_research_report(
         limitations=progress_report.limitations,
         session_id=progress_report.session_id,
         research_state=progress_report.research_state.value,
+        quarantined_evidence_ids=quarantined_ids,
     )
 
 
@@ -630,6 +677,36 @@ def _render_evidence_record(paper: RetrievedPaper, record: EvidenceRecord) -> st
 
 def _requires_counter_coverage(record: EvidenceRecord) -> bool:
     return record.evidence_direction in _QUALIFYING_DIRECTIONS or bool(record.limitations)
+
+
+def _is_pair_suspect(paper: RetrievedPaper, record: EvidenceRecord) -> bool:
+    """True when the record or its paper's title matches a known injection shape.
+
+    `paper.title` is provider metadata, not an `EvidenceRecord` field, but
+    `_render_evidence_record` embeds it in every evidence block (`paper_title=...`),
+    so it must be checked alongside the record's own text fields.
+    """
+
+    return is_record_suspect(record, extra_texts=(paper.title,))
+
+
+def _partition_evidence_pairs(
+    evidence_report: EvidenceReport,
+) -> tuple[
+    tuple[tuple[RetrievedPaper, EvidenceRecord], ...],
+    tuple[tuple[RetrievedPaper, EvidenceRecord], ...],
+]:
+    """Split (paper, record) pairs eligible for the prompt into (clean, quarantined)."""
+
+    pairs = [
+        (paper, record)
+        for paper in evidence_report.papers
+        for record in paper.evidence_records
+        if record.evidence_record_id and record.claim_text
+    ]
+    clean = tuple(pair for pair in pairs if not _is_pair_suspect(*pair))
+    quarantined = tuple(pair for pair in pairs if _is_pair_suspect(*pair))
+    return clean, quarantined
 
 
 def _degraded_provider_names(progress_report: ResearchProgressReport) -> tuple[str, ...]:
