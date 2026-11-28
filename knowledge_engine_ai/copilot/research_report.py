@@ -688,9 +688,32 @@ def _requires_counter_coverage(record: EvidenceRecord) -> bool:
 
 
 def _is_pair_suspect(paper: RetrievedPaper, record: EvidenceRecord) -> bool:
-    """Scan the complete rendered evidence block, including source metadata."""
+    """Scan raw metadata as well as the rendered block to preserve anchored checks."""
 
-    return is_record_suspect(record, extra_texts=(_render_evidence_record(paper, record),))
+    def span_texts(value: object) -> list[str]:
+        if isinstance(value, str):
+            return [value]
+        if isinstance(value, dict):
+            return [
+                text
+                for key, item in value.items()
+                for text in span_texts(key) + span_texts(item)
+            ]
+        if isinstance(value, (list, tuple)):
+            return [text for item in value for text in span_texts(item)]
+        return []
+
+    metadata = (
+        paper.title,
+        paper.year,
+        paper.doi,
+        paper.source_url,
+        record.extraction_status,
+        record.review_status,
+        *span_texts(record.source_span),
+        _render_evidence_record(paper, record),
+    )
+    return is_record_suspect(record, extra_texts=tuple(str(v) for v in metadata if v))
 
 
 def _partition_evidence_pairs(
