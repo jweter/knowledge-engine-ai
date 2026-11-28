@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 
 import pytest
 
@@ -290,3 +291,12 @@ def test_backward_compatible_default_has_no_quarantined_evidence() -> None:
 
     assert report.quarantined_evidence_ids == ()
     assert report.to_dict()["quarantined_evidence_ids"] == []
+
+
+def test_prompt_quarantines_injection_in_source_span() -> None:
+    record = replace(_record("ev-bad"), source_span={"quote": _INJECTION_CLAIM})
+    papers = [_paper("Trial A", [_record("ev-positive")]), _paper("Trial B", [record])]
+    prompt = build_research_report_prompt("Does exposure increase BP?", _evidence_report(papers))
+    assert "id=ev-positive" in prompt
+    assert "ev-bad" not in prompt
+    assert _INJECTION_CLAIM not in prompt
