@@ -234,6 +234,11 @@ def test_prompt_preserves_requested_answer_dimensions_and_evidence_boundaries() 
     assert "- habitual_bp" in prompt
     assert "id=ev-positive" in prompt
     assert "id=ev-null" in prompt
+    assert "source_doi=10.1/example" in prompt
+    assert "source_url=https://example.org/paper" in prompt
+    assert 'source_span={"page_number": 1}' in prompt
+    assert "extraction_status=complete" in prompt
+    assert "review_status=reviewed" in prompt
     assert "Acute evidence must not be phrased as proof" in prompt
     assert "class_level, indirect_context, or unavailable" in prompt
 
